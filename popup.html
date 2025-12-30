@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      width: 280px;
+      background-color: #1b2838;
+      color: #c7d5e0;
+      font-family: "Motiva Sans", Arial, sans-serif;
+      margin: 0;
+      padding: 15px;
+      border: 1px solid #364251;
+    }
+    h3 {
+      margin: 0 0 15px 0;
+      color: #66c0f4;
+      font-size: 16px;
+      text-transform: uppercase;
+      border-bottom: 1px solid #364251;
+      padding-bottom: 8px;
+    }
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+    .stat-label { color: #8f98a0; }
+    .stat-value { color: #fff; font-weight: bold; }
+    .highlight {
+      background-color: #4a5e73;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    .hint {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #a0a0a0;
+      background: #2a475e;
+      padding: 8px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h3>Steam Power Tools</h3>
+  
+  <div class="stat-row">
+    <span class="stat-label">Ignored (Session):</span>
+    <span class="stat-value" id="count">0</span>
+  </div>
+  
+  <div class="stat-row" style="flex-direction: column; gap: 5px;">
+    <span class="stat-label">Last Ignored:</span>
+    <span class="stat-value highlight" id="last-game">None</span>
+  </div>
+
+  <div class="hint">
+    Hold <b>Ctrl</b> + <b>Click</b> on a game store card to ignore it instantly.
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

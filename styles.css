@@ -1,0 +1,76 @@
+/* === Ignored Game Overlay Style (Red Badge) === */
+@keyframes spt-pop-in {
+    0% { transform: scale(0); opacity: 0; }
+    60% { transform: scale(1.15); opacity: 1; }
+    100% { transform: scale(1); }
+}
+
+.spt-ignored-overlay {
+    position: absolute; bottom: 5px; right: 5px;
+    background-color: #D32F2F; color: white;
+    padding: 4px 8px; font-size: 13px; font-weight: 800; 
+    border-radius: 4px; text-transform: uppercase;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    z-index: 10; box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    pointer-events: auto; cursor: help;
+    animation: spt-pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    transform-origin: bottom right;
+}
+
+.spt-tooltip {
+    visibility: hidden; width: 240px;
+    background-color: #171a21; color: #c7d5e0;
+    text-align: left; border-radius: 4px; padding: 10px;
+    position: absolute; z-index: 100; bottom: 125%; right: 0;
+    font-size: 11px; font-weight: normal; text-transform: none;
+    line-height: 1.4; box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+    border: 1px solid #67c1f5; opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+}
+.spt-ignored-overlay:hover .spt-tooltip { visibility: visible; opacity: 1; }
+.spt-tooltip::after {
+    content: ""; position: absolute; top: 100%; right: 15px;
+    border-width: 5px; border-style: solid;
+    border-color: #67c1f5 transparent transparent transparent;
+}
+
+/* === Discovery Queue Controls === */
+/* Container to hold checkbox and button */
+.spt-controls-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+    margin-right: 10px;
+}
+
+/* Checkbox Label */
+.spt-checkbox-label {
+    display: flex;
+    align-items: center;
+    color: #8f98a0;
+    font-size: 12px;
+    font-family: Arial, sans-serif;
+    cursor: pointer;
+    user-select: none;
+}
+.spt-checkbox-label:hover { color: #fff; }
+
+.spt-checkbox {
+    margin-right: 6px;
+    cursor: pointer;
+}
+
+/* Button */
+#queue-auto-ignore-btn {
+    padding: 6px 14px; background: #5c7e10; color: white;
+    border: 1px solid #4c6b22; border-radius: 4px; cursor: pointer;
+    font-family: Arial, sans-serif; font-size: 14px; height: fit-content;
+    display: flex; align-items: center; justify-content: center;
+    transition: background-color 0.2s, transform 0.1s;
+}
+#queue-auto-ignore-btn:active { transform: scale(0.97); }
+#queue-auto-ignore-btn .btn-symbol { margin-right: 8px; font-size: 12px; line-height: 1; vertical-align: middle; }
+#queue-auto-ignore-btn.running .btn-symbol { font-size: 14px; font-weight: bold; animation: blink-symbol 1.5s infinite; }
+
+@keyframes blink-symbol { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
