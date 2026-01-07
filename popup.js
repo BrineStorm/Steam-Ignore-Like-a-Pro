@@ -1,46 +1,110 @@
-// Function to update the UI elements
-function updatePopupUI(data) {
-    const count = data.spt_ignored_count || 0;
-    const lastName = data.spt_last_ignored_name || 'None';
-    const source = data.spt_last_ignored_source || 'Unknown';
-
-    document.getElementById('count').textContent = count;
-    
-    const nameElement = document.getElementById('last-game');
-    // Truncate text for display
-    nameElement.textContent = truncateText(lastName, 50);
-    
-    // Set title to include Full Name AND Source
-    nameElement.title = `${lastName}\nSource: ${source}`;
+function getShortcutDisplayName(key) {
+    switch(key) {
+        case 'ctrlKey': return 'Ctrl';
+        case 'shiftKey': return 'Shift';
+        case 'altKey': return 'Alt';
+        default: return 'Off';
+    }
 }
 
-// Function to truncate long names
-function truncateText(text, maxLength) {
-    if (!text) return 'None';
-    return text.length > maxLength ? text.substring(0, maxLength - 3) + '...' : text;
+function updateBasicUI(data) {
+    const isEnabled = data.ilap_master_enabled !== false;
+    
+    // Master Toggle & UI State
+    document.getElementById('master-toggle').checked = isEnabled;
+    const wrapper = document.getElementById('ui-wrapper');
+    if (isEnabled) wrapper.classList.remove('disabled');
+    else wrapper.classList.add('disabled');
+
+    // Stats & Hint
+    document.getElementById('count-link').textContent = data.ilap_ignored_count || 0;
+    document.getElementById('last-game').textContent = data.ilap_last_ignored_name || 'None';
+    document.getElementById('hint-key').textContent = getShortcutDisplayName(data.ilap_shortcut_key || 'ctrlKey');
+
+    // History Tooltip: Full Width Wrap
+    const history = data.ilap_ignored_history || [];
+    const historyDiv = document.getElementById('history-list');
+    if (history.length > 0) {
+        historyDiv.innerHTML = history.slice(0, 3).map(item => 
+            `<div class="history-entry">â€ ${item.name}</div>`
+        ).join('');
+    }
 }
 
-// 1. Load data when popup opens
+/**
+ * Renders settings content only when needed (Lazy loading)
+ */
+function renderSettings(data) {
+    const container = document.getElementById('settings-placeholder');
+    if (container.children.length > 0) return; 
+
+    container.innerHTML = `
+        <div class="section-title">Your Discovery Queue</div>
+        <label class="checkbox-label" title="Ignore games with Mixed/Negative reviews automatically.">
+          <input type="checkbox" id="keep-high-score"> Auto-ignore non-positive
+        </label>
+
+        <div class="section-title">Manual Ignore</div>
+        <div class="stat-row">
+          <span>Default Ignore:</span>
+          <select id="default-key">
+            <option value="ctrlKey">Ctrl</option>
+            <option value="shiftKey">Shift</option>
+            <option value="altKey">Alt</option>
+          </select>
+          <span class="click-badge">Click</span>
+        </div>
+
+        <div class="stat-row">
+          <span>Ignore (Platform):</span>
+          <select id="platform-key">
+            <option value="off">Off</option>
+            <option value="ctrlKey">Ctrl</option>
+            <option value="shiftKey">Shift</option>
+            <option value="altKey">Alt</option>
+          </select>
+          <span class="click-badge">Click</span>
+        </div>
+    `;
+
+    const dKey = data.ilap_shortcut_key || 'ctrlKey';
+    const pKey = data.ilap_platform_key || 'off';
+    
+    const dSelector = document.getElementById('default-key');
+    const pSelector = document.getElementById('platform-key');
+    const hsCheckbox = document.getElementById('keep-high-score');
+
+    dSelector.value = dKey;
+    pSelector.value = pKey;
+    hsCheckbox.checked = !!data.ilap_keep_high_score_explore;
+
+    // Listeners for newly created elements
+    dSelector.addEventListener('change', (e) => chrome.storage.local.set({ ilap_shortcut_key: e.target.value }));
+    pSelector.addEventListener('change', (e) => chrome.storage.local.set({ ilap_platform_key: e.target.value }));
+    hsCheckbox.addEventListener('change', (e) => chrome.storage.local.set({ ilap_keep_high_score_explore: e.target.checked }));
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-    chrome.storage.local.get(['spt_ignored_count', 'spt_last_ignored_name', 'spt_last_ignored_source'], (result) => {
-        updatePopupUI(result);
+    chrome.storage.local.get(null, (res) => {
+        updateBasicUI(res);
+        const accordion = document.getElementById('settings-accordion');
+        
+        if (res.ilap_settings_open) {
+            accordion.open = true;
+            renderSettings(res);
+        }
+
+        accordion.addEventListener('toggle', () => {
+            chrome.storage.local.set({ ilap_settings_open: accordion.open });
+            if (accordion.open) renderSettings(res);
+        });
+    });
+
+    document.getElementById('master-toggle').addEventListener('change', (e) => {
+        chrome.storage.local.set({ ilap_master_enabled: e.target.checked });
     });
 });
 
-// 2. Listen for changes in real-time (while popup is open)
-chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace === 'local') {
-        // Construct a new data object from the changes
-        const newData = {};
-        
-        if (changes.spt_ignored_count) newData.spt_ignored_count = changes.spt_ignored_count.newValue;
-        if (changes.spt_last_ignored_name) newData.spt_last_ignored_name = changes.spt_last_ignored_name.newValue;
-        if (changes.spt_last_ignored_source) newData.spt_last_ignored_source = changes.spt_last_ignored_source.newValue;
-        
-        // We need to fetch current values for anything that didn't change to avoid undefined
-        chrome.storage.local.get(['spt_ignored_count', 'spt_last_ignored_name', 'spt_last_ignored_source'], (current) => {
-            const mergedData = { ...current, ...newData };
-            updatePopupUI(mergedData);
-        });
-    }
+chrome.storage.onChanged.addListener(() => {
+    chrome.storage.local.get(null, (current) => updateBasicUI(current));
 });

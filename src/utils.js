@@ -1,69 +1,89 @@
 (function() {
     'use strict';
 
-    window.SPT = window.SPT || {};
-    window.SPT.SESSION_IGNORED_KEY = 'spt_session_ignored_games';
+    window.ILAP = window.ILAP || {};
+    window.ILAP.SESSION_IGNORED_KEY = 'ilap_session_ignored_games';
 
-    window.SPT.getSessionID = function() {
+    window.ILAP.getSessionID = function() {
         if (window.g_sessionID) return window.g_sessionID;
         const match = document.cookie.match(/sessionid=([^;]+)/);
         return match ? match[1] : null;
     };
 
-    window.SPT.saveStats = function(lastGameName, source = "Unknown") {
-        if (chrome && chrome.storage && chrome.storage.local) {
-            chrome.storage.local.get(['spt_ignored_count'], (result) => {
-                if (chrome.runtime.lastError) return;
+    window.ILAP.apiIgnoreGame = async function(appid, reason = 0) {
+        const sessionid = this.getSessionID();
+        if (!sessionid) return false;
 
-                let currentCount = result.spt_ignored_count || 0;
-                currentCount++;
+        const body = `sessionid=${sessionid}&appid=${appid}&snr=&ignore_reason=${reason}`;
+        try {
+            const response = await fetch('https://store.steampowered.com/recommended/ignorerecommendation/', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' }, 
+                body: body 
+            });
+            return response.ok;
+        } catch (e) { return false; }
+    };
+
+    /**
+     * Updated: Removed time from history entry, limited by logic in popup
+     */
+    window.ILAP.saveStats = function(lastGameName, source = "Unknown") {
+        if (chrome?.storage?.local) {
+            chrome.storage.local.get(['ilap_ignored_history', 'ilap_ignored_count'], (result) => {
+                let history = result.ilap_ignored_history || [];
+                let totalCount = result.ilap_ignored_count || 0;
+
+                // Entry without time as requested
+                const newEntry = { name: lastGameName, source: source };
+
+                history.unshift(newEntry);
+                if (history.length > 20) history.pop(); 
 
                 chrome.storage.local.set({
-                    'spt_ignored_count': currentCount,
-                    'spt_last_ignored_name': lastGameName,
-                    'spt_last_ignored_source': source
+                    'ilap_ignored_count': totalCount + 1,
+                    'ilap_ignored_history': history,
+                    'ilap_last_ignored_name': lastGameName
                 });
             });
         }
     };
 
-    window.SPT.getGameName = function(appid, contextElement) {
-        let gameName = `AppID ${appid}`;
-        
+    /**
+     * Improved robust game name extraction
+     */
+    window.ILAP.getGameName = function(appid, contextElement) {
         if (contextElement) {
-            // === 1. SPECIAL CASE: Expanded Display (Big Banner) ===
-            // User Request: Use the 'alt' attribute of the image inside this container
-            const expandedContainer = contextElement.closest('[class*="LibraryAssetExpandedDisplay"]');
-            if (expandedContainer) {
-                const imgWithAlt = expandedContainer.querySelector('img[alt]');
-                if (imgWithAlt && imgWithAlt.alt) {
-                    return imgWithAlt.alt.trim();
-                }
-            }
-
-            // === 2. Standard Widget Logic (Grids, Search, etc.) ===
-            let titleElement = contextElement.closest('div[class*="salepreviewwidgets_SaleItemBrowserRow"]')?.querySelector('div[class*="StoreSaleWidgetTitle"]');
+            // 1. Check for standard title containers in store rows/grids
+            const titleSelectors = [
+                '.app_name', 
+                '.title', 
+                '.match_name', 
+                '[class*="StoreSaleWidgetTitle"]',
+                '.tab_item_name'
+            ];
             
-            if (!titleElement) {
-                titleElement = contextElement.querySelector('div[class*="StoreSaleWidgetTitle"]');
+            for (let selector of titleSelectors) {
+                const el = contextElement.querySelector(selector) || contextElement.closest(selector);
+                if (el && el.textContent.trim()) return el.textContent.trim();
             }
 
-            if (titleElement) {
-                gameName = titleElement.textContent.trim();
-            } 
-            // === 3. Fallback: Parse URL Slug ===
-            else {
-                const href = contextElement.getAttribute('href');
-                if (href) {
-                    const nameMatch = href.match(/\/app\/\d+\/([^\/?]+)/);
-                    if (nameMatch && nameMatch[1]) {
-                        gameName = nameMatch[1].replace(/_/g, ' ').trim();
-                    }
-                }
+            // 2. Check images with alt
+            const img = contextElement.querySelector('img[alt]');
+            if (img && img.alt && img.alt.trim()) return img.alt.trim();
+
+            // 3. Check for app page header if we are inside the app page
+            const h1 = document.querySelector('.apphub_AppName');
+            if (h1 && window.location.pathname.includes(appid)) return h1.textContent.trim();
+
+            // 4. Fallback: Parse name from URL slug
+            const href = contextElement.getAttribute('href') || '';
+            const urlMatch = href.match(/\/app\/\d+\/([^\/?]+)/);
+            if (urlMatch && urlMatch[1]) {
+                return urlMatch[1].replace(/_/g, ' ').replace(/%20/g, ' ').trim();
             }
         }
-
-        return gameName;
+        return `AppID ${appid}`;
     };
 
 })();
