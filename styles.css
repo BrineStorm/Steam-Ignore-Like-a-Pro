@@ -6,36 +6,112 @@
 }
 
 .ilap-ignored-overlay {
-    position: absolute; bottom: 5px; right: 5px;
-    background-color: #D32F2F; color: white;
-    padding: 4px 8px; font-size: 13px; font-weight: 800; 
-    border-radius: 4px; text-transform: uppercase;
+    position: absolute; 
+    bottom: 5px; 
+    right: 5px;
+    background-color: #D32F2F; 
+    color: white;
+    padding: 4px 8px; 
+    font-size: 13px; 
+    font-weight: 800; 
+    border-radius: 4px; 
+    text-transform: uppercase;
     text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-    z-index: 10; box-shadow: 0 2px 5px rgba(0,0,0,0.5);
-    pointer-events: auto; cursor: help;
+    /* High Z-index to stay above Steam elements */
+    z-index: 100; 
+    box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    pointer-events: auto; 
+    cursor: help;
     animation: ilap-pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
     transform-origin: bottom right;
 }
 
 .ilap-tooltip {
-    visibility: hidden; width: 240px;
-    background-color: #171a21; color: #c7d5e0;
-    text-align: left; border-radius: 4px; padding: 10px;
-    position: absolute; z-index: 100; bottom: 125%; right: 0;
-    font-size: 11px; font-weight: normal; text-transform: none;
-    line-height: 1.4; box-shadow: 0 4px 8px rgba(0,0,0,0.5);
-    border: 1px solid #67c1f5; opacity: 0;
-    transition: opacity 0.2s ease-in-out;
+    visibility: hidden; 
+    /* Dynamic width based on text */
+    width: max-content;
+    max-width: 250px;
+    background-color: #171a21; 
+    color: #c7d5e0;
+    text-align: left; 
+    border-radius: 4px; 
+    padding: 8px 12px;
+    position: absolute; 
+    /* Even higher z-index */
+    z-index: 1001; 
+    
+    /* Positioned ABOVE the badge */
+    bottom: 135%;
+    /* Start from left edge of badge and shift to avoid clipping arrow */
+    left: 0; 
+    transform: translateX(-15px);
+    
+    font-size: 11px; 
+    font-weight: normal; 
+    text-transform: none;
+    line-height: 1.4; 
+    box-shadow: 0 4px 15px rgba(0,0,0,0.7);
+    border: 1px solid #67c1f5; 
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+    white-space: normal;
+    pointer-events: none;
 }
-.ilap-ignored-overlay:hover .ilap-tooltip { visibility: visible; opacity: 1; }
+
+/* Tooltip Arrow - pointing down to the red badge */
 .ilap-tooltip::after {
-    content: ""; position: absolute; top: 100%; right: 15px;
-    border-width: 5px; border-style: solid;
+    content: ""; 
+    position: absolute; 
+    top: 100%; 
+    left: 20px;
+    border-width: 6px; 
+    border-style: solid;
     border-color: #67c1f5 transparent transparent transparent;
 }
 
-/* === Discovery Queue Controls === */
-/* Container to hold checkbox and button */
+.ilap-ignored-overlay:hover .ilap-tooltip { 
+    visibility: visible; 
+    opacity: 1; 
+}
+
+/* === Badge Variants === */
+
+/* Small variant for Home Tabs and Popups */
+.ilap-ignored-overlay.ilap-small-badge {
+    padding: 2px 5px;
+    font-size: 10px;
+    bottom: 2px;
+    right: 2px;
+}
+
+/* Style for badges in list rows (Package/Sub pages) */
+.ilap-ignored-overlay.ilap-list-badge {
+    position: absolute !important;
+    bottom: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    left: auto !important;
+    margin: 0 !important;
+    font-size: 9px !important;
+    padding: 2px 6px !important;
+    z-index: 10 !important; 
+    border-radius: 4px 0 0 0 !important;
+    height: auto !important;
+}
+
+/* Special tooltip adjustment for list items (at the very right edge of screen) */
+.ilap-list-badge .ilap-tooltip {
+    left: auto;
+    right: 0;
+    transform: translateX(0);
+}
+.ilap-list-badge .ilap-tooltip::after {
+    left: auto;
+    right: 20px;
+}
+
+/* === Discovery Queue Automation UI (Legacy or General) === */
+
 .ilap-controls-container {
     display: flex;
     align-items: center;
@@ -44,7 +120,6 @@
     margin-right: 10px;
 }
 
-/* Checkbox Label */
 .ilap-checkbox-label {
     display: flex;
     align-items: center;
@@ -55,22 +130,28 @@
     user-select: none;
 }
 .ilap-checkbox-label:hover { color: #fff; }
+.ilap-checkbox { margin-right: 6px; cursor: pointer; }
 
-.ilap-checkbox {
-    margin-right: 6px;
-    cursor: pointer;
-}
-
-/* Button */
 #queue-auto-ignore-btn {
-    padding: 6px 14px; background: #5c7e10; color: white;
-    border: 1px solid #4c6b22; border-radius: 4px; cursor: pointer;
-    font-family: Arial, sans-serif; font-size: 14px; height: fit-content;
-    display: flex; align-items: center; justify-content: center;
+    padding: 6px 14px; 
+    background: #5c7e10; 
+    color: white;
+    border: 1px solid #4c6b22; 
+    border-radius: 4px; 
+    cursor: pointer;
+    font-family: Arial, sans-serif; 
+    font-size: 14px; 
+    height: fit-content;
+    display: flex; 
+    align-items: center; 
+    justify-content: center;
     transition: background-color 0.2s, transform 0.1s;
 }
 #queue-auto-ignore-btn:active { transform: scale(0.97); }
 #queue-auto-ignore-btn .btn-symbol { margin-right: 8px; font-size: 12px; line-height: 1; vertical-align: middle; }
-#queue-auto-ignore-btn.running .btn-symbol { font-size: 14px; font-weight: bold; animation: blink-symbol 1.5s infinite; }
+#queue-auto-ignore-btn.running .btn-symbol { font-size: 14px; font-weight: bold; animation: ilap-blink-symbol 1.5s infinite; }
 
-@keyframes blink-symbol { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes ilap-blink-symbol { 
+    0%, 100% { opacity: 1; } 
+    50% { opacity: 0.5; } 
+}
