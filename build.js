@@ -4,9 +4,9 @@ const path = require('path');
 var DIST_DIR = path.join(__dirname, 'dist');
 var PLATFORM_DIR = path.join(__dirname, 'platform');
 
+// Updated: popup files moved to /ui folder
 var COMMON_FILES = [
-    'popup.html',
-    'popup.js',
+    'ui', // The whole folder
     'styles.css',
     'src',
     'icons'

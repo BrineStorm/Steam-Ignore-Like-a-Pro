@@ -25,18 +25,13 @@
         } catch (e) { return false; }
     };
 
-    /**
-     * Updated: Removed time from history entry, limited by logic in popup
-     */
     window.ILAP.saveStats = function(lastGameName, source = "Unknown") {
         if (chrome?.storage?.local) {
             chrome.storage.local.get(['ilap_ignored_history', 'ilap_ignored_count'], (result) => {
                 let history = result.ilap_ignored_history || [];
                 let totalCount = result.ilap_ignored_count || 0;
 
-                // Entry without time as requested
                 const newEntry = { name: lastGameName, source: source };
-
                 history.unshift(newEntry);
                 if (history.length > 20) history.pop(); 
 
@@ -50,39 +45,28 @@
     };
 
     /**
-     * Improved robust game name extraction
+     * Optimized game name extraction for App Pages and Lists
      */
     window.ILAP.getGameName = function(appid, contextElement) {
+        // 1. Priority: App Page Title (for Explore Queue)
+        const pageTitle = document.getElementById('appHubAppName') || document.querySelector('.apphub_AppName');
+        if (pageTitle && pageTitle.textContent.trim()) {
+            return pageTitle.textContent.trim();
+        }
+
         if (contextElement) {
-            // 1. Check for standard title containers in store rows/grids
-            const titleSelectors = [
-                '.app_name', 
-                '.title', 
-                '.match_name', 
-                '[class*="StoreSaleWidgetTitle"]',
-                '.tab_item_name'
-            ];
-            
-            for (let selector of titleSelectors) {
-                const el = contextElement.querySelector(selector) || contextElement.closest(selector);
+            // 2. Standard list/grid selectors
+            const titleSelectors = ['.app_name', '.title', '[class*="StoreSaleWidgetTitle"]', '.tab_item_name'];
+            for (let s of titleSelectors) {
+                const el = contextElement.querySelector(s);
                 if (el && el.textContent.trim()) return el.textContent.trim();
             }
 
-            // 2. Check images with alt
+            // 3. Img Alt
             const img = contextElement.querySelector('img[alt]');
-            if (img && img.alt && img.alt.trim()) return img.alt.trim();
-
-            // 3. Check for app page header if we are inside the app page
-            const h1 = document.querySelector('.apphub_AppName');
-            if (h1 && window.location.pathname.includes(appid)) return h1.textContent.trim();
-
-            // 4. Fallback: Parse name from URL slug
-            const href = contextElement.getAttribute('href') || '';
-            const urlMatch = href.match(/\/app\/\d+\/([^\/?]+)/);
-            if (urlMatch && urlMatch[1]) {
-                return urlMatch[1].replace(/_/g, ' ').replace(/%20/g, ' ').trim();
-            }
+            if (img && img.alt) return img.alt.trim();
         }
+
         return `AppID ${appid}`;
     };
 
