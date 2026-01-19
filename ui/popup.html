@@ -6,8 +6,24 @@
     body { width: 300px; background: #1b2838; color: #c7d5e0; font-family: sans-serif; margin: 0; padding: 15px; border: 1px solid #364251; overflow-x: hidden; }
     .no-transition * { transition: none !important; }
 
-    h3 { margin: 0 0 12px 0; color: #66c0f4; font-size: 15px; border-bottom: 1px solid #364251; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+    /* Updated header style with Flexbox for icon alignment */
+    h3 { 
+        margin: 0 0 12px 0; 
+        color: #66c0f4; 
+        font-size: 15px; 
+        border-bottom: 1px solid #364251; 
+        padding-bottom: 8px; 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+    }
     
+    .header-title-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
     /* Sliders Style */
     .switch { position: relative; display: inline-block; width: 34px; height: 20px; flex-shrink: 0; }
     .switch input { opacity: 0; width: 0; height: 0; }
@@ -50,7 +66,10 @@
 </head>
 <body class="no-transition">
   <h3>
-    Steam Ignore Like A Pro
+    <span class="header-title-wrapper">
+      <img src="../icons/icon48.png" width="36" height="36" alt="Icon">
+      Steam Ignore Like A Pro
+    </span>
     <label class="switch">
       <input type="checkbox" id="master-toggle">
       <span class="slider"></span>

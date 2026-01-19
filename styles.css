@@ -1,4 +1,7 @@
-/* === Ignored Game Overlay Style (Red Badge) === */
+/* =========================================
+   1. Ignored Game Overlay (Badge) - REFACTORED
+   ========================================= */
+
 @keyframes ilap-pop-in {
     0% { transform: scale(0); opacity: 0; }
     60% { transform: scale(1.15); opacity: 1; }
@@ -7,64 +10,79 @@
 
 .ilap-ignored-overlay {
     position: absolute; 
-    bottom: 5px; 
-    right: 5px;
+    bottom: 0; 
+    right: 0;
     background-color: #D32F2F; 
     color: white;
-    padding: 4px 8px; 
-    font-size: 13px; 
+    padding: 3px 6px; 
+    font-size: 11px; 
     font-weight: 800; 
-    border-radius: 4px; 
+    border-radius: 4px 0 0 0; /* Rounded top-left corner only */
     text-transform: uppercase;
     text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-    /* High Z-index to stay above Steam elements */
-    z-index: 100; 
-    box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    
+    /* Z-Index Strategy: 
+       50 is enough to sit above images, 
+       but below Steam hover menus/dropdowns (usually 100+) */
+    z-index: 50; 
+    
+    box-shadow: -1px -1px 4px rgba(0,0,0,0.5);
     pointer-events: auto; 
     cursor: help;
     animation: ilap-pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
     transform-origin: bottom right;
+    line-height: 1;
 }
+
+/* Layout Safety: 
+   Class added via JS to container if position is static.
+   Ensures the absolute badge sticks to the card corner, not the page. */
+.ilap-tagged-container {
+    position: relative !important;
+}
+
+/* =========================================
+   2. Tooltip Styling - REFACTORED
+   ========================================= */
 
 .ilap-tooltip {
     visibility: hidden; 
-    /* Dynamic width based on text */
     width: max-content;
-    max-width: 250px;
+    max-width: 220px;
     background-color: #171a21; 
     color: #c7d5e0;
     text-align: left; 
-    border-radius: 4px; 
-    padding: 8px 12px;
+    border-radius: 3px; 
+    padding: 8px 10px;
     position: absolute; 
-    /* Even higher z-index */
-    z-index: 1001; 
     
-    /* Positioned ABOVE the badge */
-    bottom: 135%;
-    /* Start from left edge of badge and shift to avoid clipping arrow */
-    left: 0; 
-    transform: translateX(-15px);
+    /* Z-Index: Very high to overlap Steam hover modals */
+    z-index: 9999; 
+    
+    /* Position ABOVE the badge */
+    bottom: 100%;
+    right: 0;
+    margin-bottom: 8px; /* Gap between badge and tooltip */
     
     font-size: 11px; 
     font-weight: normal; 
     text-transform: none;
     line-height: 1.4; 
-    box-shadow: 0 4px 15px rgba(0,0,0,0.7);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.9);
     border: 1px solid #67c1f5; 
     opacity: 0;
-    transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+    transition: opacity 0.2s ease-in-out;
     white-space: normal;
     pointer-events: none;
 }
 
-/* Tooltip Arrow - pointing down to the red badge */
+/* Tooltip Arrow */
 .ilap-tooltip::after {
     content: ""; 
     position: absolute; 
     top: 100%; 
-    left: 20px;
-    border-width: 6px; 
+    right: 10px; /* Align with the right side of badge */
+    border-width: 5px; 
     border-style: solid;
     border-color: #67c1f5 transparent transparent transparent;
 }
@@ -74,43 +92,36 @@
     opacity: 1; 
 }
 
-/* === Badge Variants === */
+/* =========================================
+   3. Badge Variants - NEW
+   ========================================= */
 
-/* Small variant for Home Tabs and Popups */
-.ilap-ignored-overlay.ilap-small-badge {
-    padding: 2px 5px;
-    font-size: 10px;
-    bottom: 2px;
-    right: 2px;
-}
-
-/* Style for badges in list rows (Package/Sub pages) */
-.ilap-ignored-overlay.ilap-list-badge {
-    position: absolute !important;
+/* For Lists (Search results, Specials rows, Bundles) */
+.ilap-list-badge {
     bottom: 0 !important;
     right: 0 !important;
     top: auto !important;
     left: auto !important;
     margin: 0 !important;
-    font-size: 9px !important;
-    padding: 2px 6px !important;
-    z-index: 10 !important; 
-    border-radius: 4px 0 0 0 !important;
     height: auto !important;
+    border-radius: 4px 0 0 0 !important;
 }
 
-/* Special tooltip adjustment for list items (at the very right edge of screen) */
-.ilap-list-badge .ilap-tooltip {
-    left: auto;
-    right: 0;
-    transform: translateX(0);
-}
-.ilap-list-badge .ilap-tooltip::after {
-    left: auto;
-    right: 20px;
+/* For Standard Grids (Store Front, Category Pages) */
+.ilap-grid-badge {
+    font-size: 10px;
+    padding: 2px 5px;
 }
 
-/* === Discovery Queue Automation UI (Legacy or General) === */
+/* For Large Banners (Hero / Spotlight / Daily Deal) */
+.ilap-hero-badge {
+    font-size: 12px;
+    padding: 4px 8px;
+}
+
+/* =========================================
+   4. Discovery Queue UI (Legacy / Automation)
+   ========================================= */
 
 .ilap-controls-container {
     display: flex;

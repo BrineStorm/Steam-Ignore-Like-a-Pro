@@ -1,85 +1,189 @@
 (function() {
     'use strict';
 
+    // State management
     let sessionIgnoredIDs = new Set();
     let shortcutConfig = { default: 'ctrlKey', platform: 'off', enabled: true };
-    const CARD_SELECTORS = 'a[href*="/app/"], a.tab_item_overlay, .tab_item';
+
+    // Factory: Creates the badge DOM element
+    function createBadgeElement(appid, typeClass) {
+        const overlay = document.createElement('div');
+        overlay.className = `ilap-ignored-overlay ${typeClass}`;
+        overlay.dataset.ilapAppid = appid;
+        
+        overlay.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+
+        const iconUrl = chrome.runtime.getURL('icons/icon16.png');
+
+        overlay.innerHTML = `
+            IGNORED
+            <div class="ilap-tooltip">
+                <div style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                    <span>Ignore applied by</span>
+                    <img src="${iconUrl}" style="width: 16px; height: 16px; vertical-align: middle;">
+                    <span> extension</span>
+                </div>
+            </div>
+        `;
+        return overlay;
+    }
 
     /**
-     * UI Logic: Mark game cards with a badge
+     * Strategy: Finds the best visual target for the badge.
      */
+    function findVisualCardContainer(linkElement) {
+        // 1. Special Case: List Items (.tab_item)
+        const listItem = linkElement.closest('.tab_item');
+        if (listItem) return { element: listItem, type: 'list' };
+
+        // 2. Direct Hit: Are we already inside a known Image Container?
+        const directImg = linkElement.closest(`
+            [class*="CapsuleImageCtn"], 
+            [class*="HeroCapsuleImageContainer"],
+            .spotlight_img, 
+            .capsule_image,
+            .main_capsule
+        `);
+        if (directImg) return { element: directImg, type: 'grid' };
+
+        // 3. Fallback: Find the General Card Wrapper
+        // Added '.store_main_capsule' for the Homepage Carousel
+        const generalCard = linkElement.closest(`
+            .game_capsule, 
+            .dailydeal_cap, 
+            .small_cap, 
+            .bundle_base_discount, 
+            [class*="ImpressionTrackedElement"],
+            div[class*="StoreSaleWidget"],
+            [class*="LibraryAssetExpandedDisplay"],
+            .store_main_capsule
+        `);
+        
+        if (generalCard) {
+            // --- SMART REDIRECT LOGIC ---
+            // Look for the image container INSIDE the generic wrapper.
+            // Added '.main_capsule' to target the background-image div in the carousel.
+            const innerImage = generalCard.querySelector(`
+                [class*="CapsuleImageCtn"], 
+                [class*="HeroCapsuleImageContainer"],
+                .capsule_image,
+                .main_capsule,
+                img[class*="Capsule"]
+            `);
+            
+            if (innerImage) {
+                // If it's the main carousel, use 'hero' badge for better sizing
+                const type = generalCard.classList.contains('store_main_capsule') ? 'hero' : 'grid';
+                return { element: innerImage, type: type };
+            }
+            return { element: generalCard, type: 'standard' };
+        }
+
+        // 4. Last resort: If link wraps an image but has no known class
+        const hasBigImage = linkElement.querySelector('img, video');
+        if (hasBigImage) {
+            return { element: linkElement, type: 'grid' };
+        }
+
+        return null;
+    }
+
+    /**
+     * Proximity Check:
+     * Prevents duplicates by checking if an ancestor is already marked.
+     */
+    function isBadgeNearby(startElement, appid) {
+        // === EXCEPTION FOR LISTS & CAROUSELS ===
+        // If the element is a List Item OR a Carousel Item, it is a self-contained unit.
+        // We MUST NOT check its parent (the list/carousel container), because that parent
+        // contains other siblings that might have badges.
+        
+        // Check for Tab Items OR the Main Carousel Capsule
+        if (startElement.classList.contains('tab_item') || startElement.closest('.store_main_capsule')) {
+            return startElement.dataset.ilapIgnoreId === appid || 
+                   !!startElement.querySelector(`.ilap-ignored-overlay[data-ilap-appid="${appid}"]`);
+        }
+
+        // === STANDARD LOGIC FOR GRIDS/CARDS ===
+        let current = startElement;
+        // Traverse up to find if this component is already handled
+        for (let i = 0; i < 7; i++) {
+            if (!current || current === document.body) break;
+
+            // Stop boundaries to avoid bleeding scope
+            if (current.id && current.id.includes('tab_content')) break;
+            if (current.classList.contains('tab_content')) break;
+            if (current.classList.contains('carousel_items')) break; // Stop at carousel container
+
+            if (current.dataset.ilapIgnoreId === appid) return true;
+
+            const existingBadge = current.querySelector(`.ilap-ignored-overlay[data-ilap-appid="${appid}"]`);
+            if (existingBadge) {
+                if (existingBadge.parentElement !== startElement) {
+                     return true;
+                }
+            }
+            current = current.parentElement;
+        }
+        return false;
+    }
+
+    function applyBadgeToContainer(containerObj, appid) {
+        const { element, type } = containerObj;
+
+        // 1. Strict Container Check
+        if (element.dataset.ilapState === 'processed') {
+            return;
+        }
+
+        // 2. Proximity/Radius Check
+        if (isBadgeNearby(element, appid)) {
+            element.dataset.ilapState = 'processed'; 
+            return;
+        }
+
+        // Determine variant style
+        let variantClass = 'ilap-grid-badge';
+        if (type === 'list') {
+            variantClass = 'ilap-list-badge';
+        } else if (type === 'hero' || element.classList.contains('spotlight_img')) {
+            variantClass = 'ilap-hero-badge';
+        }
+
+        // DOM Mutation
+        const badge = createBadgeElement(appid, variantClass);
+        
+        // Ensure relative positioning
+        if (getComputedStyle(element).position === 'static') {
+            element.classList.add('ilap-tagged-container');
+        }
+
+        element.appendChild(badge);
+        element.dataset.ilapState = 'processed';
+        element.dataset.ilapIgnoreId = appid;
+    }
+
     function markCardAsProcessed(appid) {
-        const allGameLinks = Array.from(document.querySelectorAll(`a[href*="/app/${appid}"]`))
-            .filter(link => {
-                const href = link.getAttribute('href');
-                const regex = new RegExp(`/app/${appid}([^0-9]|$)`);
-                return regex.test(href);
-            });
+        const selector = `a[href*="/app/${appid}"]`;
+        const candidates = document.querySelectorAll(selector);
 
-        allGameLinks.forEach(link => {
-            // 1. Identify context
-            const expandedRoot = link.closest('[class*="LibraryAssetExpandedDisplay"]');
-            const listItemRoot = link.closest('.tab_item');
+        candidates.forEach(link => {
+            const href = link.getAttribute('href');
+            const match = new RegExp(`/app/${appid}(/|\\?|$)`).test(href);
+            if (!match) return;
+
+            const visualContainer = findVisualCardContainer(link);
             
-            // --- BUG FIX: PROXIMITY CHECK (Radius of exclusion) ---
-            // We climb up a few parents and check if THIS game already has a badge in this area.
-            // This prevents duplicates in complex popups where the same game appears twice.
-            let foundBadgeNearby = false;
-            let climb = link;
-            for (let i = 0; i < 4; i++) {
-                if (!climb.parentElement) break;
-                climb = climb.parentElement;
-                // Look for our badge with the specific appid within this branch
-                if (climb.querySelector(`.ilap-ignored-overlay[data-appid="${appid}"]`)) {
-                    foundBadgeNearby = true;
-                    break;
-                }
+            if (visualContainer) {
+                applyBadgeToContainer(visualContainer, appid);
             }
-            if (foundBadgeNearby) return;
-
-            // 2. TARGETING LOGIC
-            let overlayTarget = null;
-            let badgeClass = '';
-
-            if (listItemRoot) {
-                // Home Tabs & Package Lists: Target the whole row and use absolute corner badge
-                overlayTarget = listItemRoot;
-                badgeClass = 'ilap-list-badge';
-            }
-            else if (expandedRoot) {
-                // Big banners
-                overlayTarget = expandedRoot.querySelector('[class*="HeroCapsuleImageContainer"], .CapsuleImageCtn, img')?.parentElement;
-                badgeClass = 'ilap-small-badge';
-            }
-            else {
-                // Standard items and popups
-                // Try standard containers first
-                overlayTarget = link.querySelector('.CapsuleImageCtn, .game_capsule, .spotlight_img, .tab_item_cap, [class*="HeroCapsuleImageContainer"]');
-                
-                // Fallback for popups (target the link itself if it contains an image)
-                if (!overlayTarget && (link.querySelector('img') || link.querySelector('video'))) {
-                    overlayTarget = link;
-                    badgeClass = 'ilap-small-badge';
-                }
-            }
-
-            if (!overlayTarget) return;
-
-            // 3. APPLY BADGE
-            const overlay = document.createElement('div'); 
-            overlay.className = 'ilap-ignored-overlay'; 
-            overlay.dataset.appid = appid; // Crucial for duplicate checking
-            
-            if (badgeClass) overlay.classList.add(badgeClass);
-
-            // Updated Tooltip Text as requested
-            overlay.innerHTML = `IGNORED<div class="ilap-tooltip">Ignore applied by extension.</div>`;
-            
-            overlayTarget.appendChild(overlay); 
-            overlayTarget.style.position = 'relative'; 
-            overlayTarget.dataset.ilapProcessed = 'true';
         });
     }
+
+    // --- Action Handlers ---
 
     function ignoreGame(appid, reason, gameCardElement) {
         window.ILAP.apiIgnoreGame(appid, reason).then(success => {
@@ -88,7 +192,9 @@
                 const sourceName = reason === 0 ? "Default Ignore" : "Played Elsewhere";
                 
                 sessionIgnoredIDs.add(appid);
-                sessionStorage.setItem(window.ILAP.SESSION_IGNORED_KEY, JSON.stringify(Array.from(sessionIgnoredIDs)));
+                try {
+                    sessionStorage.setItem(window.ILAP.SESSION_IGNORED_KEY, JSON.stringify(Array.from(sessionIgnoredIDs)));
+                } catch (e) { console.warn('ILAP: Storage quota exceeded'); }
                 
                 markCardAsProcessed(appid);
                 window.ILAP.saveStats(gameName, sourceName);
@@ -114,25 +220,24 @@
 
             if (reason === -1) return;
 
-            let gameCard = event.target.closest(CARD_SELECTORS);
-            
-            if (!gameCard) {
-                const expanded = event.target.closest('[class*="LibraryAssetExpandedDisplay"]');
-                if (expanded) gameCard = expanded.querySelector(CARD_SELECTORS);
-            }
+            const linkTarget = event.target.closest('a[href*="/app/"]');
+            if (!linkTarget) return;
 
-            if (!gameCard) return;
-
-            const href = gameCard.getAttribute('href'); 
-            const appidMatch = href ? href.match(/\/app\/(\d+)/) : null; 
+            const href = linkTarget.getAttribute('href');
+            const appidMatch = href.match(/\/app\/(\d+)/);
             if (!appidMatch) return;
 
-            const appid = appidMatch[1]; 
+            const appid = appidMatch[1];
+            
             if (sessionIgnoredIDs.has(appid)) return;
 
             event.preventDefault(); 
             event.stopPropagation();
-            ignoreGame(appid, reason, gameCard);
+            
+            const containerInfo = findVisualCardContainer(linkTarget);
+            const contextEl = containerInfo ? containerInfo.element : linkTarget;
+
+            ignoreGame(appid, reason, contextEl);
         }, true);
     }
 
@@ -148,10 +253,29 @@
         setupClickListener();
         chrome.storage.onChanged.addListener(updateShortcutSettings);
 
-        const observer = new MutationObserver(() => { 
-            sessionIgnoredIDs.forEach(appid => { markCardAsProcessed(appid); }); 
+        const runBatch = () => {
+            sessionIgnoredIDs.forEach(appid => markCardAsProcessed(appid));
+        };
+
+        runBatch();
+
+        let timeout;
+        const observer = new MutationObserver((mutations) => { 
+            let shouldRun = false;
+            for(const m of mutations) {
+                if (m.addedNodes.length > 0) {
+                    shouldRun = true;
+                    break;
+                }
+            }
+            if (shouldRun) {
+                clearTimeout(timeout);
+                timeout = setTimeout(runBatch, 200); 
+            }
         }); 
-        observer.observe(document.body, { childList: true, subtree: true }); 
+        
+        const container = document.getElementById('page_root') || document.body;
+        observer.observe(container, { childList: true, subtree: true }); 
     }
 
     init();

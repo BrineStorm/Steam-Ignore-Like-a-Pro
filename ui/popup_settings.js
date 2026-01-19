@@ -37,7 +37,7 @@
                     </div>
 
                     <div class="stat-row">
-                        <span id="q-logic-label" style="font-size: 12px;">Mode: Every game</span>
+                        <span id="q-logic-label" style="font-size: 12px;">Mode: Ignore every game</span>
                         <label class="switch" title="Toggle between Every game or Bad reviews only.">
                             <input type="checkbox" id="q-all">
                             <span class="slider"></span>
