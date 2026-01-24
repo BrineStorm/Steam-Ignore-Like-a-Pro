@@ -6,7 +6,6 @@
     body { width: 300px; background: #1b2838; color: #c7d5e0; font-family: sans-serif; margin: 0; padding: 15px; border: 1px solid #364251; overflow-x: hidden; }
     .no-transition * { transition: none !important; }
 
-    /* Updated header style with Flexbox for icon alignment */
     h3 { 
         margin: 0 0 12px 0; 
         color: #66c0f4; 
@@ -18,13 +17,9 @@
         align-items: center; 
     }
     
-    .header-title-wrapper {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
+    .header-title-wrapper { display: flex; align-items: center; gap: 8px; }
 
-    /* Sliders Style */
+    /* Standard Toggle Switch */
     .switch { position: relative; display: inline-block; width: 34px; height: 20px; flex-shrink: 0; }
     .switch input { opacity: 0; width: 0; height: 0; }
     .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #3d4a5d; transition: .3s; border-radius: 20px; }
@@ -32,7 +27,64 @@
     input:checked + .slider { background-color: #66c0f4; }
     input:checked + .slider:before { transform: translateX(14px); }
 
-    /* Dimming Logic */
+    /* === Wide Text Slider === */
+    .wide-switch {
+        position: relative;
+        display: block;
+        width: 100%;
+        height: 24px;
+        background: #3d4a5d;
+        border-radius: 4px;
+        cursor: pointer;
+        user-select: none;
+        overflow: hidden;
+        margin-top: 5px;
+    }
+    .wide-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+    
+    .wide-track {
+        display: flex;
+        width: 100%;
+        height: 100%;
+        position: relative;
+    }
+    
+    .wide-label {
+        flex: 1;
+        text-align: center;
+        line-height: 24px;
+        font-size: 11px;
+        font-weight: bold;
+        z-index: 2;
+        color: #8f98a0; /* Inactive Color */
+        transition: color 0.3s;
+    }
+    
+    /* Sliding Background */
+    .wide-bg {
+        position: absolute;
+        top: 2px;
+        bottom: 2px;
+        width: calc(50% - 4px);
+        background: #66c0f4;
+        border-radius: 3px;
+        transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+        z-index: 1;
+    }
+    
+    /* Default State (Left - Bad Reviews) */
+    .wide-bg { left: 2px; transform: translateX(0); }
+    
+    /* Checked State (Right - Every Game) */
+    input:checked ~ .wide-track .wide-bg { transform: translateX(100%); left: 4px; } 
+
+    /* === TEXT COLOR FIX: Make text black when inside the blue selector === */
+    /* Left side active (unchecked) */
+    input:not(:checked) ~ .wide-track .wide-label:first-child { color: #000000; }
+    /* Right side active (checked) */
+    input:checked ~ .wide-track .wide-label:last-child { color: #000000; }
+
+    /* Other UI */
     .dimmed { opacity: 0.3; pointer-events: none; transition: opacity 0.3s; }
     #ui-wrapper.disabled { filter: grayscale(100%); opacity: 0.5; pointer-events: none; }
 
@@ -67,7 +119,7 @@
 <body class="no-transition">
   <h3>
     <span class="header-title-wrapper">
-      <img src="../icons/icon48.png" width="36" height="36" alt="Icon">
+      <img src="../icons/icon16.png" width="16" height="16" alt="Icon">
       Steam Ignore Like A Pro
     </span>
     <label class="switch">
@@ -98,7 +150,6 @@
       </details>
   </div>
 
-  <!-- Note the order: Settings script first, then Main script -->
   <script src="popup_settings.js"></script>
   <script src="popup_main.js"></script>
 </body>

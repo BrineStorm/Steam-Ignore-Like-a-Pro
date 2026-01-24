@@ -1,23 +1,22 @@
 (function() {
     'use strict';
 
-    /**
-     * Settings Module
-     * Handles UI for automation and manual ignore keys with cross-validation.
-     */
-    window.ILAP_Settings = {
-        
-        init: function() {
+    class SettingsManager {
+        constructor() {
+            this.container = document.getElementById('settings-placeholder');
+        }
+
+        init() {
             chrome.storage.local.get(null, (data) => {
-                this.render(data);
+                this.render();
+                this.bindEvents(data);
             });
-        },
+        }
 
-        render: function(data) {
-            const container = document.getElementById('settings-placeholder');
-            if (!container || container.children.length > 0) return; 
+        render() {
+            if (!this.container || this.container.children.length > 0) return; 
 
-            container.innerHTML = `
+            this.container.innerHTML = `
                 <!-- Discovery Queue Section -->
                 <div class="section-title-row">
                     <div class="section-title">Your Discovery Queue</div>
@@ -36,17 +35,21 @@
                         </label>
                     </div>
 
-                    <div class="stat-row">
-                        <span id="q-logic-label" style="font-size: 12px;">Mode: Ignore every game</span>
-                        <label class="switch" title="Toggle between Every game or Bad reviews only.">
-                            <input type="checkbox" id="q-all">
-                            <span class="slider"></span>
+                    <div style="margin-top: 8px;">
+                        <span style="font-size: 12px; display: block; margin-bottom: 4px;">Ignore Mode:</span>
+                        <label class="wide-switch">
+                            <input type="checkbox" id="q-mode-toggle">
+                            <div class="wide-track">
+                                <span class="wide-bg"></span>
+                                <span class="wide-label">Bad Reviews</span>
+                                <span class="wide-label">Every Game</span>
+                            </div>
                         </label>
                     </div>
                 </div>
 
                 <!-- Manual Ignore Section -->
-                <div class="section-title-row" style="margin-top: 5px;">
+                <div class="section-title-row" style="margin-top: 15px;">
                     <div class="section-title">Manual Ignore</div>
                 </div>
                 
@@ -77,93 +80,73 @@
                     </div>
                 </div>
             `;
+        }
 
-            this.bindEvents(data);
-        },
+        bindEvents(data) {
+            const els = {
+                qMaster: document.getElementById('q-master'),
+                qNext: document.getElementById('q-next'),
+                qMode: document.getElementById('q-mode-toggle'), // The new slider checkbox
+                qSub: document.getElementById('q-sub-settings'),
+                dSel: document.getElementById('default-key'),
+                pSel: document.getElementById('platform-key'),
+                pLabel: document.getElementById('p-label'),
+                pBadge: document.getElementById('p-badge')
+            };
 
-        /**
-         * Disables options in one selector if they are selected in the other
-         */
-        syncShortcutSelectors: function(dSel, pSel) {
-            const dVal = dSel.value;
-            const pVal = pSel.value;
-
-            // 1. In Default Selector: disable what's selected in Platform (unless it's 'off')
-            Array.from(dSel.options).forEach(opt => {
-                opt.disabled = (pVal !== 'off' && opt.value === pVal);
-            });
-
-            // 2. In Platform Selector: disable what's selected in Default
-            Array.from(pSel.options).forEach(opt => {
-                if (opt.value === 'off') return; // 'Off' is always available
-                opt.disabled = (opt.value === dVal);
-            });
-        },
-
-        bindEvents: function(data) {
-            const qMaster = document.getElementById('q-master');
-            const qNext = document.getElementById('q-next');
-            const qAll = document.getElementById('q-all');
-            const qSub = document.getElementById('q-sub-settings');
-            const qLogicLabel = document.getElementById('q-logic-label');
+            // Initial State
+            els.qMaster.checked = data.ilap_q_master !== false;
+            els.qNext.checked = !!data.ilap_q_next;
             
-            const dSel = document.getElementById('default-key');
-            const pSel = document.getElementById('platform-key');
-            
-            const pLabel = document.getElementById('p-label');
-            const pBadge = document.getElementById('p-badge');
+            // Logic for Mode: if stored is 'all', box is checked. Else (undefined or 'bad') unchecked.
+            els.qMode.checked = (data.ilap_q_mode === 'all');
 
-            // Set initial states
-            qMaster.checked = data.ilap_q_master !== false;
-            qNext.checked = !!data.ilap_q_next;
-            qAll.checked = !!data.ilap_q_all;
-            dSel.value = data.ilap_shortcut_key || 'ctrlKey';
-            pSel.value = data.ilap_platform_key || 'off';
+            els.dSel.value = data.ilap_shortcut_key || 'ctrlKey';
+            els.pSel.value = data.ilap_platform_key || 'off';
 
             const updateVisuals = () => {
-                // Dimming Discovery Queue
-                if (qMaster.checked) qSub.classList.remove('dimmed');
-                else qSub.classList.add('dimmed');
+                els.qSub.classList.toggle('dimmed', !els.qMaster.checked);
                 
-                qLogicLabel.textContent = qAll.checked ? "Mode: Good reviews" : "Mode: Every game";
+                const isPlatformOff = els.pSel.value === 'off';
+                els.pLabel.classList.toggle('dimmed', isPlatformOff);
+                els.pBadge.classList.toggle('dimmed', isPlatformOff);
 
-                // Partial Dimming for Already Played
-                if (pSel.value === 'off') {
-                    pLabel.classList.add('dimmed');
-                    pBadge.classList.add('dimmed');
-                } else {
-                    pLabel.classList.remove('dimmed');
-                    pBadge.classList.remove('dimmed');
-                }
-
-                // Cross-sync selectors
-                this.syncShortcutSelectors(dSel, pSel);
+                this.syncSelectors(els.dSel, els.pSel);
             };
 
             updateVisuals();
 
-            // Listeners for Discovery settings
-            qMaster.addEventListener('change', () => {
-                chrome.storage.local.set({ ilap_q_master: qMaster.checked });
+            // Listeners
+            els.qMaster.addEventListener('change', () => {
+                chrome.storage.local.set({ ilap_q_master: els.qMaster.checked });
                 updateVisuals();
             });
-            qNext.addEventListener('change', () => chrome.storage.local.set({ ilap_q_next: qNext.checked }));
-            qAll.addEventListener('change', () => {
-                chrome.storage.local.set({ ilap_q_all: qAll.checked });
-                updateVisuals();
+            els.qNext.addEventListener('change', () => chrome.storage.local.set({ ilap_q_next: els.qNext.checked }));
+            
+            // Mode Listener: checked = 'all', unchecked = 'bad'
+            els.qMode.addEventListener('change', () => {
+                const val = els.qMode.checked ? 'all' : 'bad';
+                chrome.storage.local.set({ ilap_q_mode: val });
             });
 
-            // Listeners for Manual Ignore keys
-            dSel.addEventListener('change', (e) => {
+            els.dSel.addEventListener('change', (e) => {
                 chrome.storage.local.set({ ilap_shortcut_key: e.target.value });
                 updateVisuals();
             });
-
-            pSel.addEventListener('change', (e) => {
+            els.pSel.addEventListener('change', (e) => {
                 chrome.storage.local.set({ ilap_platform_key: e.target.value });
                 updateVisuals();
             });
         }
-    };
+
+        syncSelectors(dSel, pSel) {
+            Array.from(dSel.options).forEach(opt => opt.disabled = (pSel.value !== 'off' && opt.value === pSel.value));
+            Array.from(pSel.options).forEach(opt => {
+                if (opt.value !== 'off') opt.disabled = (opt.value === dSel.value);
+            });
+        }
+    }
+
+    window.ILAP_Settings = new SettingsManager();
 
 })();

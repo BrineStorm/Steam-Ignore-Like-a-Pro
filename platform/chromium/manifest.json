@@ -26,11 +26,17 @@
       ],
       "js": [
         "src/utils.js",
+        
         "src/module_ignore.js",
+        
         "src/discovery-queue/ui.js",
         "src/discovery-queue/logic.js",
         "src/discovery-queue/main.js",
-        "src/module_explore_queue.js"
+
+        "src/explore-queue/utils.js",
+        "src/explore-queue/ui.js",
+        "src/explore-queue/automator.js",
+        "src/explore-queue/main.js"
       ],
       "css": ["styles.css"]
     }
