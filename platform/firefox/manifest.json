@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Steam Ignore Like A Pro",
   "version": "1.0.0",
-  "description": "Helper tool for ignoring games in the Steam Store",
+  "description": "Helper tool for ignoring games in the Steam Store.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -26,11 +26,19 @@
       ],
       "js": [
         "src/utils.js",
-        "src/module_ignore.js",
+        
+        "src/manual-ignore/utils.js",
+        "src/manual-ignore/ui.js",
+        "src/manual-ignore/main.js",
+        
         "src/discovery-queue/ui.js",
         "src/discovery-queue/logic.js",
         "src/discovery-queue/main.js",
-        "src/module_explore_queue.js"
+
+        "src/explore-queue/utils.js",
+        "src/explore-queue/ui.js",
+        "src/explore-queue/automator.js",
+        "src/explore-queue/main.js"
       ],
       "css": [
         "styles.css"

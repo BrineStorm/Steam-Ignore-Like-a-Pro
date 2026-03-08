@@ -27,7 +27,9 @@
       "js": [
         "src/utils.js",
         
-        "src/module_ignore.js",
+        "src/manual-ignore/utils.js",
+        "src/manual-ignore/ui.js",
+        "src/manual-ignore/main.js",
         
         "src/discovery-queue/ui.js",
         "src/discovery-queue/logic.js",

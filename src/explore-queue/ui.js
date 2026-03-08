@@ -8,13 +8,15 @@
     }
 
     class ActionUI {
-        static showStartPrompt(initialMode, handlers) {
+        /**
+         * @param {Object} resourceService - Instance of ResourceService
+         */
+        constructor(resourceService) {
+            this.resources = resourceService;
+        }
+
+        showStartPrompt(initialMode, handlers) {
             document.getElementById('ilap-toast')?.remove();
-            
-            // ... ( Toast ‚  , €ƒ ‚Œ   ‚ƒ‚ )
-            //  €‚‚   ƒ€ƒŽ Œ ‚ showStartPrompt, ‚  ‹  ‚Œ ƒ ,
-            //   ƒ,  ƒ €‚ Œ „ †. 
-            //  €… ‡ €ƒ Œ  † ‡‚‹ ‚‹  €‚ €‚Œ „.
             
             const toast = document.createElement('div');
             toast.id = 'ilap-toast';
@@ -25,7 +27,8 @@
                 display: flex; flex-direction: column; gap: 12px;
             `;
 
-            const iconUrl = chrome.runtime.getURL('icons/icon16.png');
+            // Use injected resource service
+            const iconUrl = this.resources.getIconUrl('icon16.png');
             const modeLabel = getModeLabel(initialMode);
 
             toast.innerHTML = `
@@ -83,14 +86,14 @@
             closeX.onmouseleave = () => closeX.style.color = '#8f98a0';
         }
 
-        static updateRunButtonMode(newMode) {
+        updateRunButtonMode(newMode) {
             const badge = document.getElementById('ilap-mode-badge');
             if (badge) {
                 badge.textContent = `[${getModeLabel(newMode)}]`;
             }
         }
 
-        static showRunningToast(message, onStop) {
+        showRunningToast(message, onStop) {
             let toast = document.getElementById('ilap-toast');
             if (!toast || !toast.querySelector('#ilap-stop-btn')) {
                 toast?.remove();
@@ -121,7 +124,7 @@
             };
         }
 
-        static applyVisuals(type, reasonMode) {
+        applyVisuals(type, reasonMode) {
             const container = Context.getIgnoreContainer();
             if (!container) return;
             
@@ -145,7 +148,7 @@
             this._setupMicroBadge(container, type, color, reasonMode);
         }
 
-        static _setupMicroBadge(container, type, color, reasonMode) {
+        _setupMicroBadge(container, type, color, reasonMode) {
             container.querySelectorAll('.ilap-micro-badge, .ilap-tooltip').forEach(el => el.remove());
             
             const badge = document.createElement('div');
@@ -157,13 +160,13 @@
             tooltip.className = 'ilap-tooltip';
             tooltip.style.cssText = `position: absolute; bottom: 140%; right: -10px; background: #171a21; color: #c7d5e0; padding: 8px; border-radius: 4px; border: 1px solid ${color}; min-width: 180px; font-size: 11px; z-index: 1000; pointer-events: none; visibility: hidden; opacity: 0; transition: 0.15s; text-align: left;`;
             
-            const iconUrl = chrome.runtime.getURL('icons/icon16.png');
+            // Use injected resource service
+            const iconUrl = this.resources.getIconUrl('icon16.png');
             const badgeLabel = reasonMode === 'all' ? "Every Game" : "Bad Reviews";
             
             let tooltipContent = '';
 
             if (type === 'NO_REVIEWS') {
-                // SPECIAL TEXT for No Reviews
                 tooltipContent = `
                     <div style="display: flex; align-items: flex-start; gap: 6px;">
                         <span>Ignore isn't applied for game without reviews</span>    
@@ -176,7 +179,6 @@
                     </div>
                 `;
             } else {
-                // STANDARD TEXT for Ignored/Spared
                 const intro = type === 'IGNORE' ? "Ignored by" : "Ignore skipped by";
                 tooltipContent = `
                     <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">

@@ -3,23 +3,56 @@
 <head>
   <meta charset="UTF-8">
   <style>
-    body { width: 300px; background: #1b2838; color: #c7d5e0; font-family: sans-serif; margin: 0; padding: 15px; border: 1px solid #364251; overflow-x: hidden; }
+    /* === BASE LAYOUT === */
+    :root {
+        color-scheme: dark;
+    }
+
+    html, body {
+        background-color: #1b2838;
+        margin: 0;
+        padding: 0;
+        overflow: hidden; 
+    }
+
+    body { 
+        color: #c7d5e0; 
+        font-family: sans-serif; 
+    }
+
+    *, *:before, *:after {
+        box-sizing: inherit;
+    }
+
+    #popup-root {
+        width: 320px;
+        min-height: 230px; 
+        padding: 15px;
+        box-sizing: border-box;
+        border: 2px solid #3d4a5d; 
+    }
+
+    @media (prefers-color-scheme: light) {
+        #popup-root { border-color: #dcdcdc; }
+    }
+
     .no-transition * { transition: none !important; }
 
+    /* === SCROLLBAR STYLING === */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1b2838; border-left: 1px solid #2a3f5a; }
+    ::-webkit-scrollbar-thumb { background: #3d4a5d; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #66c0f4; }
+
+    /* === HEADER === */
     h3 { 
-        margin: 0 0 12px 0; 
-        color: #66c0f4; 
-        font-size: 15px; 
-        border-bottom: 1px solid #364251; 
-        padding-bottom: 8px; 
-        display: flex; 
-        justify-content: space-between; 
-        align-items: center; 
+        margin: 0 0 12px 0; color: #66c0f4; font-size: 15px; 
+        border-bottom: 1px solid #364251; padding-bottom: 8px; 
+        display: flex; justify-content: space-between; align-items: center; 
     }
-    
     .header-title-wrapper { display: flex; align-items: center; gap: 8px; }
 
-    /* Standard Toggle Switch */
+    /* === MASTER TOGGLE === */
     .switch { position: relative; display: inline-block; width: 34px; height: 20px; flex-shrink: 0; }
     .switch input { opacity: 0; width: 0; height: 0; }
     .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #3d4a5d; transition: .3s; border-radius: 20px; }
@@ -27,127 +60,126 @@
     input:checked + .slider { background-color: #66c0f4; }
     input:checked + .slider:before { transform: translateX(14px); }
 
-    /* === Wide Text Slider === */
-    .wide-switch {
-        position: relative;
-        display: block;
-        width: 100%;
-        height: 24px;
-        background: #3d4a5d;
-        border-radius: 4px;
-        cursor: pointer;
-        user-select: none;
-        overflow: hidden;
-        margin-top: 5px;
-    }
+    /* === WIDE TEXT SLIDER === */
+    .wide-switch { position: relative; display: block; width: 100%; height: 24px; background: #3d4a5d; border-radius: 4px; cursor: pointer; user-select: none; overflow: hidden; margin-top: 5px; }
     .wide-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
-    
-    .wide-track {
-        display: flex;
-        width: 100%;
-        height: 100%;
-        position: relative;
-    }
-    
-    .wide-label {
-        flex: 1;
-        text-align: center;
-        line-height: 24px;
-        font-size: 11px;
-        font-weight: bold;
-        z-index: 2;
-        color: #8f98a0; /* Inactive Color */
-        transition: color 0.3s;
-    }
-    
-    /* Sliding Background */
-    .wide-bg {
-        position: absolute;
-        top: 2px;
-        bottom: 2px;
-        width: calc(50% - 4px);
-        background: #66c0f4;
-        border-radius: 3px;
-        transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
-        z-index: 1;
-    }
-    
-    /* Default State (Left - Bad Reviews) */
-    .wide-bg { left: 2px; transform: translateX(0); }
-    
-    /* Checked State (Right - Every Game) */
-    input:checked ~ .wide-track .wide-bg { transform: translateX(100%); left: 4px; } 
-
-    /* === TEXT COLOR FIX: Make text black when inside the blue selector === */
-    /* Left side active (unchecked) */
-    input:not(:checked) ~ .wide-track .wide-label:first-child { color: #000000; }
-    /* Right side active (checked) */
+    .wide-track { display: flex; width: 100%; height: 100%; position: relative; }
+    .wide-label { flex: 1; text-align: center; line-height: 24px; font-size: 11px; font-weight: bold; z-index: 2; color: #8f98a0; transition: color 0.3s; }
+    .wide-bg { position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 4px); background: #66c0f4; border-radius: 3px; transition: left 0.3s cubic-bezier(0.4, 0.0, 0.2, 1); z-index: 1; }
+    input:checked ~ .wide-track .wide-bg { left: calc(50% + 2px); }
+    input:not(:checked) ~ .wide-track .wide-label:nth-child(2) { color: #000000; }
     input:checked ~ .wide-track .wide-label:last-child { color: #000000; }
 
-    /* Other UI */
+    /* === GENERAL UI === */
     .dimmed { opacity: 0.3; pointer-events: none; transition: opacity 0.3s; }
     #ui-wrapper.disabled { filter: grayscale(100%); opacity: 0.5; pointer-events: none; }
-
     .stat-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; align-items: center; }
     #count-link { color: #66c0f4; text-decoration: underline; cursor: pointer; font-weight: bold; }
     
+    /* === HISTORY TOOLTIP === */
     .history-trigger { position: relative; display: block; width: 100%; cursor: help; }
-    .history-tooltip {
-        visibility: hidden; position: absolute; top: 105%; left: 0; right: 0;
-        background: #171a21; border: 1px solid #66c0f4; padding: 10px;
-        font-size: 11px; z-index: 100; box-shadow: 0 4px 15px rgba(0,0,0,0.8);
-        color: #c7d5e0; border-radius: 4px; opacity: 0;
-        transition: opacity 0.2s, visibility 0.2s; transition-delay: 1s;
-    }
-    .history-trigger:hover .history-tooltip { visibility: visible; opacity: 1; }
-    .history-entry { padding: 5px 0; border-bottom: 1px solid #2a3f5a; line-height: 1.3; }
-
-    .hint { margin-top: 10px; font-size: 12px; color: #a0a0a0; background: #2a475e; padding: 10px; border-radius: 4px; border-left: 3px solid #66c0f4; }
     
+    .history-tooltip {
+        visibility: hidden; position: absolute; top: 100%; margin-top: 4px; left: 0; right: 0;
+        background: #171a21; border: 1px solid #66c0f4; 
+        padding: 8px 8px 16px 8px; 
+        font-size: 11px;
+        z-index: 999; box-shadow: 0 4px 15px rgba(0,0,0,0.8); color: #c7d5e0; border-radius: 4px; opacity: 0;
+        
+        max-height: 120px; overflow-y: auto; overflow-x: hidden;
+        transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s; 
+    }
+    
+    .history-trigger:hover .history-tooltip { visibility: visible; opacity: 1; transition-delay: 0.4s; }
+    
+    body:has(#settings-accordion[open]) .history-tooltip {
+        max-height: none;
+        overflow-y: visible;
+        padding-bottom: 8px; /* Remove extra padding when fully visible */
+    }
+
+    .history-entry { padding: 6px 4px; border-bottom: 1px solid #2a3f5a; line-height: 1.3; }
+    .history-entry:last-child { border-bottom: none; margin-bottom: 6px; }
+    
+    /* Remove the extra margin when settings are open */
+    body:has(#settings-accordion[open]) .history-entry:last-child {
+        margin-bottom: 0;
+    }
+
+    /* === DYNAMIC HINT & KEYBOARD STYLING === */
+    .hint {
+        margin-top: 10px; font-size: 12px; color: #a0a0a0; background: #2a475e; 
+        padding: 6px 10px; border-radius: 4px; border-left: 3px solid #66c0f4;
+        display: flex; flex-direction: column; justify-content: center;
+    }
+    .hint-line { display: flex; align-items: center; }
+    
+    .hint-label { flex: 1; font-weight: bold; color: #8f98a0; }
+
+    .kbd-key {
+        display: inline-flex; align-items: center; justify-content: center;
+        background-color: #171a21; color: #fff; border: 1px solid #000;
+        border-bottom: 2px solid #000; border-radius: 3px;
+        padding: 2px 6px; margin: 0 5px; font-family: monospace; font-size: 11px;
+        font-weight: bold; box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+    }
+
+    .mouse-icon { margin-left: 5px; vertical-align: middle; position: relative; top: -1px; }
+    
+    /* === ACCORDION SETTINGS === */
     details { margin-top: 10px; border: 1px solid #364251; border-radius: 4px; background: #222d3d; }
-    summary { padding: 8px; cursor: pointer; font-size: 12px; color: #66c0f4; font-weight: bold; display: flex; align-items: center; gap: 8px; list-style: none; }
+    summary { padding: 8px; cursor: pointer; font-size: 12px; color: #66c0f4; font-weight: bold; display: flex; align-items: center; list-style: none; }
     summary::-webkit-details-marker { display: none; }
+    summary::after {
+        content: ''; display: inline-block; width: 0; height: 0; 
+        border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid #8f98a0;
+        transition: transform 0.2s ease-in-out; margin-left: auto; 
+    }
+    details[open] summary::after { transform: rotate(90deg); }
     
     .settings-content { padding: 10px; border-top: 1px solid #364251; display: flex; flex-direction: column; gap: 12px; }
     .section-title-row { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #445468; padding-bottom: 4px; margin-bottom: 4px; }
     .section-title { font-size: 11px; color: #fff; text-transform: uppercase; font-weight: bold; }
     
     .click-badge { background: #4a5e73; color: white; padding: 2px 5px; font-size: 10px; border-radius: 3px; font-weight: bold; }
-    select { background: #1b2838; color: white; border: 1px solid #364251; font-size: 11px; border-radius: 3px; padding: 2px; }
+    select { background: #1b2838; color: white; border: 1px solid #364251; font-size: 11px; border-radius: 3px; padding: 2px; outline: none; }
   </style>
 </head>
 <body class="no-transition">
-  <h3>
-    <span class="header-title-wrapper">
-      <img src="../icons/icon16.png" width="16" height="16" alt="Icon">
-      Steam Ignore Like A Pro
-    </span>
-    <label class="switch">
-      <input type="checkbox" id="master-toggle">
-      <span class="slider"></span>
-    </label>
-  </h3>
-  
-  <div id="ui-wrapper">
-      <div class="stat-row">
-        <span class="stat-label">Total Ignored:</span>
-        <a id="count-link" href="https://store.steampowered.com/account/notinterested/" target="_blank">0</a>
-      </div>
-      
-      <div class="history-trigger">
-        <div class="stat-row" style="flex-direction: column; align-items: flex-start; gap: 4px;">
-          <span class="stat-label">Last Ignored:</span>
-          <span id="last-game" style="background: #4a5e73; padding: 4px 8px; border-radius: 3px; font-size: 11px; display: block; width: 100%; box-sizing: border-box;">None</span>
+  <div id="popup-root">
+    <h3>
+      <span class="header-title-wrapper">
+        <img src="../icons/icon16.png" width="16" height="16" alt="Icon">
+        Steam Ignore Like A Pro
+      </span>
+      <label class="switch">
+        <input type="checkbox" id="master-toggle">
+        <span class="slider"></span>
+      </label>
+    </h3>
+    
+    <div id="ui-wrapper">
+        <div class="stat-row">
+          <span class="stat-label">Total Ignored:</span>
+          <a id="count-link" href="https://store.steampowered.com/account/notinterested/" target="_blank">0</a>
         </div>
-        <div class="history-tooltip" id="history-list"></div>
-      </div>
+        
+        <div class="history-trigger">
+          <div class="stat-row" style="flex-direction: column; align-items: flex-start; gap: 4px;">
+            <span class="stat-label">Last Ignored:</span>
+            <span id="last-game" style="background: #4a5e73; padding: 4px 8px; border-radius: 3px; font-size: 11px; display: block; width: 100%; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">None</span>
+          </div>
+          
+          <div class="history-tooltip" id="history-list"></div>
+        </div>
 
-      <div class="hint">Hold <b id="hint-key">Ctrl</b> + <b>Click</b> to ignore.</div>
+        <div id="dynamic-hint" class="hint"></div>
 
-      <details id="settings-accordion">
-        <summary>â SETTINGS</summary>
-        <div class="settings-content" id="settings-placeholder"></div>
-      </details>
+        <details id="settings-accordion">
+          <summary><span style="display: flex; align-items: center; gap: 8px;">â SETTINGS</span></summary>
+          <div class="settings-content" id="settings-placeholder"></div>
+        </details>
+    </div>
   </div>
 
   <script src="popup_settings.js"></script>

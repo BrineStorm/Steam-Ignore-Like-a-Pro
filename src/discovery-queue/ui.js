@@ -2,16 +2,13 @@
     'use strict';
     
     window.ILAP = window.ILAP || {};
-    window.ILAP.QueueUI = {};
+    window.ILAP.Discovery = window.ILAP.Discovery || {};
 
     const IDS = {
         CONTAINER: 'ilap-queue-controls',
         BUTTON: 'queue-auto-ignore-btn'
     };
 
-    /**
-     * SRP: Encapsulates CSS injection
-     */
     class Styles {
         static inject() {
             if (document.getElementById('ilap-queue-styles')) return;
@@ -36,11 +33,22 @@
                     background-color: #d32f2f; border: 1px solid #b71c1c;
                 }
                 
+                /* FIX: White text with black outline for high contrast on any background */
                 .ilap-checkbox-label {
-                    display: flex; align-items: center; color: #8f98a0; font-size: 12px;
+                    display: flex; align-items: center; font-size: 12px;
                     cursor: pointer; user-select: none; margin-right: 8px;
+                    color: #ffffff;
+                    font-weight: 600;
+                    text-shadow: 
+                        1px 1px 0 #000, 
+                       -1px -1px 0 #000, 
+                        1px -1px 0 #000, 
+                       -1px 1px 0 #000, 
+                        0px 2px 4px rgba(0,0,0,0.8);
+                    transition: color 0.2s;
                 }
-                .ilap-checkbox-label:hover { color: #fff; }
+                .ilap-checkbox-label:hover { color: #66c0f4; }
+                
                 .ilap-checkbox { margin-right: 6px; margin-top: 0; cursor: pointer; }
                 
                 .btn-symbol { margin-right: 8px; font-size: 12px; line-height: 1; }
@@ -49,56 +57,39 @@
         }
     }
 
-    /**
-     * SRP: Creates HTML elements
-     */
-    class UIFactory {
-        static create(handlers) {
-            const container = document.createElement('div');
-            container.className = 'ilap-controls-container';
-            container.id = IDS.CONTAINER;
-
-            // Checkbox
-            const label = document.createElement('label');
-            label.className = 'ilap-checkbox-label';
-            
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.className = 'ilap-checkbox';
-            checkbox.addEventListener('change', (e) => handlers.onCheckbox(e.target.checked));
-            
-            label.appendChild(checkbox);
-            label.appendChild(document.createTextNode("Keep High Score"));
-
-            // Button
-            const button = document.createElement('button');
-            button.id = IDS.BUTTON;
-            button.innerHTML = `<span class="btn-symbol">â</span> Start Auto Ignore`;
-            button.addEventListener('click', handlers.onStartStop);
-
-            container.appendChild(label);
-            container.appendChild(button);
-
-            return { container, button, checkbox };
-        }
-    }
-
-    /**
-     * SRP: Manages UI Lifecycle
-     */
-    class UIManager {
+    class DiscoveryQueueUI {
         constructor() {
             this.container = null;
             this.button = null;
+            this.checkbox = null;
             Styles.inject();
         }
 
-        mount(insertionPoint, handlers) {
-            if (this.container) return; // Already mounted
+        mount(insertionPoint, events) {
+            if (this.container) return; 
 
-            const elements = UIFactory.create(handlers);
-            this.container = elements.container;
-            this.button = elements.button;
+            this.container = document.createElement('div');
+            this.container.className = 'ilap-controls-container';
+            this.container.id = IDS.CONTAINER;
+
+            const label = document.createElement('label');
+            label.className = 'ilap-checkbox-label';
+            
+            this.checkbox = document.createElement('input');
+            this.checkbox.type = 'checkbox';
+            this.checkbox.className = 'ilap-checkbox';
+            this.checkbox.addEventListener('change', (e) => events.onCheckboxChange(e.target.checked));
+            
+            label.appendChild(this.checkbox);
+            label.appendChild(document.createTextNode("Keep High Score")); 
+
+            this.button = document.createElement('button');
+            this.button.id = IDS.BUTTON;
+            this.button.innerHTML = `<span class="btn-symbol">â</span> Start Auto Ignore`;
+            this.button.addEventListener('click', events.onToggle);
+
+            this.container.appendChild(label);
+            this.container.appendChild(this.button);
 
             if (insertionPoint.parent && !insertionPoint.parent.contains(this.container)) {
                 insertionPoint.parent.insertBefore(this.container, insertionPoint.referenceNode);
@@ -110,6 +101,7 @@
                 this.container.remove();
                 this.container = null;
                 this.button = null;
+                this.checkbox = null;
             }
         }
 
@@ -126,6 +118,6 @@
         }
     }
 
-    window.ILAP.QueueUI = new UIManager();
+    window.ILAP.Discovery.UI = DiscoveryQueueUI;
 
 })();

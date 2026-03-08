@@ -1,9 +1,6 @@
 (function() {
     'use strict';
     
-    const Logic = window.ILAP.QueueLogic;
-    const UI = window.ILAP.QueueUI;
-
     /**
      * Strategy to find where to inject the UI in the Steam Modal
      */
@@ -26,7 +23,6 @@
 
             if (closeBtnInner) {
                 const wrapper = closeBtnInner.parentElement;
-                // Steam uses 'Focusable' class wrappers often
                 if (wrapper && wrapper.classList.contains('Focusable')) {
                     return {
                         parent: wrapper.parentElement, 
@@ -39,44 +35,57 @@
     }
 
     /**
-     * Main Controller
+     * Main Controller.
+     * Orchestrates the initialization and binding of components.
      */
-    class QueueController {
+    class DiscoveryQueueController {
         constructor() {
+            this.automator = null;
+            this.ui = null;
             this.observer = null;
         }
 
         init() {
-            // Bind UI updates from Logic
-            Logic.init((isRunning, count) => {
-                UI.updateState(isRunning, count);
+            // 1. Create Adapters (DIP)
+            // No direct API calls in Logic class
+            const apiAdapter = {
+                ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) // Using global utils facade for now
+            };
+            const statsAdapter = {
+                save: (name, source) => window.ILAP.saveStats(name, source)
+            };
+
+            // 2. Instantiate Components
+            const AutomatorClass = window.ILAP.Discovery.Automator;
+            const UIClass = window.ILAP.Discovery.UI;
+
+            this.automator = new AutomatorClass(apiAdapter, statsAdapter);
+            this.ui = new UIClass();
+
+            // 3. Bind UI Updates (Logic -> UI)
+            this.automator.setUiObserver((isRunning, count) => {
+                this.ui.updateState(isRunning, count);
             });
 
+            // 4. Start DOM Observer
             this.startObserver();
         }
 
         startObserver() {
-            // Watch body for the Modal appearing
             this.observer = new MutationObserver((mutations) => {
                 for (const m of mutations) {
-                    // Check if nodes added
-                    if (m.addedNodes.length > 0) {
-                        this.checkForDialog();
-                    }
-                    // Check if nodes removed (to cleanup)
+                    if (m.addedNodes.length > 0) this.checkForDialog();
                     if (m.removedNodes.length > 0) {
-                        // If dialog is gone, cleanup UI
+                        // If dialog is gone, cleanup UI and stop logic
                         if (!document.querySelector('.FullModalOverlay div[role="dialog"]')) {
-                            UI.unmount();
-                            Logic.stop(); // Ensure logic stops if user closes modal manually
+                            this.ui.unmount();
+                            this.automator.stop();
                         }
                     }
                 }
             });
 
             this.observer.observe(document.body, { childList: true, subtree: true });
-            
-            // Initial check in case it's already open
             this.checkForDialog();
         }
 
@@ -85,18 +94,19 @@
             if (modal) {
                 const insertion = InsertionStrategy.find(modal);
                 if (insertion) {
-                    UI.mount(insertion, {
-                        onStartStop: () => Logic.toggle(),
-                        onCheckbox: (val) => Logic.setSkipPositive(val)
+                    // Bind User Events (UI -> Logic)
+                    this.ui.mount(insertion, {
+                        onToggle: () => this.automator.toggle(),
+                        onCheckboxChange: (val) => this.automator.setSkipPositive(val)
                     });
                 }
             }
         }
     }
 
-    // Initialize on Load
+    // Bootstrap
     window.addEventListener('load', () => {
-        new QueueController().init();
+        new DiscoveryQueueController().init();
     });
 
 })();

@@ -1,11 +1,9 @@
 (function() {
     'use strict';
     
-    // Namespaces
     window.ILAP = window.ILAP || {};
-    window.ILAP.QueueLogic = {};
+    window.ILAP.Discovery = window.ILAP.Discovery || {};
 
-    // Constants (SVG Signatures for robust detection)
     const SVG_PATHS = {
         NEXT_ARROW: "M16.0855",
         IGNORE_ICON: "M600,96c"
@@ -15,27 +13,18 @@
         BLUE: 'rgb(102, 192, 244)'
     };
 
-    /**
-     * SRP: Responsible ONLY for finding elements within the Queue Modal.
-     * Hides DOM implementation details from the business logic.
-     */
     class SlideScanner {
         static getActiveSlide(dialog) {
-            // Strategy: Look for the specific container holding the 3 cards (Previous, Current, Next)
             const container = dialog.querySelector('._3q6eNRFBrPSFSGEn8uRFZ3') || 
                               dialog.querySelector('div[class*="Focusable"][class*="Panel"]')?.parentElement;
-            // The active slide is usually the 3rd child in the React structure
             return (container && container.children.length > 2) ? container.children[2] : null;
         }
 
         static getNextButton(dialog) {
-            // Strategy 1: SVG Path match
             const paths = Array.from(dialog.querySelectorAll('path'))
                 .filter(p => p.getAttribute('d')?.startsWith(SVG_PATHS.NEXT_ARROW));
-            
             if (paths.length > 0) return paths[paths.length - 1].closest('div[class*="Focusable"]');
             
-            // Strategy 2: Class Name fallback
             const arrowBtns = dialog.querySelectorAll('div[class*="Arrow"]');
             return arrowBtns.length > 0 ? arrowBtns[arrowBtns.length - 1] : null;
         }
@@ -50,34 +39,42 @@
         }
 
         static getContinueButton(slide) {
-            // The "Finish" or "Continue" button is usually text-only (no SVG icons)
             const candidates = Array.from(slide.querySelectorAll('div[class*="Focusable"]'));
             const textButtons = candidates.filter(el => {
                 if (!el.textContent.trim()) return false;
                 if (el.querySelector('svg')) return false;
-                if (el.offsetParent === null) return false; // Must be visible
+                if (el.offsetParent === null) return false; 
                 return true;
             });
             return textButtons.length > 0 ? textButtons[textButtons.length - 1] : null;
         }
 
         static getGameInfo(slide) {
-            // Reuse the centralized GameNameExtractor from utils.js if available, 
-            // or perform a local search optimized for Queue Slides.
-            
-            // 1. Name
             let name = "Unknown Game";
-            if (window.ILAP.getGameName) {
-                // Pass the slide as context
-                // We fake an AppID '0' because we don't strictly need it for the name here
-                name = window.ILAP.getGameName(0, slide);
-            } else {
-                // Fallback local logic
-                const title = slide.querySelector('div[class*="StoreSaleWidgetTitle"]');
-                if (title) name = title.textContent.trim();
+            
+            // Find all links pointing to a game page
+            const links = slide.querySelectorAll('a[href*="/app/"]');
+            for (const link of links) {
+                // Ignore image/video wrappers, we want the text link
+                if (!link.querySelector('img') && !link.querySelector('video')) {
+                    const text = link.textContent.trim();
+                    if (text.length > 1 && text.length < 150) {
+                        name = text;
+                        break; // Found the title
+                    }
+                }
             }
 
-            // 2. Is Positive Review?
+            // Fallback just in case
+            if (name === "Unknown Game") {
+                const title = slide.querySelector('div[class*="StoreSaleWidgetTitle"]');
+                if (title) {
+                    name = title.textContent.trim();
+                } else if (window.ILAP.getGameName) {
+                    name = window.ILAP.getGameName(0, slide);
+                }
+            }
+
             const reviewLink = slide.querySelector('a[href*="#app_reviews_hash"]');
             let isPositive = false;
             
@@ -93,18 +90,39 @@
     }
 
     /**
-     * SRP: Manages the automation loop state and actions.
+     * @typedef {Object} ApiAdapter
+     * @property {function(string, number): Promise<boolean>} ignore
      */
-    class QueueAutomator {
-        constructor() {
+
+    /**
+     * @typedef {Object} StatsAdapter
+     * @property {function(string, string): void} save
+     */
+
+    class DiscoveryQueueAutomator {
+        /**
+         * @param {ApiAdapter} apiAdapter 
+         * @param {StatsAdapter} statsAdapter 
+         */
+        constructor(apiAdapter, statsAdapter) {
+            if (!apiAdapter || typeof apiAdapter.ignore !== 'function') {
+                throw new TypeError("[ILAP] Invalid ApiAdapter passed to DiscoveryQueueAutomator");
+            }
+            if (!statsAdapter || typeof statsAdapter.save !== 'function') {
+                throw new TypeError("[ILAP] Invalid StatsAdapter passed to DiscoveryQueueAutomator");
+            }
+
+            this.api = apiAdapter;
+            this.stats = statsAdapter;
+            
             this.isRunning = false;
             this.processedCount = 0;
             this.config = { skipPositive: false };
-            this.onUpdate = null; // Callback for UI
+            this.onUpdateCallback = null; 
         }
 
-        init(uiCallback) {
-            this.onUpdate = uiCallback;
+        setUiObserver(callback) {
+            this.onUpdateCallback = callback;
         }
 
         setSkipPositive(val) {
@@ -128,21 +146,16 @@
             this.isRunning = true;
             this.processedCount = 0;
             this._notifyUI();
-
-            // Handle "Launcher" modal if present
-            const launcher = document.querySelector('div.WidgetHeaderCtn'); 
-            if (launcher) await this._clickWithDelay(launcher, 2000);
-
             await this._loop();
         }
 
         async _loop() {
             while (this.isRunning) {
                 const dialog = document.querySelector('div[role="dialog"]');
-                if (!dialog) break; // Modal closed
+                if (!dialog) break; 
                 
                 const result = await this._processCurrentSlide(dialog);
-                if (!result) break; // End of queue or error
+                if (!result) break; 
                 
                 await new Promise(r => setTimeout(r, 500));
             }
@@ -155,7 +168,6 @@
 
             const nextBtn = SlideScanner.getNextButton(dialog);
             
-            // Scenario 1: End of Queue (Summary Page)
             if (!nextBtn) {
                 const continueBtn = SlideScanner.getContinueButton(slide);
                 if (continueBtn) {
@@ -168,14 +180,12 @@
 
             const gameInfo = SlideScanner.getGameInfo(slide);
 
-            // Scenario 2: Skip Positive Games
             if (this.config.skipPositive && gameInfo.isPositive) {
                 console.log(`[ILAP] Skipping Positive: ${gameInfo.name}`);
                 await this._clickWithDelay(nextBtn, 800);
                 return true;
             }
 
-            // Scenario 3: Ignore Game
             const ignoreBtn = SlideScanner.getIgnoreButton(slide);
             if (ignoreBtn) {
                 if (!this._isButtonActive(ignoreBtn)) {
@@ -185,13 +195,10 @@
                     if (success) {
                         this.processedCount++;
                         this._notifyUI();
-                        if (window.ILAP.saveStats) {
-                            window.ILAP.saveStats(gameInfo.name, "Queue");
-                        }
+                        this.stats.save(gameInfo.name, "Queue");
                     }
                 }
             } else {
-                // Fallback: If no ignore button found (already ignored?), just continue
                 const continueBtn = SlideScanner.getContinueButton(slide);
                 if (continueBtn) {
                      await this._clickWithDelay(continueBtn, 2500);
@@ -200,15 +207,14 @@
                 return false;
             }
 
-            // Move Next
             await this._clickWithDelay(nextBtn, 800);
             return true;
         }
 
-        // --- Helpers ---
-
         _notifyUI() {
-            if (this.onUpdate) this.onUpdate(this.isRunning, this.processedCount);
+            if (this.onUpdateCallback) {
+                this.onUpdateCallback(this.isRunning, this.processedCount);
+            }
         }
 
         _clickWithDelay(element, delay = 1000) {
@@ -220,8 +226,6 @@
 
         _isButtonActive(element) {
             if (!element) return false;
-            // Steam changes classes like "_2Pass..." -> hashed class. 
-            // Usually active buttons have more classes.
             const hashedClasses = Array.from(element.classList).filter(c => c.startsWith('_'));
             return hashedClasses.length >= 2;
         }
@@ -241,7 +245,6 @@
         }
     }
 
-    // Export Singleton for Main
-    window.ILAP.QueueLogic = new QueueAutomator();
+    window.ILAP.Discovery.Automator = DiscoveryQueueAutomator;
 
 })();

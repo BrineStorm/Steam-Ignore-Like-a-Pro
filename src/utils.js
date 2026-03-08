@@ -63,27 +63,34 @@
             const cardRoot = this._findRoot(contextElement);
             const clean = (text) => text ? text.trim() : "";
 
-            // 3. Strategy A: CSS Classes
+            // 3. Strategy A: CSS Classes (Most reliable for new React UI)
             const titleSelectors = [
                 '.app_name', '.tab_item_name', '[class*="StoreSaleWidgetTitle"]', 
-                '.title', 'h4', '.capsule_name'
+                '.title', 'h4', '.capsule_name', 
+                // Added selector for hover capsules
+                '[class*="Hover_Title"]' 
             ];
             for (let s of titleSelectors) {
                 const el = cardRoot.querySelector(s);
-                if (el && clean(el.textContent)) return clean(el.textContent);
+                if (el && clean(el.textContent)) {
+                    return this._cleanUpName(clean(el.textContent));
+                }
             }
 
-            // 4. Strategy B: Alt Tags (High Priority)
+            // 4. Strategy B: Alt Tags (High Priority, but prone to screenshot garbage)
             const imgs = cardRoot.querySelectorAll('img[alt]');
             for (const img of imgs) {
                 const alt = clean(img.alt);
-                if (this._isValidAlt(alt)) return alt;
+                if (this._isValidAlt(alt)) {
+                    return this._cleanUpName(alt);
+                }
             }
 
             // 5. Strategy C: Smart Contextual Search (Target Links)
-            return this._findGameLinkText(cardRoot, appid) || 
-                   this._findGenericText(cardRoot, contextElement) || 
-                   `AppID ${appid}`;
+            const foundName = this._findGameLinkText(cardRoot, appid) || 
+                              this._findGenericText(cardRoot, contextElement);
+                              
+            return foundName ? this._cleanUpName(foundName) : `AppID ${appid}`;
         }
 
         static _findRoot(el) {
@@ -97,15 +104,14 @@
         static _isValidAlt(alt) {
             if (!alt) return false;
             const lower = alt.toLowerCase();
-            return !lower.startsWith('screenshot') && !lower.includes('review');
+            // Stricter check: refuse anything that CONTAINS "screenshot" 
+            // because steam sometimes does "Game Name Screenshot 1"
+            return !lower.includes('screenshot') && !lower.includes('review');
         }
 
-        // NEW: Prioritize elements that are actually links to the game
         static _findGameLinkText(root, appid) {
-            // Find all links pointing to this AppID
             const links = root.querySelectorAll(`a[href*="/app/${appid}"]`);
             for (const link of links) {
-                // Ignore if it contains an image (it's the capsule, not the title)
                 if (link.querySelector('img')) continue;
                 
                 const text = link.textContent.trim();
@@ -115,7 +121,7 @@
         }
 
         static _findGenericText(root, contextEl) {
-            const candidates = root.querySelectorAll('div, a');
+            const candidates = root.querySelectorAll('div, a, span'); // Added span
             
             for (const el of candidates) {
                 if (el === contextEl || el.contains(contextEl)) continue;
@@ -125,7 +131,7 @@
 
                 // === FILTERING ===
                 if (cls.includes('ilap') || el.closest('.ilap-ignored-overlay')) continue;
-                if (cls.match(/discount|review|platform|wishlist|deck|btn|button|tag/)) continue;
+                if (cls.match(/discount|review|platform|wishlist|deck|btn|button|tag|price/)) continue;
                 
                 if (tagName === 'a') {
                      if (el.querySelector('img')) continue; 
@@ -134,14 +140,24 @@
 
                 const text = el.textContent.trim();
                 
-                // Added "on wishlist" to filter
-                if (text.toLowerCase().match(/add to wishlist|in library|on wishlist|free|play now/)) continue;
+                const lowerText = text.toLowerCase();
+                if (lowerText.match(/add to wishlist|in library|on wishlist|free|play now/)) continue;
+                // Double check against screenshots in text nodes
+                if (lowerText.includes('screenshot')) continue;
 
                 if (text.length > 1 && text.length < 100 && !text.includes('%') && !/^\d+[.,]\d{2}.*$/.test(text)) {
                     return text;
                 }
             }
             return null;
+        }
+
+        /**
+         * Final sanitization pass to strip unwanted suffixes if they somehow sneak through.
+         */
+        static _cleanUpName(name) {
+            // Remove " screenshot X" or " - screenshot X" from the end of the string
+            return name.replace(/\s*-?\s*screenshot\s*\d*$/i, '').trim();
         }
     }
 
