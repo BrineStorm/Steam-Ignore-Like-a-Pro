@@ -1,58 +1,56 @@
 (function() {
     'use strict';
 
-    // === BUSINESS LOGIC ===
-
     class IgnoreManager {
         /**
          * @param {Object} badgeRenderer 
          * @param {Object} containerStrategies 
-         * @param {Object} apiAdapter - Interface { ignore(appid, reason) }
-         * @param {Object} nameExtractor - Interface { get(appid, contextEl) }
-         * @param {Object} statsAdapter - Interface { save(name, source) }
+         * @param {Object} apiAdapter
+         * @param {Object} nameExtractor
+         * @param {Object} statsAdapter
+         * @param {Object} sessionState - ISP FIX: Injected Session Service
          */
-        constructor(badgeRenderer, containerStrategies, apiAdapter, nameExtractor, statsAdapter) {
+        constructor(badgeRenderer, containerStrategies, apiAdapter, nameExtractor, statsAdapter, sessionState) {
             this.renderer = badgeRenderer;
             this.strategies = containerStrategies;
             this.api = apiAdapter;
             this.nameExtractor = nameExtractor;
             this.stats = statsAdapter;
+            this.session = sessionState;
             
-            this.sessionIgnored = new Set();
+            this.sessionMap = new Map();
+            this.SESSION_KEY = 'ilap_session_map_v2';
+            
             this._loadSession();
         }
 
         _loadSession() {
             try {
-                const key = 'ilap_session_ignored_games';
-                const stored = sessionStorage.getItem(key);
-                if (stored) this.sessionIgnored = new Set(JSON.parse(stored));
+                const stored = this.session.get(this.SESSION_KEY);
+                if (stored) this.sessionMap = new Map(JSON.parse(stored));
             } catch (e) { /* ignore */ }
         }
 
         _saveSession() {
             try {
-                const key = 'ilap_session_ignored_games';
-                sessionStorage.setItem(key, JSON.stringify([...this.sessionIgnored]));
+                this.session.set(this.SESSION_KEY, JSON.stringify(Array.from(this.sessionMap.entries())));
             } catch(e) { /* ignore */ }
         }
 
         async processIgnoreRequest(intent) {
             const { appid, reason, linkElement } = intent;
 
-            if (this.sessionIgnored.has(appid)) return;
+            if (this.sessionMap.has(appid)) return;
 
-            // Injected API call
             const success = await this.api.ignore(appid, reason);
 
             if (success) {
-                this.sessionIgnored.add(appid);
+                this.sessionMap.set(appid, reason);
                 this._saveSession();
 
                 const containerObj = this.strategies.findContainer(linkElement);
                 const contextEl = containerObj ? containerObj.element : linkElement;
 
-                // Injected Dependencies
                 const name = this.nameExtractor.get(appid, contextEl);
                 const source = reason === 0 ? "Default Ignore" : "Played Elsewhere";
                 this.stats.save(name, source);
@@ -62,44 +60,48 @@
         }
 
         refreshBadgesForGame(appid) {
+            const reason = this.sessionMap.get(appid) || 0;
+            
             const candidates = document.querySelectorAll(`a[href*="/app/${appid}"]`);
             candidates.forEach(link => {
                 if (!new RegExp(`/app/${appid}(/|\\?|$)`).test(link.getAttribute('href'))) return;
-                this.renderer.render(link, appid);
+                this.renderer.render(link, appid, reason);
             });
         }
 
         refreshAll() {
-            this.sessionIgnored.forEach(appid => this.refreshBadgesForGame(appid));
+            for (const [appid, reason] of this.sessionMap.entries()) {
+                this.refreshBadgesForGame(appid);
+            }
         }
     }
-
-    // === COMPOSITION ROOT ===
 
     class App {
         constructor(configService) {
             this.configService = configService;
             
-            // UI Dependencies
-            const strategies = new window.ILAP.ManualIgnore.ContainerStrategyProvider();
-            const detector = new window.ILAP.ManualIgnore.DuplicateDetector(); 
-            const badgeRenderer = new window.ILAP.ManualIgnore.BadgeRenderer(strategies, detector); 
+            // DIP Assembly
+            const MI = window.ILAP.ManualIgnore;
+            const strategies = new MI.ContainerStrategyProvider();
+            const detector = new MI.DuplicateDetector(MI.ContextScanner); 
+            const badgeRenderer = new MI.BadgeRenderer(strategies, detector, MI.BADGE_CLASSES); 
             
-            // Adapters
             const apiAdapter = { ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) };
             const nameExtractorAdapter = { get: (appid, el) => window.ILAP.getGameName(appid, el) };
             const statsAdapter = { save: (name, source) => window.ILAP.saveStats(name, source) };
+            const sessionService = new MI.SessionStateService();
 
-            // Logic Dependencies
             this.ignoreManager = new IgnoreManager(
                 badgeRenderer, 
                 strategies, 
                 apiAdapter, 
                 nameExtractorAdapter, 
-                statsAdapter
+                statsAdapter,
+                sessionService
             );
             
-            this.eventParser = new window.ILAP.ManualIgnore.EventParser(this.configService);
+            this.eventParser = new MI.EventParser(this.configService);
+            this.swipeDetector = new MI.SwipeGestureDetector(this.configService);
         }
 
         async init() {
@@ -115,13 +117,20 @@
 
         setupInteractions() {
             document.body.addEventListener('click', (e) => {
-                const intent = this.eventParser.parse(e);
+                const intent = this.eventParser.parseClick(e);
                 if (intent) {
                     e.preventDefault();
                     e.stopPropagation();
                     this.ignoreManager.processIgnoreRequest(intent);
                 }
             }, true);
+
+            this.swipeDetector.attach(document.body, (gestureData) => {
+                const intent = this.eventParser.createIntent(gestureData.startEl, gestureData.reason);
+                if (intent) {
+                    this.ignoreManager.processIgnoreRequest(intent);
+                }
+            });
         }
 
         setupObserver() {
@@ -138,9 +147,8 @@
         }
     }
 
-    // Bootstrap
     window.addEventListener('load', () => {
-        const defaultConfig = { defaultKey: 'ctrlKey', platformKey: 'off', enabled: true };
+        const defaultConfig = { defaultKey: 'swipeRightRight', platformKey: 'swipeRightLeft', enabled: true };
         const configService = new window.ILAP.ManualIgnore.ConfigService(defaultConfig);
         new App(configService).init();
     });

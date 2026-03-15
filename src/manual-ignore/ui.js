@@ -1,9 +1,14 @@
 (function() {
     'use strict';
 
-    const { BADGE_CLASSES, ContextScanner } = window.ILAP.ManualIgnore;
-
     class DuplicateDetector {
+        /**
+         * @param {Object} contextScanner
+         */
+        constructor(contextScanner) {
+            this.scanner = contextScanner;
+        }
+
         isProcessed(element) {
             const checkEl = element.tagName === 'IMG' ? element.parentElement : element;
             return checkEl.dataset.ilapState === 'processed' || checkEl.dataset.ilapState === 'processing';
@@ -17,16 +22,22 @@
                        !!checkEl.querySelector(`.ilap-ignored-overlay[data-ilap-appid="${appid}"]`);
             }
             
-            return ContextScanner.hasBadgeInAncestors(checkEl, appid);
+            return this.scanner.hasBadgeInAncestors(checkEl, appid);
         }
     }
 
     class BadgeFactory {
-        static create(appid, typeClass) {
+        static create(appid, typeClass, reason) {
             const overlay = document.createElement('div');
             overlay.className = `ilap-ignored-overlay ${typeClass}`;
             overlay.dataset.ilapAppid = appid;
             
+            let tooltipText = "Ignore applied by";
+            if (reason === 2) {
+                overlay.style.backgroundColor = '#3ca8fc'; 
+                tooltipText = "Ignored (Already Played) applied by";
+            }
+
             overlay.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -37,9 +48,8 @@
                 IGNORED
                 <div class="ilap-tooltip">
                     <div style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
-                        <span>Ignore applied by</span>
-                        <img src="${iconUrl}" style="width: 16px; height: 16px; vertical-align: middle;">
-                        <span> extension</span>
+                        <span>${tooltipText}</span>
+                        <img src="${iconUrl}" style="width: 16px; height: 16px; vertical-align: middle;">                        
                     </div>
                 </div>
             `;
@@ -48,12 +58,18 @@
     }
 
     class BadgeRenderer {
-        constructor(strategyProvider, duplicateDetector) {
+        /**
+         * @param {Object} strategyProvider 
+         * @param {Object} duplicateDetector 
+         * @param {Object} badgeClasses - Map of UI classes
+         */
+        constructor(strategyProvider, duplicateDetector, badgeClasses) {
             this.strategies = strategyProvider;
             this.detector = duplicateDetector;
+            this.badgeClasses = badgeClasses;
         }
 
-        render(linkElement, appid) {
+        render(linkElement, appid, reason) {
             const containerObj = this.strategies.findContainer(linkElement);
             if (!containerObj) return;
 
@@ -70,7 +86,7 @@
             targetForBadge.dataset.ilapState = 'processing';
 
             const variantClass = this._getVariantClass(type);
-            const badge = BadgeFactory.create(appid, variantClass);
+            const badge = BadgeFactory.create(appid, variantClass, reason);
             
             this._ensurePositioning(targetForBadge);
             targetForBadge.appendChild(badge);
@@ -81,12 +97,12 @@
 
         _getVariantClass(type) {
             const map = {
-                'list': BADGE_CLASSES.LIST,
-                'hero': BADGE_CLASSES.HERO,
-                'grid': BADGE_CLASSES.GRID,
-                'standard': BADGE_CLASSES.GRID
+                'list': this.badgeClasses.LIST,
+                'hero': this.badgeClasses.HERO,
+                'grid': this.badgeClasses.GRID,
+                'standard': this.badgeClasses.GRID
             };
-            return map[type] || BADGE_CLASSES.GRID;
+            return map[type] || this.badgeClasses.GRID;
         }
 
         _ensurePositioning(element) {
@@ -100,7 +116,6 @@
         }
     }
 
-    // Exports
     window.ILAP.ManualIgnore.DuplicateDetector = DuplicateDetector;
     window.ILAP.ManualIgnore.BadgeRenderer = BadgeRenderer;
 

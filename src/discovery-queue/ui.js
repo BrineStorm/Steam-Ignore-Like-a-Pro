@@ -85,7 +85,7 @@
 
             this.button = document.createElement('button');
             this.button.id = IDS.BUTTON;
-            this.button.innerHTML = `<span class="btn-symbol">‚</span> Start Auto Ignore`;
+            this.button.innerHTML = `<span class="btn-symbol">‚ñ∂</span> Start Auto Ignore`;
             this.button.addEventListener('click', events.onToggle);
 
             this.container.appendChild(label);
@@ -109,10 +109,10 @@
             if (!this.button) return;
             
             if (isRunning) {
-                this.button.innerHTML = `<span class="btn-symbol">‚</span> Stop (${processedCount})`;
+                this.button.innerHTML = `<span class="btn-symbol">‚ñ∂</span> Stop (${processedCount})`;
                 this.button.classList.add('running');
             } else {
-                this.button.innerHTML = `<span class="btn-symbol">‚</span> Start Auto Ignore`;
+                this.button.innerHTML = `<span class="btn-symbol">‚èπ</span> Start Auto Ignore`;
                 this.button.classList.remove('running');
             }
         }

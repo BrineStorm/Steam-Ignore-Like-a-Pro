@@ -49,29 +49,31 @@
             return textButtons.length > 0 ? textButtons[textButtons.length - 1] : null;
         }
 
-        static getGameInfo(slide) {
+        /**
+         * @param {HTMLElement} slide 
+         * @param {Object} nameExtractorAdapter - Injected adapter
+         */
+        static getGameInfo(slide, nameExtractorAdapter) {
             let name = "Unknown Game";
             
-            // Find all links pointing to a game page
             const links = slide.querySelectorAll('a[href*="/app/"]');
             for (const link of links) {
-                // Ignore image/video wrappers, we want the text link
                 if (!link.querySelector('img') && !link.querySelector('video')) {
                     const text = link.textContent.trim();
                     if (text.length > 1 && text.length < 150) {
                         name = text;
-                        break; // Found the title
+                        break; 
                     }
                 }
             }
 
-            // Fallback just in case
             if (name === "Unknown Game") {
                 const title = slide.querySelector('div[class*="StoreSaleWidgetTitle"]');
                 if (title) {
                     name = title.textContent.trim();
-                } else if (window.ILAP.getGameName) {
-                    name = window.ILAP.getGameName(0, slide);
+                } else if (nameExtractorAdapter) {
+                    // DIP FIX: Removed global window.ILAP call
+                    name = nameExtractorAdapter.get(0, slide);
                 }
             }
 
@@ -98,22 +100,26 @@
      * @typedef {Object} StatsAdapter
      * @property {function(string, string): void} save
      */
+     
+    /**
+     * @typedef {Object} NameExtractorAdapter
+     * @property {function(string, Object): string} get
+     */
 
     class DiscoveryQueueAutomator {
         /**
          * @param {ApiAdapter} apiAdapter 
          * @param {StatsAdapter} statsAdapter 
+         * @param {NameExtractorAdapter} nameExtractorAdapter
          */
-        constructor(apiAdapter, statsAdapter) {
-            if (!apiAdapter || typeof apiAdapter.ignore !== 'function') {
-                throw new TypeError("[ILAP] Invalid ApiAdapter passed to DiscoveryQueueAutomator");
-            }
-            if (!statsAdapter || typeof statsAdapter.save !== 'function') {
-                throw new TypeError("[ILAP] Invalid StatsAdapter passed to DiscoveryQueueAutomator");
-            }
+        constructor(apiAdapter, statsAdapter, nameExtractorAdapter) {
+            if (!apiAdapter || typeof apiAdapter.ignore !== 'function') throw new TypeError("[ILAP] Invalid ApiAdapter passed to DiscoveryQueueAutomator");
+            if (!statsAdapter || typeof statsAdapter.save !== 'function') throw new TypeError("[ILAP] Invalid StatsAdapter passed to DiscoveryQueueAutomator");
+            if (!nameExtractorAdapter || typeof nameExtractorAdapter.get !== 'function') throw new TypeError("[ILAP] Invalid NameExtractorAdapter passed to DiscoveryQueueAutomator");
 
             this.api = apiAdapter;
             this.stats = statsAdapter;
+            this.nameExtractor = nameExtractorAdapter; // DIP injection
             
             this.isRunning = false;
             this.processedCount = 0;
@@ -130,11 +136,8 @@
         }
 
         async toggle() {
-            if (this.isRunning) {
-                this.stop();
-            } else {
-                await this.start();
-            }
+            if (this.isRunning) this.stop();
+            else await this.start();
         }
 
         stop() {
@@ -174,14 +177,13 @@
                      await this._clickWithDelay(continueBtn, 2500);
                      return true; 
                 }
-                console.log("[ILAP] Queue finished.");
                 return false; 
             }
 
-            const gameInfo = SlideScanner.getGameInfo(slide);
+            // Passing the injected name extractor
+            const gameInfo = SlideScanner.getGameInfo(slide, this.nameExtractor);
 
             if (this.config.skipPositive && gameInfo.isPositive) {
-                console.log(`[ILAP] Skipping Positive: ${gameInfo.name}`);
                 await this._clickWithDelay(nextBtn, 800);
                 return true;
             }

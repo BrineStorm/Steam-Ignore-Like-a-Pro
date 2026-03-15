@@ -73,7 +73,21 @@
     /* === GENERAL UI === */
     .dimmed { opacity: 0.3; pointer-events: none; transition: opacity 0.3s; }
     #ui-wrapper.disabled { filter: grayscale(100%); opacity: 0.5; pointer-events: none; }
-    .stat-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; align-items: center; }
+    #count-link { color: #66c0f4; text-decoration: underline; cursor: pointer; font-weight: bold; }
+    
+    .stat-row { 
+        display: flex; 
+        justify-content: space-between; 
+        margin-bottom: 8px; 
+        font-size: 13px; 
+        align-items: center; 
+    }
+    
+    .stat-row > span:first-child {
+        flex: 1;
+        padding-right: 10px;
+    }
+    
     #count-link { color: #66c0f4; text-decoration: underline; cursor: pointer; font-weight: bold; }
     
     /* === HISTORY TOOLTIP === */
@@ -176,7 +190,7 @@
         <div id="dynamic-hint" class="hint"></div>
 
         <details id="settings-accordion">
-          <summary><span style="display: flex; align-items: center; gap: 8px;">â SETTINGS</span></summary>
+          <summary><span style="display: flex; align-items: center; gap: 8px;">âš™ SETTINGS</span></summary>
           <div class="settings-content" id="settings-placeholder"></div>
         </details>
     </div>

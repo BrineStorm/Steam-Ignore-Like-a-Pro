@@ -19,7 +19,7 @@
 
     class ConfigService {
         constructor(defaultConfig) {
-            this.config = defaultConfig;
+            this.config = { ...defaultConfig };
             this.listeners = [];
         }
 
@@ -52,9 +52,9 @@
         }
 
         _updateInternal(res) {
-            this.config.defaultKey = res.ilap_shortcut_key || 'ctrlKey';
-            this.config.platformKey = res.ilap_platform_key || 'off';
-            this.config.enabled = res.ilap_master_enabled !== false;
+            if (res.ilap_shortcut_key !== undefined) this.config.defaultKey = res.ilap_shortcut_key;
+            if (res.ilap_platform_key !== undefined) this.config.platformKey = res.ilap_platform_key;
+            if (res.ilap_master_enabled !== undefined) this.config.enabled = res.ilap_master_enabled;
         }
     }
 
@@ -148,12 +148,79 @@
         }
     }
 
+    class SwipeGestureDetector {
+        constructor(configService, thresholdPx = 40) {
+            this.configService = configService;
+            this.threshold = thresholdPx;
+            
+            this.startX = 0;
+            this.startY = 0;
+            this.startEl = null;
+            this.isSwiping = false;
+            this.blockNextMenu = false;
+            
+            this.onGestureCallback = null;
+        }
+
+        attach(rootElement, callback) {
+            this.onGestureCallback = callback;
+            rootElement.addEventListener('mousedown', (e) => this.onMouseDown(e), true);
+            rootElement.addEventListener('mouseup', (e) => this.onMouseUp(e), true);
+            rootElement.addEventListener('contextmenu', (e) => this.onContextMenu(e), true);
+        }
+
+        onMouseDown(e) {
+            if (e.button !== 2) return; 
+            
+            this.startX = e.clientX;
+            this.startY = e.clientY;
+            this.startEl = e.target;
+            this.isSwiping = true;
+        }
+
+        onMouseUp(e) {
+            if (!this.isSwiping || e.button !== 2) return;
+            this.isSwiping = false;
+
+            const dx = e.clientX - this.startX;
+            const dy = e.clientY - this.startY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance >= this.threshold) {
+                const directionName = dx > 0 ? 'Right' : 'Left';
+                const swipeKey = `swipeRight${directionName}`; 
+                
+                const config = this.configService.get();
+                if (!config.enabled) return;
+
+                let reason = -1;
+                if (config.defaultKey === swipeKey) reason = 0;
+                else if (config.platformKey === swipeKey) reason = 2;
+
+                if (reason !== -1) {
+                    this.blockNextMenu = true; 
+                    if (this.onGestureCallback) {
+                        this.onGestureCallback({ startEl: this.startEl, reason: reason });
+                    }
+                }
+            }
+        }
+
+        onContextMenu(e) {
+            if (this.blockNextMenu) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.blockNextMenu = false;
+            }
+        }
+    }
+
     class EventParser {
         constructor(configService) {
             this.configService = configService;
         }
 
-        parse(event) {
+        parseClick(event) {
             const config = this.configService.get();
             if (!config.enabled) return null;
 
@@ -162,8 +229,11 @@
             else if (config.platformKey !== 'off' && event[config.platformKey]) reason = 2;
 
             if (reason === -1) return null;
+            return this.createIntent(event.target, reason);
+        }
 
-            const linkTarget = event.target.closest(SELECTORS.LINK);
+        createIntent(startElement, reason) {
+            const linkTarget = startElement.closest(SELECTORS.LINK);
             if (!linkTarget) return null;
 
             const match = linkTarget.getAttribute('href').match(/\/app\/(\d+)/);
@@ -173,11 +243,19 @@
         }
     }
 
+    // ISP FIX: Separate session storage abstraction
+    class SessionStateService {
+        set(key, value) { sessionStorage.setItem(key, value); }
+        get(key) { return sessionStorage.getItem(key); }
+    }
+
     // Exports
     window.ILAP.ManualIgnore.BADGE_CLASSES = BADGE_CLASSES;
     window.ILAP.ManualIgnore.ConfigService = ConfigService;
     window.ILAP.ManualIgnore.ContainerStrategyProvider = ContainerStrategyProvider;
     window.ILAP.ManualIgnore.ContextScanner = ContextScanner;
+    window.ILAP.ManualIgnore.SwipeGestureDetector = SwipeGestureDetector;
     window.ILAP.ManualIgnore.EventParser = EventParser;
+    window.ILAP.ManualIgnore.SessionStateService = SessionStateService;
 
 })();

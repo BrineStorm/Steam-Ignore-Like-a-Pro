@@ -54,12 +54,13 @@
             const statsAdapter = {
                 save: (name, source) => window.ILAP.saveStats(name, source)
             };
+            const nameExtractorAdapter = { get: (appid, el) => window.ILAP.getGameName(appid, el) };
 
             // 2. Instantiate Components
             const AutomatorClass = window.ILAP.Discovery.Automator;
             const UIClass = window.ILAP.Discovery.UI;
 
-            this.automator = new AutomatorClass(apiAdapter, statsAdapter);
+            this.automator = new AutomatorClass(apiAdapter, statsAdapter, nameExtractorAdapter);
             this.ui = new UIClass();
 
             // 3. Bind UI Updates (Logic -> UI)

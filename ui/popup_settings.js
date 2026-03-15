@@ -17,7 +17,6 @@
             if (!this.container || this.container.children.length > 0) return; 
 
             this.container.innerHTML = `
-                <!-- Discovery Queue Section -->
                 <div class="section-title-row">
                     <div class="section-title">Your Discovery Queue</div>
                     <label class="switch" title="Master toggle for Discovery Queue automation.">
@@ -27,8 +26,8 @@
                 </div>
                 
                 <div id="q-sub-settings">
-                    <div class="stat-row" title="Enable automatic transition after ignore.">
-                        <span>Click Next after ignore</span>
+                    <div class="stat-row" title="Enable automatic transition ONLY when a game is successfully ignored.">
+                        <span>Click Next after applied ignore</span>
                         <label class="switch">
                             <input type="checkbox" id="q-next">
                             <span class="slider"></span>
@@ -48,7 +47,6 @@
                     </div>
                 </div>
 
-                <!-- Manual Ignore Section -->
                 <div class="section-title-row" style="margin-top: 15px;">
                     <div class="section-title">Manual Ignore</div>
                 </div>
@@ -57,12 +55,12 @@
                     <span style="flex: 1;">Default Ignore:</span>
                     <div style="display: flex; align-items: center; gap: 5px;">
                         <select id="default-key">
-                            <option value="ctrlKey">Ctrl</option>
-                            <option value="shiftKey">Shift</option>
-                            <option value="altKey">Alt</option>
+                            <option value="swipeRightRight">Right-Click + Swipe &rarr;</option>
+                            <option value="swipeRightLeft">Right-Click + Swipe &larr;</option>
+                            <option value="ctrlKey">Ctrl + Left-Click</option>
+                            <option value="shiftKey">Shift + Left-Click</option>
+                            <option value="altKey">Alt + Left-Click</option>
                         </select>
-                        <span style="font-size: 11px; color: #8f98a0;">+</span>
-                        <span class="click-badge">Click</span>
                     </div>
                 </div>
 
@@ -71,12 +69,12 @@
                     <div style="display: flex; align-items: center; gap: 5px;">
                         <select id="platform-key">
                             <option value="off">Off</option>
-                            <option value="ctrlKey">Ctrl</option>
-                            <option value="shiftKey">Shift</option>
-                            <option value="altKey">Alt</option>
+                            <option value="swipeRightRight">Right-Click + Swipe &rarr;</option>
+                            <option value="swipeRightLeft">Right-Click + Swipe &larr;</option>
+                            <option value="ctrlKey">Ctrl + Left-Click</option>
+                            <option value="shiftKey">Shift + Left-Click</option>
+                            <option value="altKey">Alt + Left-Click</option>
                         </select>
-                        <span style="font-size: 11px; color: #8f98a0;">+</span>
-                        <span id="p-badge" class="click-badge">Click</span>
                     </div>
                 </div>
             `;
@@ -86,44 +84,35 @@
             const els = {
                 qMaster: document.getElementById('q-master'),
                 qNext: document.getElementById('q-next'),
-                qMode: document.getElementById('q-mode-toggle'), // The new slider checkbox
+                qMode: document.getElementById('q-mode-toggle'), 
                 qSub: document.getElementById('q-sub-settings'),
                 dSel: document.getElementById('default-key'),
                 pSel: document.getElementById('platform-key'),
-                pLabel: document.getElementById('p-label'),
-                pBadge: document.getElementById('p-badge')
+                pLabel: document.getElementById('p-label')
             };
 
-            // Initial State
             els.qMaster.checked = data.ilap_q_master !== false;
             els.qNext.checked = !!data.ilap_q_next;
-            
-            // Logic for Mode: if stored is 'all', box is checked. Else (undefined or 'bad') unchecked.
             els.qMode.checked = (data.ilap_q_mode === 'all');
 
-            els.dSel.value = data.ilap_shortcut_key || 'ctrlKey';
-            els.pSel.value = data.ilap_platform_key || 'off';
+            els.dSel.value = data.ilap_shortcut_key || 'swipeRightRight';
+            els.pSel.value = data.ilap_platform_key || 'swipeRightLeft';
 
             const updateVisuals = () => {
                 els.qSub.classList.toggle('dimmed', !els.qMaster.checked);
-                
                 const isPlatformOff = els.pSel.value === 'off';
                 els.pLabel.classList.toggle('dimmed', isPlatformOff);
-                els.pBadge.classList.toggle('dimmed', isPlatformOff);
-
                 this.syncSelectors(els.dSel, els.pSel);
             };
 
             updateVisuals();
 
-            // Listeners
             els.qMaster.addEventListener('change', () => {
                 chrome.storage.local.set({ ilap_q_master: els.qMaster.checked });
                 updateVisuals();
             });
             els.qNext.addEventListener('change', () => chrome.storage.local.set({ ilap_q_next: els.qNext.checked }));
             
-            // Mode Listener: checked = 'all', unchecked = 'bad'
             els.qMode.addEventListener('change', () => {
                 const val = els.qMode.checked ? 'all' : 'bad';
                 chrome.storage.local.set({ ilap_q_mode: val });

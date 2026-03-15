@@ -2,50 +2,51 @@
     'use strict';
 
     function init() {
-        // --- 1. GLOBAL WATCHDOG ---
-        const isQueuePage = window.ILAP.Explore.Context.isQueuePage();
-        if (!isQueuePage) {
+        // Safe access to module exports
+        const Explore = window.ILAP.Explore;
+        
+        // 1. GLOBAL WATCHDOG
+        if (!Explore.Context.isQueuePage()) {
             sessionStorage.removeItem('ilap_queue_active');
             sessionStorage.removeItem('ilap_queue_ff');
             sessionStorage.removeItem('ilap_queue_nav_token');
             return; 
         }
 
-        // --- 2. Initialization ---
-
-        // Infrastructure
-        const storageService = new window.ILAP.Explore.StorageService();
-        const resourceService = new window.ILAP.Explore.ResourceService();
+        // 2. Infrastructure Initialization
+        const extSettings = new Explore.ExtensionSettingsService();
+        const sessionState = new Explore.SessionStateService();
+        const resourceService = new Explore.ResourceService();
         
-        // Domain Services
-        const navGuard = new window.ILAP.Explore.NavigationGuard(storageService);
+        // 3. Domain Service Initialization
+        const navGuard = new Explore.NavigationGuard(sessionState);
 
-        // UI
-        const uiService = new window.ILAP.Explore.UI(resourceService);
-
-        // Adapters
-        const apiAdapter = {
-            ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason)
-        };
-        const statsAdapter = {
-            save: (name, source) => window.ILAP.saveStats(name, source)
-        };
-        // New Adapter
-        const nameExtractorAdapter = {
-            get: (appid) => window.ILAP.getGameName(appid)
-        };
-
-        // Automator (Controller)
-        const AutomatorClass = window.ILAP.Explore.AutomatorClass;
-        const automator = new AutomatorClass(
-            storageService,
-            uiService,
-            apiAdapter,
-            statsAdapter,
-            navGuard,
-            nameExtractorAdapter // Injection
+        // 4. UI Initialization (DIP passed)
+        const uiService = new Explore.UI(
+            resourceService, 
+            Explore.COLORS, 
+            () => Explore.Context.getIgnoreContainer() // Context injected as a function
         );
 
+        // 5. External Adapters Creation
+        const apiAdapter = { ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) };
+        const statsAdapter = { save: (name, source) => window.ILAP.saveStats(name, source) };
+        const nameExtractorAdapter = { get: (appid) => window.ILAP.getGameName(appid) };
+
+        // 6. Automator DI Assembly
+        const automator = new Explore.AutomatorClass({
+            settings: extSettings,
+            ui: uiService,
+            api: apiAdapter,
+            stats: statsAdapter,
+            navGuard: navGuard,
+            nameExtractor: nameExtractorAdapter,
+            context: Explore.Context,
+            analyzer: { getState: () => Explore.Analyzer.getState(Explore.COLORS) }, // Bound config
+            decisionEngine: Explore.DecisionEngine
+        });
+
+        // 7. Run
         automator.run();
         
         let lastUrl = location.href;
@@ -58,6 +59,7 @@
         observer.observe(document.body, { subtree: true, childList: true });
     }
 
+    // Ensure dependencies exist before loading
     if (window.ILAP && window.ILAP.Explore) {
         init();
     } else {

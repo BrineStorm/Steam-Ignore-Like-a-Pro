@@ -1,18 +1,19 @@
 (function() {
     'use strict';
 
-    const { COLORS, Context } = window.ILAP.Explore;
-
+    // Helper isolated logic
     function getModeLabel(mode) {
         return mode === 'all' ? "Every Game" : "Bad Reviews";
     }
 
     class ActionUI {
         /**
-         * @param {Object} resourceService - Instance of ResourceService
+         * DIP FIX: Dependencies injected, no direct references to window.ILAP.Explore...
          */
-        constructor(resourceService) {
+        constructor(resourceService, themeColors, containerProviderFunc) {
             this.resources = resourceService;
+            this.colors = themeColors;
+            this.getContainer = containerProviderFunc;
         }
 
         showStartPrompt(initialMode, handlers) {
@@ -27,7 +28,6 @@
                 display: flex; flex-direction: column; gap: 12px;
             `;
 
-            // Use injected resource service
             const iconUrl = this.resources.getIconUrl('icon16.png');
             const modeLabel = getModeLabel(initialMode);
 
@@ -39,12 +39,12 @@
                     </div>
                     <div style="display: flex; align-items: center;">
                         <div id="ilap-disable-btn" style="font-size: 10px; color: #8f98a0; border: 1px solid #3d4a5d; padding: 3px 8px; border-radius: 3px; cursor: pointer; margin-right: 12px; background: transparent; transition: all 0.2s;">Disable</div>
-                        <span id="ilap-close-x" style="font-size: 14px; color: #8f98a0; cursor: pointer; line-height: 1;">â</span>
+                        <span id="ilap-close-x" style="font-size: 14px; color: #8f98a0; cursor: pointer; line-height: 1;">âœ•</span>
                     </div>
                 </div>
 
                 <button id="ilap-run-btn" style="background: #5c7e10; color: white; border: none; padding: 10px; border-radius: 2px; cursor: pointer; font-size: 13px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    Auto-Ignore & Next
+                    Run Auto-Ignore
                     <span id="ilap-mode-badge" style="background: rgba(0,0,0,0.2); font-size: 10px; padding: 2px 6px; border-radius: 3px; color: #e1e1e1;">
                         [${modeLabel}]
                     </span>
@@ -88,9 +88,7 @@
 
         updateRunButtonMode(newMode) {
             const badge = document.getElementById('ilap-mode-badge');
-            if (badge) {
-                badge.textContent = `[${getModeLabel(newMode)}]`;
-            }
+            if (badge) badge.textContent = `[${getModeLabel(newMode)}]`;
         }
 
         showRunningToast(message, onStop) {
@@ -125,15 +123,16 @@
         }
 
         applyVisuals(type, reasonMode) {
-            const container = Context.getIgnoreContainer();
+            // Using injected context provider
+            const container = this.getContainer();
             if (!container) return;
             
             const theme = { 
-                'IGNORE': COLORS.RED_BG, 
-                'SPARE': COLORS.BLUE_BG,
-                'NO_REVIEWS': COLORS.BLUE_BG 
+                'IGNORE': this.colors.RED_BG, 
+                'SPARE': this.colors.BLUE_BG,
+                'NO_REVIEWS': this.colors.BLUE_BG 
             };
-            const color = theme[type] || COLORS.BLUE_BG;
+            const color = theme[type] || this.colors.BLUE_BG;
 
             container.style.boxShadow = `0 0 0 2px ${color}`;
             container.style.position = 'relative';
@@ -160,7 +159,6 @@
             tooltip.className = 'ilap-tooltip';
             tooltip.style.cssText = `position: absolute; bottom: 140%; right: -10px; background: #171a21; color: #c7d5e0; padding: 8px; border-radius: 4px; border: 1px solid ${color}; min-width: 180px; font-size: 11px; z-index: 1000; pointer-events: none; visibility: hidden; opacity: 0; transition: 0.15s; text-align: left;`;
             
-            // Use injected resource service
             const iconUrl = this.resources.getIconUrl('icon16.png');
             const badgeLabel = reasonMode === 'all' ? "Every Game" : "Bad Reviews";
             
