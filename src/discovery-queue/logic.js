@@ -1,4 +1,4 @@
-(function() {
+﻿(function() {
     'use strict';
     
     window.ILAP = window.ILAP || {};
@@ -10,7 +10,9 @@
     };
 
     const STEAM_COLORS = {
-        BLUE: 'rgb(102, 192, 244)'
+        BLUE: 'rgb(102, 192, 244)',
+        MIXED: 'rgb(163, 139, 90)',
+        NEGATIVE: 'rgb(163, 76, 37)'
     };
 
     class SlideScanner {
@@ -49,10 +51,6 @@
             return textButtons.length > 0 ? textButtons[textButtons.length - 1] : null;
         }
 
-        /**
-         * @param {HTMLElement} slide 
-         * @param {Object} nameExtractorAdapter - Injected adapter
-         */
         static getGameInfo(slide, nameExtractorAdapter) {
             let name = "Unknown Game";
             
@@ -72,18 +70,33 @@
                 if (title) {
                     name = title.textContent.trim();
                 } else if (nameExtractorAdapter) {
-                    // DIP FIX: Removed global window.ILAP call
                     name = nameExtractorAdapter.get(0, slide);
                 }
             }
 
+            // FIX: Improved review parsing for Discovery Queue
             const reviewLink = slide.querySelector('a[href*="#app_reviews_hash"]');
-            let isPositive = false;
+            
+            // By default, if there are NO reviews or the block is missing, 
+            // we assume the game is "safe" (isPositive = true) so it doesn't get auto-banned.
+            let isPositive = true; 
             
             if (reviewLink) {
-                const checkColor = (el) => getComputedStyle(el).color === STEAM_COLORS.BLUE;
+                // Let's check the color of the text to determine the exact review state
+                let hasMixedOrNegative = false;
+                
+                const checkColor = (el) => {
+                    const color = getComputedStyle(el).color;
+                    return color === STEAM_COLORS.MIXED || color === STEAM_COLORS.NEGATIVE;
+                };
+
                 if (checkColor(reviewLink) || Array.from(reviewLink.querySelectorAll('*')).some(c => checkColor(c))) {
-                    isPositive = true;
+                    hasMixedOrNegative = true;
+                }
+
+                // If the text is specifically Mixed or Negative, then it's NOT positive (so it gets banned)
+                if (hasMixedOrNegative) {
+                    isPositive = false;
                 }
             }
 
@@ -91,27 +104,7 @@
         }
     }
 
-    /**
-     * @typedef {Object} ApiAdapter
-     * @property {function(string, number): Promise<boolean>} ignore
-     */
-
-    /**
-     * @typedef {Object} StatsAdapter
-     * @property {function(string, string): void} save
-     */
-     
-    /**
-     * @typedef {Object} NameExtractorAdapter
-     * @property {function(string, Object): string} get
-     */
-
     class DiscoveryQueueAutomator {
-        /**
-         * @param {ApiAdapter} apiAdapter 
-         * @param {StatsAdapter} statsAdapter 
-         * @param {NameExtractorAdapter} nameExtractorAdapter
-         */
         constructor(apiAdapter, statsAdapter, nameExtractorAdapter) {
             if (!apiAdapter || typeof apiAdapter.ignore !== 'function') throw new TypeError("[ILAP] Invalid ApiAdapter passed to DiscoveryQueueAutomator");
             if (!statsAdapter || typeof statsAdapter.save !== 'function') throw new TypeError("[ILAP] Invalid StatsAdapter passed to DiscoveryQueueAutomator");
@@ -119,7 +112,7 @@
 
             this.api = apiAdapter;
             this.stats = statsAdapter;
-            this.nameExtractor = nameExtractorAdapter; // DIP injection
+            this.nameExtractor = nameExtractorAdapter; 
             
             this.isRunning = false;
             this.processedCount = 0;
@@ -180,7 +173,6 @@
                 return false; 
             }
 
-            // Passing the injected name extractor
             const gameInfo = SlideScanner.getGameInfo(slide, this.nameExtractor);
 
             if (this.config.skipPositive && gameInfo.isPositive) {

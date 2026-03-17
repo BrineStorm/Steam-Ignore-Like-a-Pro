@@ -1,0 +1,16 @@
+{
+  "name": "steam-ignore-like-a-pro",
+  "version": "1.0.0",
+  "description": "Helper tool for ignoring games in the Steam Store.",
+  "author": "",
+  "license": "MPL-2.0",
+  "scripts": {
+    "build": "node build.js",
+    "test": "npx playwright test",
+    "test:auth": "npx playwright test tests/auth.setup.spec.js",
+    "test:e2e": "npx playwright test tests/steam_ilap.spec.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0"
+  }
+}
