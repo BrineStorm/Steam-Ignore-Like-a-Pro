@@ -40,6 +40,12 @@
             return document.getElementById('ignoreBtn') || 
                    document.querySelector('.expand_to_fill')?.previousElementSibling || null;
         }
+
+        // NEW: Fetch the primary game container on the Explore page
+        // This isolates the name extraction from any "Recommended" or "Similar" blocks on the page.
+        static getGameContainer() {
+            return document.querySelector('.page_content_ctn') || document.body;
+        }
     }
 
     class ReviewAnalyzer {
@@ -50,40 +56,49 @@
             const rows = container.querySelectorAll('.user_reviews_summary_row');
             if (rows.length === 0) return 'NO_REVIEWS';
 
-            let hasPositive = false;
-            let hasNegativeOrMixed = false;
-            let hasReviewsWithCount = false;
+            let hasValidReviews = false;
+            let hasNonBlueReview = false;
 
             rows.forEach(row => {
-                const summarySpan = row.querySelector('.game_review_summary');
-                if (!summarySpan) return;
-                
-                const color = window.getComputedStyle(summarySpan).color;
-                const hasCount = /\(\d+[.,]?\d*\)/.test(row.textContent || "");
+                const summaryCol = row.querySelector('.summary.column');
+                if (!summaryCol) return;
 
-                if (color === colorsConfig.BLUE) {
-                    hasPositive = true;
-                    if (hasCount) hasReviewsWithCount = true;
-                } else if (color === colorsConfig.GRAY) {
-                    if (hasCount) hasReviewsWithCount = true;
-                } else {
-                    hasNegativeOrMixed = true;
-                    if (hasCount) hasReviewsWithCount = true;
+                const statusSpan = summaryCol.querySelector('.game_review_summary');
+                const countSpan = summaryCol.querySelector('.responsive_hidden');
+
+                let hasBrackets = false;
+                if (countSpan) {
+                    const countText = countSpan.textContent.trim();
+                    if (countText.startsWith('(') && countText.endsWith(')')) {
+                        hasBrackets = true;
+                    }
+                }
+
+                if (statusSpan && hasBrackets) {
+                    hasValidReviews = true;
+                    
+                    const color = window.getComputedStyle(statusSpan).color;
+                    if (color !== colorsConfig.BLUE) {
+                        hasNonBlueReview = true;
+                    }
                 }
             });
 
-            if (!hasReviewsWithCount) return 'NO_REVIEWS';
-            if (hasNegativeOrMixed) return 'IGNORE';
-            if (hasPositive && !hasNegativeOrMixed) return 'SPARE';
-            return 'NO_REVIEWS';
+            if (!hasValidReviews) return 'NO_REVIEWS';
+            if (hasNonBlueReview) return 'IGNORE';
+            return 'SPARE';
         }
     }
 
     class DecisionEngine {
+        static strategies = {
+            'all': () => 'SHOULD_IGNORE',
+            'bad': (reviewState) => reviewState === 'IGNORE' ? 'SHOULD_IGNORE' : 'SHOULD_SPARE'
+        };
+
         static decide(reviewState, mode) {
-            if (mode === 'all') return 'SHOULD_IGNORE';
-            if (reviewState === 'IGNORE') return 'SHOULD_IGNORE';
-            return 'SHOULD_SPARE';
+            const strategy = this.strategies[mode] || this.strategies['bad'];
+            return strategy(reviewState);
         }
     }
 
@@ -129,13 +144,12 @@
         }
     }
 
-    // --- Infrastructure Services (ISP FIX) ---
+    // --- Infrastructure Services ---
 
     class ResourceService {
-        getIconUrl(fileName) { return chrome.runtime.getURL(`icons/${fileName}`); }
+        getIconUrl(fileName) { return chrome.runtime.getURL(`./assets/icons/${fileName}`); }
     }
 
-    // Split 1: Persistent Extension Settings
     class ExtensionSettingsService {
         async getSettings(keys) {
             return new Promise(resolve => chrome.storage.local.get(keys, resolve));
@@ -148,13 +162,6 @@
         }
     }
 
-    // Split 2: Ephemeral Navigation State
-    class SessionStateService {
-        set(key, value) { sessionStorage.setItem(key, value); }
-        get(key) { return sessionStorage.getItem(key); }
-        remove(key) { sessionStorage.removeItem(key); }
-    }
-
     // Export
     window.ILAP.Explore.COLORS = COLORS;
     window.ILAP.Explore.Context = QueueContext;
@@ -163,6 +170,5 @@
     window.ILAP.Explore.NavigationGuard = NavigationGuard;
     
     window.ILAP.Explore.ResourceService = ResourceService;
-    window.ILAP.Explore.ExtensionSettingsService = ExtensionSettingsService;
-    window.ILAP.Explore.SessionStateService = SessionStateService;
+    window.ILAP.Explore.ExtensionSettingsService = ExtensionSettingsService; 
 })();

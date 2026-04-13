@@ -7,17 +7,25 @@
     }
 
     class ActionUI {
-        /**
-         * DIP FIX: Dependencies injected, no direct references to window.ILAP.Explore...
-         */
         constructor(resourceService, themeColors, containerProviderFunc) {
             this.resources = resourceService;
             this.colors = themeColors;
             this.getContainer = containerProviderFunc;
         }
 
+        // NEW: SRP compliant method to cleanly remove the start prompt
+        clearStartPrompt() {
+            const prompt = document.getElementById('ilap-toast');
+            // We only remove it if it's the start prompt (doesn't have the stop button)
+            if (prompt && !prompt.querySelector('#ilap-stop-btn')) {
+                prompt.remove();
+            }
+        }
+
         showStartPrompt(initialMode, handlers) {
-            document.getElementById('ilap-toast')?.remove();
+            // Aggressively remove ANY existing toasts to prevent ghost DOM nodes
+            const existingToasts = document.querySelectorAll('#ilap-toast');
+            existingToasts.forEach(t => t.remove());
             
             const toast = document.createElement('div');
             toast.id = 'ilap-toast';
@@ -44,7 +52,7 @@
                 </div>
 
                 <button id="ilap-run-btn" style="background: #5c7e10; color: white; border: none; padding: 10px; border-radius: 2px; cursor: pointer; font-size: 13px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    Run Auto-Ignore
+                    Run Auto Ignore
                     <span id="ilap-mode-badge" style="background: rgba(0,0,0,0.2); font-size: 10px; padding: 2px 6px; border-radius: 3px; color: #e1e1e1;">
                         [${modeLabel}]
                     </span>
@@ -157,7 +165,7 @@
 
             const tooltip = document.createElement('div');
             tooltip.className = 'ilap-tooltip';
-            tooltip.style.cssText = `position: absolute; bottom: 140%; right: -10px; background: #171a21; color: #c7d5e0; padding: 8px; border-radius: 4px; border: 1px solid ${color}; min-width: 180px; font-size: 11px; z-index: 1000; pointer-events: none; visibility: hidden; opacity: 0; transition: 0.15s; text-align: left;`;
+            tooltip.style.cssText = `position: absolute; bottom: 140%; right: -10px; background: #171a21; color: #c7d5e0; padding: 8px 12px; border-radius: 4px; border: 1px solid ${color}; min-width: 200px; font-size: 11px; z-index: 1000; pointer-events: none; visibility: hidden; opacity: 0; transition: 0.15s; text-align: left; line-height: 1.4;`;
             
             const iconUrl = this.resources.getIconUrl('icon16.png');
             const badgeLabel = reasonMode === 'all' ? "Every Game" : "Bad Reviews";
@@ -166,28 +174,41 @@
 
             if (type === 'NO_REVIEWS') {
                 tooltipContent = `
-                    <div style="display: flex; align-items: flex-start; gap: 6px;">
-                        <span>Ignore isn't applied for game without reviews</span>    
+                    <div style="margin-bottom: 6px;">
+                        <span>Ignore isn't applied for games without or with insufficient reviews.</span>    
                     </div>
-                    <div>
-                        <span style="color: #8f98a0;">Ignore setting - </span>
-                        <div style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; display: inline-block; font-size: 10px; font-weight: bold;">
+                    <div style="display: flex; align-items: center; gap: 6px; margin-top: 8px;">
+                        <span style="color: #8f98a0;">Ignore criteria -</span>
+                        <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
                             ${badgeLabel}
-                        </div>
+                        </span>
+                    </div>
+                `;
+            } else if (type === 'IGNORE') {
+                tooltipContent = `
+                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+                        <span>Ignored by</span>
+                        <img src="${iconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span style="color: #8f98a0;">Ignore criteria -</span>
+                        <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
+                            ${badgeLabel}
+                        </span>
                     </div>
                 `;
             } else {
-                const intro = type === 'IGNORE' ? "Ignored by" : "Ignore skipped by";
+                // SPARE block
                 tooltipContent = `
-                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
-                        <span>${intro}</span>
-                        <img src="${iconUrl}" style="width: 14px; vertical-align: middle;">
+                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+                        <span style="color: #66c0f4;">Not auto-ignored by</span>
+                        <img src="${iconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
                     </div>
-                    <div>
-                        <span style="color: #8f98a0;">Ignore setting - </span>
-                        <div style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; display: inline-block; font-size: 10px; font-weight: bold;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span style="color: #8f98a0;">Ignore criteria -</span>
+                        <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
                             ${badgeLabel}
-                        </div>
+                        </span>
                     </div>
                 `;
             }

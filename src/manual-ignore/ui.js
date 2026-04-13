@@ -2,9 +2,6 @@
     'use strict';
 
     class DuplicateDetector {
-        /**
-         * @param {Object} contextScanner
-         */
         constructor(contextScanner) {
             this.scanner = contextScanner;
         }
@@ -27,7 +24,7 @@
     }
 
     class BadgeFactory {
-        static create(appid, typeClass, reason) {
+        static create(appid, typeClass, reason, iconUrl) {
             const overlay = document.createElement('div');
             overlay.className = `ilap-ignored-overlay ${typeClass}`;
             overlay.dataset.ilapAppid = appid;
@@ -43,13 +40,12 @@
                 e.stopPropagation();
             });
 
-            const iconUrl = chrome.runtime.getURL('icons/icon16.png');
             overlay.innerHTML = `
                 IGNORED
                 <div class="ilap-tooltip">
                     <div style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
                         <span>${tooltipText}</span>
-                        <img src="${iconUrl}" style="width: 16px; height: 16px; vertical-align: middle;">                        
+                        <img src="${iconUrl}" style="width: 16px; height: 16px; vertical-align: middle;">
                     </div>
                 </div>
             `;
@@ -58,15 +54,11 @@
     }
 
     class BadgeRenderer {
-        /**
-         * @param {Object} strategyProvider 
-         * @param {Object} duplicateDetector 
-         * @param {Object} badgeClasses - Map of UI classes
-         */
-        constructor(strategyProvider, duplicateDetector, badgeClasses) {
+        constructor(strategyProvider, duplicateDetector, badgeClasses, resourceService) {
             this.strategies = strategyProvider;
             this.detector = duplicateDetector;
             this.badgeClasses = badgeClasses;
+            this.resources = resourceService; // Injected
         }
 
         render(linkElement, appid, reason) {
@@ -86,7 +78,9 @@
             targetForBadge.dataset.ilapState = 'processing';
 
             const variantClass = this._getVariantClass(type);
-            const badge = BadgeFactory.create(appid, variantClass, reason);
+            const iconUrl = this.resources.getIconUrl('icon16.png'); 
+            
+            const badge = BadgeFactory.create(appid, variantClass, reason, iconUrl);
             
             this._ensurePositioning(targetForBadge);
             targetForBadge.appendChild(badge);

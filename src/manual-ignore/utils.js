@@ -136,13 +136,35 @@
             let current = startElement;
             for (let i = 0; i < maxDepth; i++) {
                 if (!current || current === document.body) break;
-                if (current.id?.includes('tab_content') || current.classList.contains('tab_content')) break;
+
                 if (current.dataset.ilapIgnoreId === appid) return true;
-                
+
                 const existing = current.querySelector(`.ilap-ignored-overlay[data-ilap-appid="${appid}"]`);
                 if (existing && existing.parentElement !== startElement) return true;
-                
+
+                if (ContextScanner._isMultiGameSection(current)) break;
+
+                if (
+                    current.id?.includes('tab_content') ||
+                    current.classList.contains('tab_content')
+                ) break;
+
                 current = current.parentElement;
+            }
+            return false;
+        }
+
+        static _isMultiGameSection(element) {
+            const links = element.querySelectorAll('a[href*="/app/"]');
+            if (links.length < 2) return false;
+
+            const ids = new Set();
+            for (const link of links) {
+                const match = link.getAttribute('href').match(/\/app\/(\d+)/);
+                if (match) {
+                    ids.add(match[1]);
+                }
+                if (ids.size >= 2) return true;
             }
             return false;
         }
@@ -243,12 +265,6 @@
         }
     }
 
-    // ISP FIX: Separate session storage abstraction
-    class SessionStateService {
-        set(key, value) { sessionStorage.setItem(key, value); }
-        get(key) { return sessionStorage.getItem(key); }
-    }
-
     // Exports
     window.ILAP.ManualIgnore.BADGE_CLASSES = BADGE_CLASSES;
     window.ILAP.ManualIgnore.ConfigService = ConfigService;
@@ -256,6 +272,5 @@
     window.ILAP.ManualIgnore.ContextScanner = ContextScanner;
     window.ILAP.ManualIgnore.SwipeGestureDetector = SwipeGestureDetector;
     window.ILAP.ManualIgnore.EventParser = EventParser;
-    window.ILAP.ManualIgnore.SessionStateService = SessionStateService;
-
+ 
 })();

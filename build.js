@@ -4,12 +4,12 @@ const path = require('path');
 var DIST_DIR = path.join(__dirname, 'dist');
 var PLATFORM_DIR = path.join(__dirname, 'platform');
 
-// Updated: popup files moved to /ui folder
-var COMMON_FILES = [
-    'ui', // The whole folder
-    'styles.css',
-    'src',
-    'icons'
+// List of all common directories and files to copy
+var COMMON_ASSETS = [
+    'ui',         // Popup UI
+    'src',        // Core logic
+    'assets',     // All assets (icons, etc.)
+    'styles',     // All styles
 ];
 
 function copyRecursiveSync(src, dest) {
@@ -55,14 +55,14 @@ function buildPlatform(browser) {
     }
     fs.mkdirSync(outputDir, { recursive: true });
 
-    for (var i = 0; i < COMMON_FILES.length; i++) {
-        var file = COMMON_FILES[i];
-        copyRecursiveSync(
-            path.join(__dirname, file),
-            path.join(outputDir, file)
-        );
+    // Copy all common assets from the root to the output directory
+    for (const asset of COMMON_ASSETS) {
+        const srcPath = path.join(__dirname, asset);
+        const destPath = path.join(outputDir, path.basename(asset));
+        copyRecursiveSync(srcPath, destPath);
     }
 
+    // Copy the platform-specific manifest
     fs.copyFileSync(manifestPath, path.join(outputDir, 'manifest.json'));
 
     console.log('Build complete: ./dist/' + browser);

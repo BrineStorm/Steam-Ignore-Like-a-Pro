@@ -33,7 +33,6 @@
                     background-color: #d32f2f; border: 1px solid #b71c1c;
                 }
                 
-                /* FIX: White text with black outline for high contrast on any background */
                 .ilap-checkbox-label {
                     display: flex; align-items: center; font-size: 12px;
                     cursor: pointer; user-select: none; margin-right: 8px;

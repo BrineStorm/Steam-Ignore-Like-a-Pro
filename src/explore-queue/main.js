@@ -2,7 +2,6 @@
     'use strict';
 
     function init() {
-        // Safe access to module exports
         const Explore = window.ILAP.Explore;
         
         // 1. GLOBAL WATCHDOG
@@ -15,23 +14,23 @@
 
         // 2. Infrastructure Initialization
         const extSettings = new Explore.ExtensionSettingsService();
-        const sessionState = new Explore.SessionStateService();
+        const sessionState = new window.ILAP.SessionStateService();
         const resourceService = new Explore.ResourceService();
         
         // 3. Domain Service Initialization
         const navGuard = new Explore.NavigationGuard(sessionState);
 
-        // 4. UI Initialization (DIP passed)
+        // 4. UI Initialization
         const uiService = new Explore.UI(
             resourceService, 
             Explore.COLORS, 
-            () => Explore.Context.getIgnoreContainer() // Context injected as a function
+            () => Explore.Context.getIgnoreContainer() 
         );
 
         // 5. External Adapters Creation
         const apiAdapter = { ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) };
-        const statsAdapter = { save: (name, source) => window.ILAP.saveStats(name, source) };
-        const nameExtractorAdapter = { get: (appid) => window.ILAP.getGameName(appid) };
+        const statsAdapter = { save: (name, source) => window.ILAP.saveStats(name, source) };      
+        const nameExtractorAdapter = { get: (appid, el) => window.ILAP.getGameName(appid, el) };
 
         // 6. Automator DI Assembly
         const automator = new Explore.AutomatorClass({
@@ -42,7 +41,7 @@
             navGuard: navGuard,
             nameExtractor: nameExtractorAdapter,
             context: Explore.Context,
-            analyzer: { getState: () => Explore.Analyzer.getState(Explore.COLORS) }, // Bound config
+            analyzer: { getState: () => Explore.Analyzer.getState(Explore.COLORS) }, 
             decisionEngine: Explore.DecisionEngine
         });
 
@@ -59,7 +58,6 @@
         observer.observe(document.body, { subtree: true, childList: true });
     }
 
-    // Ensure dependencies exist before loading
     if (window.ILAP && window.ILAP.Explore) {
         init();
     } else {

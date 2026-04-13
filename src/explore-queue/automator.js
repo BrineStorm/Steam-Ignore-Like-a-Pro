@@ -29,8 +29,6 @@
             const nextBtn = this.context.getNextButton();
             if (!nextBtn) return;
 
-            // Grant a token when the user manually clicks "Next", 
-            // so automation can seamlessly resume on the next page.
             this._bindManualNextButton(nextBtn);
 
             const appid = this.context.getAppID();
@@ -51,13 +49,11 @@
                 return;
             }
 
-            // If automation is actively running from a previous page
             if (intent.wantsActive && isAuthorized) {
                 this._executeLogic(appid);
             } else if (intent.wantsFF && isAuthorized) {
                 this._executeFastForward();
             } else {
-                // First time arriving on the page manually, show the prompt
                 this._showStartPrompt();
             }
         }
@@ -101,10 +97,12 @@
                 {
                     onRun: () => {
                         this.nav.setIntent('ACTIVE');
+                        this.ui.clearStartPrompt(); // DIP: Delegated to UI
                         this._executeLogic(this.context.getAppID());
                     },
                     onFastForward: () => {
                         this.nav.setIntent('FF');
+                        this.ui.clearStartPrompt(); // DIP: Delegated to UI
                         this._executeFastForward();
                     },
                     onDisable: () => {
@@ -129,19 +127,16 @@
             const reviewState = this.analyzer.getState();
             const decision = this.decisionEngine.decide(reviewState, mode);
 
-            // Removing the start prompt if it exists (in case user just clicked "Run" on this page)
-            const prompt = document.getElementById('ilap-toast');
-            if (prompt && !prompt.querySelector('#ilap-stop-btn')) {
-                prompt.remove();
-            }
+            // Ensure start prompt is cleared if logic executes via navigation token
+            this.ui.clearStartPrompt();
 
             if (decision === 'SHOULD_IGNORE') {
                 this.processedSession.add(appid);
                 await this._performIgnore(appid, autoNext, mode);
             } else {
                 // Game is SPARED. 
-                // We apply visuals (Blue border) but DO NOT auto-next and DO NOT show toasts.
-                // The user must manually review and click the "Next" button.
+                // Apply visual badge and STOP. Do not show start prompt. Do not auto-next.
+                // Automation remains "ACTIVE" in background waiting for manual next click.
                 this.ui.applyVisuals(reviewState, mode);
             }
         }
@@ -150,7 +145,9 @@
             const success = await this.api.ignore(appid, 0);
             if (!success) return;
 
-            const name = this.nameExtractor.get(appid);
+            const gameContainer = this.context.getGameContainer();
+            const name = this.nameExtractor.get(appid, gameContainer);
+            
             this.stats.save(name, "Explore Auto-Queue");
             
             this.ui.applyVisuals('IGNORE', mode);
@@ -158,16 +155,12 @@
             const nextBtn = this.context.getNextButton();
             
             if (shouldNext && nextBtn) {
-                // Auto-next is ON: Show toast and skip
                 this.ui.showRunningToast(
                     `<b>${name}</b> ignored. Moving next...`,
                     () => { this._stopAutomation(); }
                 );
                 this._scheduleNextClick(nextBtn, 2000);
-            } else {
-                // Auto-next is OFF: Just apply the ignore badge and stop.
-                // User will click next manually.
-            }
+            } 
         }
 
         _scheduleNextClick(buttonElement, delay) {

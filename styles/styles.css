@@ -1,0 +1,168 @@
+/* =========================================
+   1. Ignored Game Overlay (Badge) - REFACTORED
+   ========================================= */
+
+@keyframes ilap-pop-in {
+    0% { transform: scale(0); opacity: 0; }
+    60% { transform: scale(1.15); opacity: 1; }
+    100% { transform: scale(1); }
+}
+
+.ilap-ignored-overlay {
+    position: absolute; 
+    bottom: 0; 
+    right: 0;
+    background-color: #D32F2F; 
+    color: white;
+    padding: 3px 6px; 
+    font-size: 11px; 
+    font-weight: 800; 
+    border-radius: 4px 0 0 0; /* Rounded top-left corner only */
+    text-transform: uppercase;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    
+    /* Z-Index Strategy: 
+       50 is enough to sit above images, 
+       but below Steam hover menus/dropdowns (usually 100+) */
+    z-index: 50; 
+    
+    box-shadow: -1px -1px 4px rgba(0,0,0,0.5);
+    pointer-events: auto; 
+    cursor: help;
+    animation: ilap-pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    transform-origin: bottom right;
+    line-height: 1;
+}
+
+/* Layout Safety: 
+   Class added via JS to container if position is static.
+   Ensures the absolute badge sticks to the card corner, not the page. */
+.ilap-tagged-container {
+    position: relative !important;
+}
+
+/* =========================================
+   2. Tooltip Styling - REFACTORED
+   ========================================= */
+
+.ilap-tooltip {
+    visibility: hidden; 
+    width: max-content;
+    max-width: 220px;
+    background-color: #171a21; 
+    color: #c7d5e0;
+    text-align: left; 
+    border-radius: 3px; 
+    padding: 8px 10px;
+    position: absolute; 
+    
+    /* Z-Index: Very high to overlap Steam hover modals */
+    z-index: 9999; 
+    
+    /* Position ABOVE the badge */
+    bottom: 100%;
+    right: 0;
+    margin-bottom: 8px; /* Gap between badge and tooltip */
+    
+    font-size: 11px; 
+    font-weight: normal; 
+    text-transform: none;
+    line-height: 1.4; 
+    box-shadow: 0 4px 15px rgba(0,0,0,0.9);
+    border: 1px solid #67c1f5; 
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+    white-space: normal;
+    pointer-events: none;
+}
+
+/* Tooltip Arrow */
+.ilap-tooltip::after {
+    content: ""; 
+    position: absolute; 
+    top: 100%; 
+    right: 10px; /* Align with the right side of badge */
+    border-width: 5px; 
+    border-style: solid;
+    border-color: #67c1f5 transparent transparent transparent;
+}
+
+.ilap-ignored-overlay:hover .ilap-tooltip { 
+    visibility: visible; 
+    opacity: 1; 
+}
+
+/* =========================================
+   3. Badge Variants - NEW
+   ========================================= */
+
+/* For Lists (Search results, Specials rows, Bundles) */
+.ilap-list-badge {
+    bottom: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    left: auto !important;
+    margin: 0 !important;
+    height: auto !important;
+    border-radius: 4px 0 0 0 !important;
+}
+
+/* For Standard Grids (Store Front, Category Pages) */
+.ilap-grid-badge {
+    font-size: 10px;
+    padding: 2px 5px;
+}
+
+/* For Large Banners (Hero / Spotlight / Daily Deal) */
+.ilap-hero-badge {
+    font-size: 12px;
+    padding: 4px 8px;
+}
+
+/* =========================================
+   4. Discovery Queue UI (Legacy / Automation)
+   ========================================= */
+
+.ilap-controls-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+    margin-right: 10px;
+}
+
+.ilap-checkbox-label {
+    display: flex;
+    align-items: center;
+    color: #8f98a0;
+    font-size: 12px;
+    font-family: Arial, sans-serif;
+    cursor: pointer;
+    user-select: none;
+}
+.ilap-checkbox-label:hover { color: #fff; }
+.ilap-checkbox { margin-right: 6px; cursor: pointer; }
+
+#queue-auto-ignore-btn {
+    padding: 6px 14px; 
+    background: #5c7e10; 
+    color: white;
+    border: 1px solid #4c6b22; 
+    border-radius: 4px; 
+    cursor: pointer;
+    font-family: Arial, sans-serif; 
+    font-size: 14px; 
+    height: fit-content;
+    display: flex; 
+    align-items: center; 
+    justify-content: center;
+    transition: background-color 0.2s, transform 0.1s;
+}
+#queue-auto-ignore-btn:active { transform: scale(0.97); }
+#queue-auto-ignore-btn .btn-symbol { margin-right: 8px; font-size: 12px; line-height: 1; vertical-align: middle; }
+#queue-auto-ignore-btn.running .btn-symbol { font-size: 14px; font-weight: bold; animation: ilap-blink-symbol 1.5s infinite; }
+
+@keyframes ilap-blink-symbol { 
+    0%, 100% { opacity: 1; } 
+    50% { opacity: 0.5; } 
+}

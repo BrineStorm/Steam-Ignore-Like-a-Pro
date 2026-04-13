@@ -2,14 +2,6 @@
     'use strict';
 
     class IgnoreManager {
-        /**
-         * @param {Object} badgeRenderer 
-         * @param {Object} containerStrategies 
-         * @param {Object} apiAdapter
-         * @param {Object} nameExtractor
-         * @param {Object} statsAdapter
-         * @param {Object} sessionState - ISP FIX: Injected Session Service
-         */
         constructor(badgeRenderer, containerStrategies, apiAdapter, nameExtractor, statsAdapter, sessionState) {
             this.renderer = badgeRenderer;
             this.strategies = containerStrategies;
@@ -80,16 +72,21 @@
         constructor(configService) {
             this.configService = configService;
             
-            // DIP Assembly
             const MI = window.ILAP.ManualIgnore;
+            
+            // Shared Infrastructure
+            const sessionService = new window.ILAP.SessionStateService();
+            const resourceService = { getIconUrl: (name) => chrome.runtime.getURL(`./assets/icons/${name}`) };
+
+            // UI Dependencies
             const strategies = new MI.ContainerStrategyProvider();
             const detector = new MI.DuplicateDetector(MI.ContextScanner); 
-            const badgeRenderer = new MI.BadgeRenderer(strategies, detector, MI.BADGE_CLASSES); 
+            const badgeRenderer = new MI.BadgeRenderer(strategies, detector, MI.BADGE_CLASSES, resourceService); 
             
+            // Adapters
             const apiAdapter = { ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) };
             const nameExtractorAdapter = { get: (appid, el) => window.ILAP.getGameName(appid, el) };
             const statsAdapter = { save: (name, source) => window.ILAP.saveStats(name, source) };
-            const sessionService = new MI.SessionStateService();
 
             this.ignoreManager = new IgnoreManager(
                 badgeRenderer, 

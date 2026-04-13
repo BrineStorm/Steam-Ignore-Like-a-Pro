@@ -74,7 +74,6 @@
                 }
             }
 
-            // FIX: Improved review parsing for Discovery Queue
             const reviewLink = slide.querySelector('a[href*="#app_reviews_hash"]');
             
             // By default, if there are NO reviews or the block is missing, 
