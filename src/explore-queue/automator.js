@@ -155,8 +155,11 @@
             const nextBtn = this.context.getNextButton();
             
             if (shouldNext && nextBtn) {
+                // SECURITY FIX: Sanitize the raw game name before putting it into HTML <b> tags
+                const safeName = window.ILAP.Explore.Sanitizer.escapeHTML(name);
+                
                 this.ui.showRunningToast(
-                    `<b>${name}</b> ignored. Moving next...`,
+                    `<b>${safeName}</b> ignored. Moving next...`,
                     () => { this._stopAutomation(); }
                 );
                 this._scheduleNextClick(nextBtn, 2000);

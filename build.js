@@ -8,8 +8,8 @@ var PLATFORM_DIR = path.join(__dirname, 'platform');
 var COMMON_ASSETS = [
     'ui',         // Popup UI
     'src',        // Core logic
-    'assets',     // All assets (icons, etc.)
-    'styles',     // All styles
+    'assets',     // All assets (icons, videos, etc.)
+    'styles'      // All styles
 ];
 
 function copyRecursiveSync(src, dest) {
@@ -31,6 +31,10 @@ function copyRecursiveSync(src, dest) {
             copyRecursiveSync(path.join(src, entry), path.join(dest, entry));
         }
     } else {
+        // FILTER: Prevent heavy media files from bloating the release extension
+        if (src.toLowerCase().endsWith('.mp4')) {
+            return;
+        }
         fs.copyFileSync(src, dest);
     }
 }

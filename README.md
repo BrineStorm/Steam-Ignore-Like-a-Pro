@@ -1,13 +1,14 @@
 # Steam Ignore Like A Pro
 
 [![Chrome Web Store](https://img.shields.io/badge/Chrome-Under_Review-blue.svg?logo=googlechrome)](#)
+[![Firefox Add-ons](https://img.shields.io/badge/Firefox-Under_Review-blue.svg?logo=firefoxbrowser)](#)
 
 ![alt text](assets/icons/icon128.png)
 
 A browser extension that allows you to ignore Steam games directly from the storefront - no extra clicks to open a menu, and no need to open individual game pages.
 **Steam Ignore Like A Pro** replaces this with a single gesture or hotkey, available on every Steam page.
 
-<video src="./assets/demo.mp4" autoplay loop muted playsinline width="33%"></video>
+<video src="assets/demo.mp4" autoplay loop muted playsinline width="33%"></video>
 
 ## What it does
 
@@ -53,7 +54,7 @@ Store listings are currently under review. In the meantime, you can install manu
 
 1. Clone or download the repository.
 2. Open a terminal in the project root and run `npm install`.
-3. Run `npm run build` (or `node build.js`) to generate the `dist/` folders.
+3. Run `npm run build.js` (or `node build`) to generate the `dist/` folders.
 
 ### <img src="https://raw.githubusercontent.com/alrra/browser-logos/main/src/chrome/chrome_24x24.png" width="20" height="20" align="center"> Chrome | <img src="https://raw.githubusercontent.com/alrra/browser-logos/main/src/edge/edge_24x24.png" width="20" height="20" align="center"> Edge
 1. Open *chrome://extensions* or *edge://extensions*

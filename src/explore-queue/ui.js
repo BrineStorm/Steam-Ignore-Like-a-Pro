@@ -1,7 +1,18 @@
 (function() {
     'use strict';
 
-    // Helper isolated logic
+    const Sanitizer = {
+        escapeHTML(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+    };
+
     function getModeLabel(mode) {
         return mode === 'all' ? "Every Game" : "Bad Reviews";
     }
@@ -13,17 +24,14 @@
             this.getContainer = containerProviderFunc;
         }
 
-        // NEW: SRP compliant method to cleanly remove the start prompt
         clearStartPrompt() {
             const prompt = document.getElementById('ilap-toast');
-            // We only remove it if it's the start prompt (doesn't have the stop button)
             if (prompt && !prompt.querySelector('#ilap-stop-btn')) {
                 prompt.remove();
             }
         }
 
         showStartPrompt(initialMode, handlers) {
-            // Aggressively remove ANY existing toasts to prevent ghost DOM nodes
             const existingToasts = document.querySelectorAll('#ilap-toast');
             existingToasts.forEach(t => t.remove());
             
@@ -36,13 +44,13 @@
                 display: flex; flex-direction: column; gap: 12px;
             `;
 
-            const iconUrl = this.resources.getIconUrl('icon16.png');
-            const modeLabel = getModeLabel(initialMode);
+            const safeIconUrl = Sanitizer.escapeHTML(this.resources.getIconUrl('icon16.png'));
+            const safeModeLabel = Sanitizer.escapeHTML(getModeLabel(initialMode));
 
             toast.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="font-weight: bold; color: #fff; display: flex; align-items: center; gap: 8px;">
-                        <img src="${iconUrl}" style="width:16px;">
+                        <img src="${safeIconUrl}" style="width:16px;">
                         Queue Helper
                     </div>
                     <div style="display: flex; align-items: center;">
@@ -54,7 +62,7 @@
                 <button id="ilap-run-btn" style="background: #5c7e10; color: white; border: none; padding: 10px; border-radius: 2px; cursor: pointer; font-size: 13px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px;">
                     Run Auto Ignore
                     <span id="ilap-mode-badge" style="background: rgba(0,0,0,0.2); font-size: 10px; padding: 2px 6px; border-radius: 3px; color: #e1e1e1;">
-                        [${modeLabel}]
+                        [${safeModeLabel}]
                     </span>
                 </button>
                 
@@ -96,26 +104,25 @@
 
         updateRunButtonMode(newMode) {
             const badge = document.getElementById('ilap-mode-badge');
-            if (badge) badge.textContent = `[${getModeLabel(newMode)}]`;
+            if (badge) badge.textContent = `[${getModeLabel(newMode)}]`; 
         }
 
-        showRunningToast(message, onStop) {
-            let toast = document.getElementById('ilap-toast');
-            if (!toast || !toast.querySelector('#ilap-stop-btn')) {
-                toast?.remove();
-                toast = document.createElement('div');
-                toast.id = 'ilap-toast';
-                toast.style.cssText = `
-                    position: fixed; bottom: 20px; right: 20px; background: #1b2838; color: #fff;
-                    padding: 15px; border-radius: 4px; border: 1px solid #66c0f4; z-index: 99999;
-                    box-shadow: 0 5px 20px rgba(0,0,0,0.8); font-family: sans-serif; min-width: 250px;
-                    display: flex; flex-direction: column; gap: 10px;
-                `;
-                document.body.appendChild(toast);
-            }
+        showRunningToast(messageHtml, onStop) {
+            const existingToasts = document.querySelectorAll('#ilap-toast');
+            existingToasts.forEach(t => t.remove());
+
+            let toast = document.createElement('div');
+            toast.id = 'ilap-toast';
+            toast.style.cssText = `
+                position: fixed; bottom: 20px; right: 20px; background: #1b2838; color: #fff;
+                padding: 15px; border-radius: 4px; border: 1px solid #66c0f4; z-index: 99999;
+                box-shadow: 0 5px 20px rgba(0,0,0,0.8); font-family: sans-serif; min-width: 250px;
+                display: flex; flex-direction: column; gap: 10px;
+            `;
+            document.body.appendChild(toast);
 
             toast.innerHTML = `
-                <div style="font-size: 13px; line-height: 1.4;">${message}</div>
+                <div style="font-size: 13px; line-height: 1.4;">${messageHtml}</div>
                 <div style="display: flex; justify-content: flex-end;">
                     <button id="ilap-stop-btn" style="background: #d32f2f; color: white; border: none; padding: 4px 10px; border-radius: 2px; cursor: pointer; font-size: 11px; font-weight: bold;">STOP</button>
                 </div>
@@ -131,7 +138,6 @@
         }
 
         applyVisuals(type, reasonMode) {
-            // Using injected context provider
             const container = this.getContainer();
             if (!container) return;
             
@@ -167,8 +173,8 @@
             tooltip.className = 'ilap-tooltip';
             tooltip.style.cssText = `position: absolute; bottom: 140%; right: -10px; background: #171a21; color: #c7d5e0; padding: 8px 12px; border-radius: 4px; border: 1px solid ${color}; min-width: 200px; font-size: 11px; z-index: 1000; pointer-events: none; visibility: hidden; opacity: 0; transition: 0.15s; text-align: left; line-height: 1.4;`;
             
-            const iconUrl = this.resources.getIconUrl('icon16.png');
-            const badgeLabel = reasonMode === 'all' ? "Every Game" : "Bad Reviews";
+            const safeIconUrl = Sanitizer.escapeHTML(this.resources.getIconUrl('icon16.png'));
+            const safeBadgeLabel = Sanitizer.escapeHTML(reasonMode === 'all' ? "Every Game" : "Bad Reviews");
             
             let tooltipContent = '';
 
@@ -180,7 +186,7 @@
                     <div style="display: flex; align-items: center; gap: 6px; margin-top: 8px;">
                         <span style="color: #8f98a0;">Ignore criteria -</span>
                         <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
-                            ${badgeLabel}
+                            ${safeBadgeLabel}
                         </span>
                     </div>
                 `;
@@ -188,26 +194,25 @@
                 tooltipContent = `
                     <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
                         <span>Ignored by</span>
-                        <img src="${iconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
+                        <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
                     </div>
                     <div style="display: flex; align-items: center; gap: 6px;">
                         <span style="color: #8f98a0;">Ignore criteria -</span>
                         <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
-                            ${badgeLabel}
+                            ${safeBadgeLabel}
                         </span>
                     </div>
                 `;
             } else {
-                // SPARE block
                 tooltipContent = `
                     <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
                         <span style="color: #66c0f4;">Not auto-ignored by</span>
-                        <img src="${iconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
+                        <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
                     </div>
                     <div style="display: flex; align-items: center; gap: 6px;">
                         <span style="color: #8f98a0;">Ignore criteria -</span>
                         <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
-                            ${badgeLabel}
+                            ${safeBadgeLabel}
                         </span>
                     </div>
                 `;
@@ -224,4 +229,5 @@
     }
 
     window.ILAP.Explore.UI = ActionUI;
+    window.ILAP.Explore.Sanitizer = Sanitizer;
 })();

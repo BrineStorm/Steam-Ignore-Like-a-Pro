@@ -1,6 +1,18 @@
 (function() {
     'use strict';
 
+    const Sanitizer = {
+        escapeHTML(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+    };
+
     class DuplicateDetector {
         constructor(contextScanner) {
             this.scanner = contextScanner;
@@ -40,12 +52,15 @@
                 e.stopPropagation();
             });
 
+            const safeIconUrl = Sanitizer.escapeHTML(iconUrl);
+            const safeText = Sanitizer.escapeHTML(tooltipText);
+
             overlay.innerHTML = `
                 IGNORED
                 <div class="ilap-tooltip">
                     <div style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
-                        <span>${tooltipText}</span>
-                        <img src="${iconUrl}" style="width: 16px; height: 16px; vertical-align: middle;">
+                        <span>${safeText}</span>
+                        <img src="${safeIconUrl}" style="width: 16px; height: 16px; vertical-align: middle;">
                     </div>
                 </div>
             `;
@@ -58,7 +73,7 @@
             this.strategies = strategyProvider;
             this.detector = duplicateDetector;
             this.badgeClasses = badgeClasses;
-            this.resources = resourceService; // Injected
+            this.resources = resourceService; 
         }
 
         render(linkElement, appid, reason) {

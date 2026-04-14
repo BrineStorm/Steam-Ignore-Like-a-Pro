@@ -1,6 +1,19 @@
 (function() {
     'use strict';
 
+    // === SECURITY FIX: XSS Sanitizer ===
+    const Sanitizer = {
+        escapeHTML(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+    };
+
     function getShortcutHintHtml(key) {
         const mouseIcon = (isRight) => `
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 14 48 54" width="16" height="18" fill="none" class="mouse-icon">
@@ -17,7 +30,9 @@
         if (key === 'swipeRightLeft') return `<span class="kbd-key" style="margin-left:0;">Hold & Swipe &larr;</span> ${mouseIcon(true)}`;
         
         const names = { 'ctrlKey': 'Ctrl', 'shiftKey': 'Shift', 'altKey': 'Alt' };
-        return `<span class="kbd-key" style="margin-left:0;">${names[key] || key}</span> <span style="margin: 0 4px;">+</span> <span class="kbd-key">L-Click</span> ${mouseIcon(false)}`;
+        
+        const safeKeyName = Sanitizer.escapeHTML(names[key] || key);
+        return `<span class="kbd-key" style="margin-left:0;">${safeKeyName}</span> <span style="margin: 0 4px;">+</span> <span class="kbd-key">L-Click</span> ${mouseIcon(false)}`;
     }
 
     function updateBasicUI(data) {
@@ -61,7 +76,11 @@
         const historyDiv = document.getElementById('history-list');
         if (historyDiv) {
             if (history.length > 0) {
-                historyDiv.innerHTML = history.slice(0, 3).map(i => `<div class="history-entry">• ${i.name}</div>`).join('');
+                // innerHTML needs sanitization
+                historyDiv.innerHTML = history.slice(0, 3).map(i => {
+                    const safeGameName = Sanitizer.escapeHTML(i.name);
+                    return `<div class="history-entry">• ${safeGameName}</div>`;
+                }).join('');
             } else {
                 historyDiv.innerHTML = '<div class="history-entry"><i>No recent history</i></div>';
             }
