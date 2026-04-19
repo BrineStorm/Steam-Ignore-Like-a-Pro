@@ -108,10 +108,10 @@
             if (!this.button) return;
             
             if (isRunning) {
-                this.button.innerHTML = `<span class="btn-symbol">▶</span> Stop (${processedCount})`;
+                this.button.innerHTML = `<span class="btn-symbol">⏹</span> Stop (${processedCount})`;
                 this.button.classList.add('running');
             } else {
-                this.button.innerHTML = `<span class="btn-symbol">⏹</span> Start Auto Ignore`;
+                this.button.innerHTML = `<span class="btn-symbol">▶</span> Start Auto Ignore`;
                 this.button.classList.remove('running');
             }
         }
