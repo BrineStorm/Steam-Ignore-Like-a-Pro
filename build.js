@@ -4,12 +4,11 @@ const path = require('path');
 var DIST_DIR = path.join(__dirname, 'dist');
 var PLATFORM_DIR = path.join(__dirname, 'platform');
 
-// List of all common directories and files to copy
 var COMMON_ASSETS = [
-    'ui',         // Popup UI
-    'src',        // Core logic
-    'assets',     // All assets (icons, videos, etc.)
-    'styles'      // All styles
+    'ui',
+    'src',
+    'assets',
+    'styles'
 ];
 
 function copyRecursiveSync(src, dest) {
@@ -19,6 +18,11 @@ function copyRecursiveSync(src, dest) {
     }
 
     var stats = fs.statSync(src);
+    var baseName = path.basename(src);
+
+    if (stats.isDirectory() && baseName === 'badges') {
+        return;
+    }
 
     if (stats.isDirectory()) {
         if (!fs.existsSync(dest)) {
@@ -31,8 +35,7 @@ function copyRecursiveSync(src, dest) {
             copyRecursiveSync(path.join(src, entry), path.join(dest, entry));
         }
     } else {
-        // FILTER: Prevent heavy media files from bloating the release extension
-        if (src.toLowerCase().endsWith('.mp4')) {
+        if (src.toLowerCase().endsWith('.gif')) {
             return;
         }
         fs.copyFileSync(src, dest);
@@ -59,14 +62,12 @@ function buildPlatform(browser) {
     }
     fs.mkdirSync(outputDir, { recursive: true });
 
-    // Copy all common assets from the root to the output directory
     for (const asset of COMMON_ASSETS) {
         const srcPath = path.join(__dirname, asset);
         const destPath = path.join(outputDir, path.basename(asset));
         copyRecursiveSync(srcPath, destPath);
     }
 
-    // Copy the platform-specific manifest
     fs.copyFileSync(manifestPath, path.join(outputDir, 'manifest.json'));
 
     console.log('Build complete: ./dist/' + browser);

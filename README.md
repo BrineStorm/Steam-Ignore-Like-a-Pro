@@ -1,18 +1,27 @@
 # Steam Ignore Like A Pro
 
-[![Chrome Web Store](https://img.shields.io/badge/Chrome-Under_Review-blue.svg?logo=googlechrome)](#)
-[![Firefox Add-ons](https://img.shields.io/badge/Firefox-Under_Review-blue.svg?logo=firefoxbrowser)](#)
-
 ![alt text](assets/icons/icon128.png)
+
+<p align="left">
+  <a href="https://chromewebstore.google.com/detail/odammmlfgeicckclecklaidnogfibanj">
+    <img src="assets/badges/chrome.png" alt="Chrome Web Store" height="54">
+  </a>
+  &nbsp;
+  <a href="https://addons.mozilla.org/firefox/addon/steam-ignore-like-a-pro/">
+    <img src="assets/badges/firefox.svg" alt="Get the Add-on" height="54">
+  </a>
+</p>
 
 A browser extension that allows you to ignore Steam games directly from the storefront - no extra clicks to open a menu, and no need to open individual game pages.
 **Steam Ignore Like A Pro** replaces this with a single gesture or hotkey, available on every Steam page.
 
-<video src="assets/demo.mp4" autoplay loop muted playsinline width="33%"></video>
+<p align="left">
+  <img src="assets/demo.gif" alt="Extension Demo" width="600">
+</p>
 
 ## What it does
 
-- **One-Click Ignore** - Hold `Right-Click` + `Swipe Right` over any game capsule to ignore the game. This adds a red badge ![IGNORED](https://img.shields.io/badge/IGNORED-red) on each appearance of the game on the page and requests Steam to stop suggesting these titles.
+- **One-Click Ignore** - Hold `Right-Click` + `Swipe Right` over any game capsule to ignore the game. This adds a red badge ![IGNORED](https://img.shields.io/badge/IGNORED-red) on each appearance of the game on the page and requests Steam to **ignore** these titles.
 - **Alternative Hotkeys** - Configure to hold `Ctrl`, `Shift`, or `Alt` + `Left-Click` instead of swiping.
 - **Already Played Mode** - Mark games you played on other platforms as **Already Played** by `swiping Left` or clicking. This adds a blue badge ![IGNORED](https://img.shields.io/badge/IGNORED-blue) and Steam stops suggesting these titles while **keeping** your recommendations relevant.
 
