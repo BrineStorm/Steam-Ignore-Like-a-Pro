@@ -65,13 +65,15 @@ Store listings are currently under review. In the meantime, you can install manu
 2. Open a terminal in the project root and run `npm install`.
 3. Run `npm run build.js` (or `node build`) to generate the `dist/` folders.
 
-### <img src="https://raw.githubusercontent.com/alrra/browser-logos/main/src/chrome/chrome_24x24.png" width="20" height="20" align="center"> Chrome | <img src="https://raw.githubusercontent.com/alrra/browser-logos/main/src/edge/edge_24x24.png" width="20" height="20" align="center"> Edge
+### Chrome | Edge
+
 1. Open *chrome://extensions* or *edge://extensions*
 2. Turn on **Developer mode**
 3. Click **Load unpacked**
 4. Select the `dist/chromium` folder from the built project.
 
-### <img src="https://raw.githubusercontent.com/alrra/browser-logos/main/src/firefox/firefox_24x24.png" width="20" height="20" align="center"> Firefox
+### Firefox
+
 1. Open *about:debugging#/runtime/this-firefox*
 2. Click **Load Temporary Add-on**
 3. Select the `manifest.json` file located inside the `dist/firefox` folder.
