@@ -42,8 +42,15 @@ This extension allows this.
 
 - **Your Discovery Queue Helper** - Automate ignoring while browsing through your daily Discovery Queue. 
 Configurable to automatically ignore games that meet your criteria (e.g., Mixed/Negative reviews, or every game), or ignore and scroll forward for you.
+<p align="left">
+  <img src="assets/demo-queue2.gif" alt="Demo Your Discovery Queue" width="600">
+</p>
+
 - **Game Genre/Category Discovery Queue Auto-Ignore** - Bypass the standard Steam 10-tag ignore limit. 
 By navigating to a specific tag, genre, or category page (such as Racing, VR or etc.) and opening its Discovery Queue, you can run the automator to quickly ignore **all** games from that list, or only those with bad reviews.
+<p align="left">
+  <img src="assets/demo-queue.gif" alt="Demo Discovery Queue" width="600">
+</p>
 
 ## Privacy
 
