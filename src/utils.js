@@ -20,6 +20,18 @@
         remove(key) { sessionStorage.removeItem(key); } 
     }
 
+    const Sanitizer = {
+        escapeHTML(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+    };
+
     const SteamAPI = {
         async ignore(appid, reason) {
             const sessionid = SessionService.getID();
@@ -236,6 +248,7 @@
     window.ILAP.apiIgnoreGame = SteamAPI.ignore;
     window.ILAP.saveStats = (name, source) => StatsManager.save(name, source);
     window.ILAP.getGameName = (appid, el) => extractorProvider.get(appid, el);
-    window.ILAP.SessionStateService = SessionStateService; 
+    window.ILAP.SessionStateService = SessionStateService;
+    window.ILAP.Sanitizer = Sanitizer;
 
 })();

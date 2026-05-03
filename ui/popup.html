@@ -5,19 +5,20 @@
   <style>
     /* === BASE LAYOUT === */
     :root {
-        color-scheme: dark;
+        color-scheme: light dark;
     }
 
     html, body {
         background-color: #1b2838;
         margin: 0;
         padding: 0;
-        overflow: hidden; 
+        overflow: hidden;
     }
 
-    body { 
-        color: #c7d5e0; 
-        font-family: sans-serif; 
+    body {
+        width: 320px;
+        color: #c7d5e0;
+        font-family: sans-serif;
     }
 
     *, *:before, *:after {
@@ -25,15 +26,17 @@
     }
 
     #popup-root {
-        width: 320px;
-        min-height: 230px; 
+        width: 100%;
+        min-height: 230px;
         padding: 15px;
         box-sizing: border-box;
-        border: 2px solid #3d4a5d; 
-    }
-
-    @media (prefers-color-scheme: light) {
-        #popup-root { border-color: #dcdcdc; }
+        background-color: #1b2838;
+        /* outline + negative offset keeps the border outside the layout flow: expanding
+           the settings-accordion no longer shifts it or creates subpixel gaps.
+           Single colour for both schemes — dark stroke on dark Steam background reads
+           fine on a light OS where browser chrome around the popup becomes the background. */
+        outline: 2px solid #3d4a5d;
+        outline-offset: -2px;
     }
 
     .no-transition * { transition: none !important; }

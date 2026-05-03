@@ -16,7 +16,8 @@
     const KEYS = {
         ACTIVE: 'ilap_queue_active',
         FF: 'ilap_queue_ff',
-        NAV_TOKEN: 'ilap_queue_nav_token'
+        NAV_TOKEN: 'ilap_queue_nav_token',
+        ACTIVE_APPID: 'ilap_queue_active_appid'
     };
 
     // --- Domain Entities ---
@@ -129,6 +130,7 @@
             this.session.remove(KEYS.ACTIVE);
             this.session.remove(KEYS.FF);
             this.session.remove(KEYS.NAV_TOKEN);
+            this.session.remove(KEYS.ACTIVE_APPID);
         }
 
         getUserIntent() {
@@ -138,9 +140,21 @@
             };
         }
 
-        setIntent(type) {
+        setIntent(type, appid) {
             if (type === 'ACTIVE') this.session.set(KEYS.ACTIVE, 'true');
             if (type === 'FF') this.session.set(KEYS.FF, 'true');
+            if (appid) this.session.set(KEYS.ACTIVE_APPID, String(appid));
+        }
+
+        // Tracks the appid that the current ACTIVE/FF intent belongs to.
+        // Used to distinguish a same-page reload (legitimate) from a
+        // sideways navigation to a different queue page (must re-prompt).
+        setActiveAppid(appid) {
+            if (appid) this.session.set(KEYS.ACTIVE_APPID, String(appid));
+        }
+
+        getActiveAppid() {
+            return this.session.get(KEYS.ACTIVE_APPID);
         }
     }
 
@@ -164,6 +178,7 @@
 
     // Export
     window.ILAP.Explore.COLORS = COLORS;
+    window.ILAP.Explore.KEYS = KEYS;
     window.ILAP.Explore.Context = QueueContext;
     window.ILAP.Explore.Analyzer = ReviewAnalyzer;
     window.ILAP.Explore.DecisionEngine = DecisionEngine;

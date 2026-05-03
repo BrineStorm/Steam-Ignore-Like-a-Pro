@@ -1,8 +1,11 @@
 ﻿const { defineConfig, devices } = require('@playwright/test');
 const path = require('path');
 
-// Target the built Chromium extension folder
-const CHROMIUM_EXTENSION_PATH = path.join(__dirname, 'dist', 'chromium');
+// Target the test-flavor Chromium extension (built via `node build.js --test`).
+// This flavor includes a placeholder MV3 service worker so tests can resolve
+// the extension ID via context.serviceWorkers(). Production dist/chromium/
+// is untouched.
+const CHROMIUM_EXTENSION_PATH = path.join(__dirname, 'dist', 'chromium-test');
 
 module.exports = defineConfig({
   testDir: './tests',

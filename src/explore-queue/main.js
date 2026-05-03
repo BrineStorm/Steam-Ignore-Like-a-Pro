@@ -3,18 +3,19 @@
 
     function init() {
         const Explore = window.ILAP.Explore;
-        
+        const sessionState = new window.ILAP.SessionStateService();
+
         // 1. GLOBAL WATCHDOG
         if (!Explore.Context.isQueuePage()) {
-            sessionStorage.removeItem('ilap_queue_active');
-            sessionStorage.removeItem('ilap_queue_ff');
-            sessionStorage.removeItem('ilap_queue_nav_token');
-            return; 
+            sessionState.remove(Explore.KEYS.ACTIVE);
+            sessionState.remove(Explore.KEYS.FF);
+            sessionState.remove(Explore.KEYS.NAV_TOKEN);
+            sessionState.remove(Explore.KEYS.ACTIVE_APPID);
+            return;
         }
 
         // 2. Infrastructure Initialization
         const extSettings = new Explore.ExtensionSettingsService();
-        const sessionState = new window.ILAP.SessionStateService();
         const resourceService = new Explore.ResourceService();
         
         // 3. Domain Service Initialization
@@ -40,6 +41,7 @@
             stats: statsAdapter,
             navGuard: navGuard,
             nameExtractor: nameExtractorAdapter,
+            sanitizer: window.ILAP.Sanitizer,
             context: Explore.Context,
             analyzer: { getState: () => Explore.Analyzer.getState(Explore.COLORS) }, 
             decisionEngine: Explore.DecisionEngine

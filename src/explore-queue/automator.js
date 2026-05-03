@@ -6,13 +6,15 @@
             if (!deps.api || typeof deps.api.ignore !== 'function') throw new TypeError("[ILAP] Invalid ApiAdapter provided");
             if (!deps.stats || typeof deps.stats.save !== 'function') throw new TypeError("[ILAP] Invalid StatsAdapter provided");
             if (!deps.nameExtractor || typeof deps.nameExtractor.get !== 'function') throw new TypeError("[ILAP] Invalid NameExtractorAdapter provided");
-            
+            if (!deps.sanitizer || typeof deps.sanitizer.escapeHTML !== 'function') throw new TypeError("[ILAP] Invalid Sanitizer provided");
+
             this.settings = deps.settings;
             this.ui = deps.ui;
             this.api = deps.api;
             this.stats = deps.stats;
             this.nav = deps.navGuard;
             this.nameExtractor = deps.nameExtractor;
+            this.sanitizer = deps.sanitizer;
             this.context = deps.context;
             this.analyzer = deps.analyzer;
             this.decisionEngine = deps.decisionEngine;
@@ -42,17 +44,24 @@
             const isAuthorized = this.nav.isAuthorized();
             const intent = this.nav.getUserIntent();
 
-            if ((intent.wantsActive || intent.wantsFF) && !isAuthorized) {
-                console.log('[ILAP] Unauthorized manual navigation detected. Resetting automation.');
-                this._stopAutomation();
-                this._showStartPrompt(); 
-                return;
-            }
+            if (intent.wantsActive || intent.wantsFF) {
+                // A reload of the same queue page is legitimate even without a nav token.
+                const isSamePageReload = appid === this.nav.getActiveAppid();
 
-            if (intent.wantsActive && isAuthorized) {
-                this._executeLogic(appid);
-            } else if (intent.wantsFF && isAuthorized) {
-                this._executeFastForward();
+                if (!isAuthorized && !isSamePageReload) {
+                    console.log('[ILAP] Unauthorized manual navigation detected. Resetting automation.');
+                    this._stopAutomation();
+                    this._showStartPrompt();
+                    return;
+                }
+
+                this.nav.setActiveAppid(appid);
+
+                if (intent.wantsActive) {
+                    this._executeLogic(appid);
+                } else {
+                    this._executeFastForward();
+                }
             } else {
                 this._showStartPrompt();
             }
@@ -91,17 +100,19 @@
 
         _showStartPrompt() {
             const currentMode = this.currentSettings.ilap_q_mode || 'bad';
-            
+
             this.ui.showStartPrompt(
-                currentMode, 
+                currentMode,
                 {
                     onRun: () => {
-                        this.nav.setIntent('ACTIVE');
+                        const currentAppid = this.context.getAppID();
+                        this.nav.setIntent('ACTIVE', currentAppid);
                         this.ui.clearStartPrompt(); // DIP: Delegated to UI
-                        this._executeLogic(this.context.getAppID());
+                        this._executeLogic(currentAppid);
                     },
                     onFastForward: () => {
-                        this.nav.setIntent('FF');
+                        const currentAppid = this.context.getAppID();
+                        this.nav.setIntent('FF', currentAppid);
                         this.ui.clearStartPrompt(); // DIP: Delegated to UI
                         this._executeFastForward();
                     },
@@ -156,7 +167,7 @@
             
             if (shouldNext && nextBtn) {
                 // SECURITY FIX: Sanitize the raw game name before putting it into HTML <b> tags
-                const safeName = window.ILAP.Explore.Sanitizer.escapeHTML(name);
+                const safeName = this.sanitizer.escapeHTML(name);
                 
                 this.ui.showRunningToast(
                     `<b>${safeName}</b> ignored. Moving next...`,

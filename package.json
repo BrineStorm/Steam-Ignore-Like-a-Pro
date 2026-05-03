@@ -6,9 +6,13 @@
   "license": "MPL-2.0",
   "scripts": {
     "build": "node build.js",
-    "test": "npx playwright test",
-    "test:auth": "npx playwright test tests/auth.setup.spec.js",
-    "test:e2e": "npx playwright test tests/steam_ilap.spec.js"
+    "build:test": "node build.js --test",
+    "test": "npm run build:test && npx playwright test",
+    "test:auth": "npm run build:test && npx playwright test tests/auth.setup.spec.js",
+    "test_dq": "npm run build:test && npx playwright test tests/discovery-queue",
+    "test_eq": "npm run build:test && npx playwright test tests/explore-queue",
+    "test_mi": "npm run build:test && npx playwright test tests/manual-ignore",
+    "test_popup": "npm run build:test && npx playwright test tests/popup"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0"

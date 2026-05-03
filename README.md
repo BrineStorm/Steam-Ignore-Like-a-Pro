@@ -117,6 +117,10 @@ Yes. The extension interacts with page elements and structural DOM classes, not 
 - Steam Ignore Like A Pro is not affiliated with, endorsed by, or sponsored by Valve Corporation or Steam.
 - The ignore action cannot be applied to capsule elements that represent bundles of multiple games. To ignore them, you must visit the bundle's store page and swipe or click to ignore each game individually.
 
+## Testing
+
+See [TESTING.md](./TESTING.md) for the full test suite overview, setup instructions, and per-module coverage.
+
 ## License
 
 Mozilla Public License 2.0 - see [LICENSE](./LICENSE).

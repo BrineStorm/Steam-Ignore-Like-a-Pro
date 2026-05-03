@@ -11,6 +11,16 @@ var COMMON_ASSETS = [
     'styles'
 ];
 
+// `--test` produces a parallel test-flavor build into dist/<platform>-test/
+// with an empty MV3 service worker patched into the manifest. This gives
+// Playwright a handle to read the extension ID via context.serviceWorkers().
+// The production manifest and dist/<platform>/ are NOT touched.
+var TEST_MODE = process.argv.slice(2).includes('--test');
+var TEST_SW_REL_PATH = 'src/background-test.js';
+var TEST_SW_CONTENT = '// Test-only MV3 service worker. Empty placeholder.\n'
+    + '// Exists so Playwright can read context.serviceWorkers() and resolve\n'
+    + '// the extension ID for chrome-extension:// URLs and storage access.\n';
+
 function copyRecursiveSync(src, dest) {
     if (!fs.existsSync(src)) {
         console.log('Warning: Source not found: ' + src);
@@ -43,9 +53,12 @@ function copyRecursiveSync(src, dest) {
 }
 
 function buildPlatform(browser) {
-    console.log('Building for: ' + browser);
+    var flavorSuffix = TEST_MODE ? '-test' : '';
+    var outputDirName = browser + flavorSuffix;
 
-    var outputDir = path.join(DIST_DIR, browser);
+    console.log('Building for: ' + outputDirName);
+
+    var outputDir = path.join(DIST_DIR, outputDirName);
     var manifestPath = path.join(PLATFORM_DIR, browser, 'manifest.json');
 
     if (!fs.existsSync(manifestPath)) {
@@ -68,12 +81,24 @@ function buildPlatform(browser) {
         copyRecursiveSync(srcPath, destPath);
     }
 
-    fs.copyFileSync(manifestPath, path.join(outputDir, 'manifest.json'));
+    if (TEST_MODE) {
+        // strip optional UTF-8 BOM (regex matches a literal U+FEFF)
+        var raw = fs.readFileSync(manifestPath, 'utf8').replace(/^﻿/, '');
+        var manifest = JSON.parse(raw);
+        manifest.background = { service_worker: TEST_SW_REL_PATH };
+        fs.writeFileSync(
+            path.join(outputDir, 'manifest.json'),
+            JSON.stringify(manifest, null, 2)
+        );
+        fs.writeFileSync(path.join(outputDir, TEST_SW_REL_PATH), TEST_SW_CONTENT);
+    } else {
+        fs.copyFileSync(manifestPath, path.join(outputDir, 'manifest.json'));
+    }
 
-    console.log('Build complete: ./dist/' + browser);
+    console.log('Build complete: ./dist/' + outputDirName + (TEST_MODE ? ' (TEST)' : ''));
 }
 
-console.log('Starting Build Process...');
+console.log('Starting Build Process' + (TEST_MODE ? ' (TEST MODE)' : '') + '...');
 
 if (fs.existsSync(PLATFORM_DIR)) {
     buildPlatform('chromium');
