@@ -17,7 +17,11 @@
     class SessionStateService {
         set(key, value) { sessionStorage.setItem(key, value); }
         get(key) { return sessionStorage.getItem(key); }
-        remove(key) { sessionStorage.removeItem(key); } 
+        remove(key) { sessionStorage.removeItem(key); }
+    }
+
+    class ResourceService {
+        getIconUrl(fileName) { return chrome.runtime.getURL(`./assets/icons/${fileName}`); }
     }
 
     const Sanitizer = {
@@ -249,6 +253,7 @@
     window.ILAP.saveStats = (name, source) => StatsManager.save(name, source);
     window.ILAP.getGameName = (appid, el) => extractorProvider.get(appid, el);
     window.ILAP.SessionStateService = SessionStateService;
+    window.ILAP.ResourceService = ResourceService;
     window.ILAP.Sanitizer = Sanitizer;
 
 })();

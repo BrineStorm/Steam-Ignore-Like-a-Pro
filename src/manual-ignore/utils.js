@@ -17,34 +17,29 @@
         WRAPPER: `.game_capsule, .dailydeal_cap, .small_cap, .bundle_base_discount, [class*="ImpressionTrackedElement"], div[class*="StoreSaleWidget"], [class*="LibraryAssetExpandedDisplay"], .store_main_capsule, [class*="SaleSectionCtn"], .contenthubmaincarousel`
     };
 
-    class ConfigService {
+    const CONFIG_KEYS = {
+        SHORTCUT: 'ilap_shortcut_key',
+        PLATFORM: 'ilap_platform_key',
+        MASTER: 'ilap_master_enabled'
+    };
+    const CONFIG_STORAGE_KEYS = Object.values(CONFIG_KEYS);
+
+    class ConfigReader {
         constructor(defaultConfig) {
             this.config = { ...defaultConfig };
-            this.listeners = [];
         }
 
         async init() {
+            return this.refresh();
+        }
+
+        async refresh() {
             return new Promise(resolve => {
-                chrome.storage.local.get(['ilap_shortcut_key', 'ilap_platform_key', 'ilap_master_enabled'], (res) => {
+                chrome.storage.local.get(CONFIG_STORAGE_KEYS, (res) => {
                     this._updateInternal(res);
-                    resolve();
+                    resolve(this.config);
                 });
             });
-        }
-
-        listen() {
-            chrome.storage.onChanged.addListener((changes, area) => {
-                if (area === 'local') {
-                    chrome.storage.local.get(['ilap_shortcut_key', 'ilap_platform_key', 'ilap_master_enabled'], (res) => {
-                        this._updateInternal(res);
-                        this.listeners.forEach(cb => cb(this.config));
-                    });
-                }
-            });
-        }
-
-        onChange(callback) {
-            this.listeners.push(callback);
         }
 
         get() {
@@ -52,10 +47,42 @@
         }
 
         _updateInternal(res) {
-            if (res.ilap_shortcut_key !== undefined) this.config.defaultKey = res.ilap_shortcut_key;
-            if (res.ilap_platform_key !== undefined) this.config.platformKey = res.ilap_platform_key;
-            if (res.ilap_master_enabled !== undefined) this.config.enabled = res.ilap_master_enabled;
+            if (res[CONFIG_KEYS.SHORTCUT] !== undefined) this.config.defaultKey = res[CONFIG_KEYS.SHORTCUT];
+            if (res[CONFIG_KEYS.PLATFORM] !== undefined) this.config.platformKey = res[CONFIG_KEYS.PLATFORM];
+            if (res[CONFIG_KEYS.MASTER] !== undefined) this.config.enabled = res[CONFIG_KEYS.MASTER];
         }
+    }
+
+    class ConfigChangeEmitter {
+        constructor(refreshFn) {
+            this.listeners = [];
+            this.refreshFn = refreshFn;
+        }
+
+        listen() {
+            chrome.storage.onChanged.addListener((changes, area) => {
+                if (area !== 'local') return;
+                this.refreshFn().then(config => {
+                    this.listeners.forEach(cb => cb(config));
+                });
+            });
+        }
+
+        onChange(callback) {
+            this.listeners.push(callback);
+        }
+    }
+
+    class ConfigService {
+        constructor(defaultConfig) {
+            this.reader = new ConfigReader(defaultConfig);
+            this.emitter = new ConfigChangeEmitter(() => this.reader.refresh());
+        }
+
+        init() { return this.reader.init(); }
+        get() { return this.reader.get(); }
+        listen() { this.emitter.listen(); }
+        onChange(callback) { this.emitter.onChange(callback); }
     }
 
     class ContainerStrategyProvider {

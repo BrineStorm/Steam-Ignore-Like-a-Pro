@@ -7,6 +7,44 @@
         return mode === 'all' ? "Every Game" : "Bad Reviews";
     }
 
+    const TOOLTIP_BUILDERS = {
+        NO_REVIEWS: ({ safeBadgeLabel }) => `
+            <div style="margin-bottom: 6px;">
+                <span>Ignore isn't applied for games without or with insufficient reviews.</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; margin-top: 8px;">
+                <span style="color: #8f98a0;">Ignore criteria -</span>
+                <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
+                    ${safeBadgeLabel}
+                </span>
+            </div>
+        `,
+        IGNORE: ({ safeIconUrl, safeBadgeLabel }) => `
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+                <span>Ignored by</span>
+                <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color: #8f98a0;">Ignore criteria -</span>
+                <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
+                    ${safeBadgeLabel}
+                </span>
+            </div>
+        `,
+        DEFAULT: ({ safeIconUrl, safeBadgeLabel }) => `
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+                <span style="color: #66c0f4;">Not auto-ignored by</span>
+                <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color: #8f98a0;">Ignore criteria -</span>
+                <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
+                    ${safeBadgeLabel}
+                </span>
+            </div>
+        `
+    };
+
     class ActionUI {
         constructor(resourceService, themeColors, containerProviderFunc) {
             this.resources = resourceService;
@@ -97,7 +135,7 @@
             if (badge) badge.textContent = `[${getModeLabel(newMode)}]`; 
         }
 
-        showRunningToast(messageHtml, onStop) {
+        showRunningToast(message, onStop) {
             const existingToasts = document.querySelectorAll('#ilap-toast');
             existingToasts.forEach(t => t.remove());
 
@@ -110,6 +148,11 @@
                 display: flex; flex-direction: column; gap: 10px;
             `;
             document.body.appendChild(toast);
+
+            const { bold = '', text = '' } = message || {};
+            const safeBold = bold ? `<b>${Sanitizer.escapeHTML(bold)}</b>` : '';
+            const safeText = Sanitizer.escapeHTML(text);
+            const messageHtml = safeBold ? `${safeBold} ${safeText}` : safeText;
 
             toast.innerHTML = `
                 <div style="font-size: 13px; line-height: 1.4;">${messageHtml}</div>
@@ -165,50 +208,9 @@
             
             const safeIconUrl = Sanitizer.escapeHTML(this.resources.getIconUrl('icon16.png'));
             const safeBadgeLabel = Sanitizer.escapeHTML(reasonMode === 'all' ? "Every Game" : "Bad Reviews");
-            
-            let tooltipContent = '';
 
-            if (type === 'NO_REVIEWS') {
-                tooltipContent = `
-                    <div style="margin-bottom: 6px;">
-                        <span>Ignore isn't applied for games without or with insufficient reviews.</span>    
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 6px; margin-top: 8px;">
-                        <span style="color: #8f98a0;">Ignore criteria -</span>
-                        <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
-                            ${safeBadgeLabel}
-                        </span>
-                    </div>
-                `;
-            } else if (type === 'IGNORE') {
-                tooltipContent = `
-                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
-                        <span>Ignored by</span>
-                        <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        <span style="color: #8f98a0;">Ignore criteria -</span>
-                        <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
-                            ${safeBadgeLabel}
-                        </span>
-                    </div>
-                `;
-            } else {
-                tooltipContent = `
-                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
-                        <span style="color: #66c0f4;">Not auto-ignored by</span>
-                        <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        <span style="color: #8f98a0;">Ignore criteria -</span>
-                        <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
-                            ${safeBadgeLabel}
-                        </span>
-                    </div>
-                `;
-            }
-
-            tooltip.innerHTML = tooltipContent;
+            const builder = TOOLTIP_BUILDERS[type] || TOOLTIP_BUILDERS.DEFAULT;
+            tooltip.innerHTML = builder({ safeIconUrl, safeBadgeLabel });
 
             container.appendChild(badge);
             container.appendChild(tooltip);

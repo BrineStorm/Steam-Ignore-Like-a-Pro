@@ -17,8 +17,8 @@
 
     class SlideScanner {
         static getActiveSlide(dialog) {
-            const container = dialog.querySelector('._3q6eNRFBrPSFSGEn8uRFZ3') || 
-                              dialog.querySelector('div[class*="Focusable"][class*="Panel"]')?.parentElement;
+            const container = dialog.querySelector('div[class*="Focusable"][class*="Panel"]')?.parentElement ||
+                              dialog.querySelector('._3q6eNRFBrPSFSGEn8uRFZ3');
             return (container && container.children.length > 2) ? container.children[2] : null;
         }
 
@@ -219,6 +219,8 @@
 
         _isButtonActive(element) {
             if (!element) return false;
+            const ariaPressed = element.getAttribute('aria-pressed');
+            if (ariaPressed !== null) return ariaPressed === 'true';
             const hashedClasses = Array.from(element.classList).filter(c => c.startsWith('_'));
             return hashedClasses.length >= 2;
         }

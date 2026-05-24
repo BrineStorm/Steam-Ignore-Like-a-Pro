@@ -10,22 +10,20 @@ This is a browser extension consisting of **source code**, **icons**, and **UI a
 
 | Asset type        | AI used | Contribution and Scope                                      |AI Tools used |
 |-------------------|---------|-------------------------------------------------------------|---------- |
-| Code and UI       | Yes     | AI-assisted; all logic described, reviewed and tested by dev|Gemini, Claude (code review only)|
+| Code and UI       | Yes     | AI-assisted; all logic described, reviewed and tested by dev|Gemini, Claude|
 | Extension icon    | Yes     | AI-generated base, manually processed and refined           |Imagen 4   |
 | Demo video / MP4  | No      | Recorded and edited manually                                | -         |
 
 ## Appendix: SOLID assessment (Claude AI review)
 
-Evaluated against the final source as of [date]
+Evaluated against the final source as of May 10, 2026
 
 | Criterion | Score | Key note |
 |-----------|-------|----------|
-| **S** — Single Responsibility | 8/10 | `StatsLogic` / `StatsManager` correctly split into pure functions vs I/O. Each strategy class (`PageTitleStrategy`, `CssClassesStrategy`, etc.) has one job. Minor: `DiscoveryQueueAutomator` still owns both loop control and ignore logic, but the separation is pragmatic for its scope. |
-| **O** — Open/Closed | 8.5/10 | `NameExtractionStrategyProvider` and `ContainerStrategyProvider` are genuinely open for extension — new strategies added without touching existing code. `DecisionEngine` replaced if/else with a strategy map, new modes add one line. |
-| **L** — Liskov Substitution | 7.5/10 | Adapters (`apiAdapter`, `statsAdapter`, `nameExtractorAdapter`) are thin and interchangeable. No formal interfaces in JS, so substitutability relies on duck typing and constructor `typeof` guards. Sufficient for the runtime environment. |
-| **I** — Interface Segregation | 8/10 | All adapters expose only what consumers need (`{ignore}`, `{save}`, `{get}`). `ExploreAutomator` deps object is still somewhat wide (9 keys), but each dependency is used and the grouping is intentional. |
-| **D** — Dependency Inversion | 9/10 | Full DI assembly in each `main.js`. `BadgeFactory` no longer calls `chrome.runtime` directly — `iconUrl` is injected via `BadgeRenderer`. `SessionStateService` is shared from root `utils.js` and injected, not duplicated. `ResourceService` injected into UI classes. |
+| **S** — Single Responsibility | 9/10 | Classes own one concern each — pure logic, DOM reading and I/O are kept apart. Larger orchestrators deliberately group adjacent steps for readability. |
+| **O** — Open/Closed | 9/10 | New behaviour plugs in by adding a record to a strategy map (name extraction, containers, tooltip variants, queue mode) — no edits to existing code. |
+| **L** — Liskov Substitution | 8/10 | Strategies and adapters are interchangeable via duck-typing and runtime `typeof` guards. Formal interfaces would require TypeScript, which is out of scope for vanilla-JS at this size. |
+| **I** — Interface Segregation | 8.5/10 | Adapters stay minimal (`{ignore}`, `{save}`, `{get}`); config is split into a reader and a change emitter. Each class receives just the surface it actually uses. |
+| **D** — Dependency Inversion | 9.5/10 | Business classes receive their collaborators through DI; direct `chrome.*` access is contained in infrastructure services, and the shared `ResourceService` is hoisted into the global namespace. |
 
-**Overall: 8.7 / 10**
-
-The codebase shows consistent and deliberate application of SOLID principles, with the most mature implementation in the Dependency Inversion and Open/Closed areas. The main remaining trade-off is that `ExploreAutomator` is slightly broad in responsibility, which is a reasonable pragmatic choice given the module's scope.
+**Overall: 8.8 / 10.** Further improvement would amount to over-engineering for a browser extension of this scope.

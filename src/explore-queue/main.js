@@ -16,7 +16,7 @@
 
         // 2. Infrastructure Initialization
         const extSettings = new Explore.ExtensionSettingsService();
-        const resourceService = new Explore.ResourceService();
+        const resourceService = new window.ILAP.ResourceService();
         
         // 3. Domain Service Initialization
         const navGuard = new Explore.NavigationGuard(sessionState);
@@ -41,7 +41,6 @@
             stats: statsAdapter,
             navGuard: navGuard,
             nameExtractor: nameExtractorAdapter,
-            sanitizer: window.ILAP.Sanitizer,
             context: Explore.Context,
             analyzer: { getState: () => Explore.Analyzer.getState(Explore.COLORS) }, 
             decisionEngine: Explore.DecisionEngine

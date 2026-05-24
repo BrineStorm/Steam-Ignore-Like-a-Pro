@@ -43,6 +43,11 @@
             this.automator = null;
             this.ui = null;
             this.observer = null;
+            // Default to enabled to match popup's default and avoid a flicker
+            // where the panel briefly mounts before the storage read returns.
+            // init() awaits the read before starting the observer, so this
+            // value is only consulted once it has been refreshed.
+            this.masterEnabled = true;
         }
 
         init() {
@@ -68,8 +73,27 @@
                 this.ui.updateState(isRunning, count);
             });
 
-            // 4. Start DOM Observer
-            this.startObserver();
+            // 4. Resolve the master flag before observing so the very first
+            //    modal we see is gated correctly. Subsequent flips are handled
+            //    by the storage.onChanged listener below.
+            chrome.storage.local.get('ilap_q_master', (res) => {
+                this.masterEnabled = res.ilap_q_master !== false;
+                this._subscribeMasterChanges();
+                this.startObserver();
+            });
+        }
+
+        _subscribeMasterChanges() {
+            chrome.storage.onChanged.addListener((changes, area) => {
+                if (area !== 'local' || !changes.ilap_q_master) return;
+                this.masterEnabled = changes.ilap_q_master.newValue !== false;
+                // If the user disabled the queue while the panel was already
+                // mounted, retract it and stop any in-flight loop.
+                if (!this.masterEnabled) {
+                    this.ui.unmount();
+                    this.automator.stop();
+                }
+            });
         }
 
         startObserver() {
@@ -91,6 +115,7 @@
         }
 
         checkForDialog() {
+            if (!this.masterEnabled) return;
             const modal = document.querySelector('.FullModalOverlay div[role="dialog"]');
             if (modal) {
                 const insertion = InsertionStrategy.find(modal);

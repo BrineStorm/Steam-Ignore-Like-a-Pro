@@ -50,15 +50,13 @@
     }
 
     class ReviewAnalyzer {
-        static getState(colorsConfig) {
+        // DOM read: returns one entry per review row that has both a status span and a bracketed count.
+        static getRowSummaries() {
             const container = document.getElementById('userReviews');
-            if (!container) return 'NO_REVIEWS';
-            
-            const rows = container.querySelectorAll('.user_reviews_summary_row');
-            if (rows.length === 0) return 'NO_REVIEWS';
+            if (!container) return null;
 
-            let hasValidReviews = false;
-            let hasNonBlueReview = false;
+            const rows = container.querySelectorAll('.user_reviews_summary_row');
+            const summaries = [];
 
             rows.forEach(row => {
                 const summaryCol = row.querySelector('.summary.column');
@@ -67,27 +65,32 @@
                 const statusSpan = summaryCol.querySelector('.game_review_summary');
                 const countSpan = summaryCol.querySelector('.responsive_hidden');
 
-                let hasBrackets = false;
-                if (countSpan) {
-                    const countText = countSpan.textContent.trim();
-                    if (countText.startsWith('(') && countText.endsWith(')')) {
-                        hasBrackets = true;
-                    }
-                }
+                const countText = countSpan ? countSpan.textContent.trim() : '';
+                const hasBrackets = countText.startsWith('(') && countText.endsWith(')');
 
                 if (statusSpan && hasBrackets) {
-                    hasValidReviews = true;
-                    
-                    const color = window.getComputedStyle(statusSpan).color;
-                    if (color !== colorsConfig.BLUE) {
-                        hasNonBlueReview = true;
-                    }
+                    summaries.push({ statusSpan });
                 }
             });
 
-            if (!hasValidReviews) return 'NO_REVIEWS';
-            if (hasNonBlueReview) return 'IGNORE';
-            return 'SPARE';
+            return summaries;
+        }
+
+        // Colour interpretation (DOM-bound but isolated from row collection).
+        static isNonBlueStatus(statusSpan, blueColor) {
+            return window.getComputedStyle(statusSpan).color !== blueColor;
+        }
+
+        // Pure classification: rows + colour predicate → state enum.
+        static classify(summaries, blueColor) {
+            if (!summaries || summaries.length === 0) return 'NO_REVIEWS';
+            const hasNonBlue = summaries.some(s => ReviewAnalyzer.isNonBlueStatus(s.statusSpan, blueColor));
+            return hasNonBlue ? 'IGNORE' : 'SPARE';
+        }
+
+        static getState(colorsConfig) {
+            const summaries = ReviewAnalyzer.getRowSummaries();
+            return ReviewAnalyzer.classify(summaries, colorsConfig.BLUE);
         }
     }
 
@@ -109,7 +112,7 @@
             this.TTL = 15000;
         }
 
-        isAuthorized() {
+        consumeAuthorization() {
             const tokenJson = this.session.get(KEYS.NAV_TOKEN);
             this.session.remove(KEYS.NAV_TOKEN);
 
@@ -160,10 +163,6 @@
 
     // --- Infrastructure Services ---
 
-    class ResourceService {
-        getIconUrl(fileName) { return chrome.runtime.getURL(`./assets/icons/${fileName}`); }
-    }
-
     class ExtensionSettingsService {
         async getSettings(keys) {
             return new Promise(resolve => chrome.storage.local.get(keys, resolve));
@@ -183,7 +182,5 @@
     window.ILAP.Explore.Analyzer = ReviewAnalyzer;
     window.ILAP.Explore.DecisionEngine = DecisionEngine;
     window.ILAP.Explore.NavigationGuard = NavigationGuard;
-    
-    window.ILAP.Explore.ResourceService = ResourceService;
-    window.ILAP.Explore.ExtensionSettingsService = ExtensionSettingsService; 
+    window.ILAP.Explore.ExtensionSettingsService = ExtensionSettingsService;
 })();

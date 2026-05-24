@@ -6,7 +6,6 @@
             if (!deps.api || typeof deps.api.ignore !== 'function') throw new TypeError("[ILAP] Invalid ApiAdapter provided");
             if (!deps.stats || typeof deps.stats.save !== 'function') throw new TypeError("[ILAP] Invalid StatsAdapter provided");
             if (!deps.nameExtractor || typeof deps.nameExtractor.get !== 'function') throw new TypeError("[ILAP] Invalid NameExtractorAdapter provided");
-            if (!deps.sanitizer || typeof deps.sanitizer.escapeHTML !== 'function') throw new TypeError("[ILAP] Invalid Sanitizer provided");
 
             this.settings = deps.settings;
             this.ui = deps.ui;
@@ -14,7 +13,6 @@
             this.stats = deps.stats;
             this.nav = deps.navGuard;
             this.nameExtractor = deps.nameExtractor;
-            this.sanitizer = deps.sanitizer;
             this.context = deps.context;
             this.analyzer = deps.analyzer;
             this.decisionEngine = deps.decisionEngine;
@@ -41,14 +39,14 @@
             
             if (this.currentSettings.ilap_master_enabled === false || this.currentSettings.ilap_q_master === false) return;
 
-            const isAuthorized = this.nav.isAuthorized();
+            const wasAuthorized = this.nav.consumeAuthorization();
             const intent = this.nav.getUserIntent();
 
             if (intent.wantsActive || intent.wantsFF) {
                 // A reload of the same queue page is legitimate even without a nav token.
                 const isSamePageReload = appid === this.nav.getActiveAppid();
 
-                if (!isAuthorized && !isSamePageReload) {
+                if (!wasAuthorized && !isSamePageReload) {
                     console.log('[ILAP] Unauthorized manual navigation detected. Resetting automation.');
                     this._stopAutomation();
                     this._showStartPrompt();
@@ -126,7 +124,7 @@
         _executeFastForward() {
             const nextBtn = this.context.getNextButton();
             if (nextBtn) {
-                this.ui.showRunningToast("Fast Forwarding...", () => this._stopAutomation());
+                this.ui.showRunningToast({ text: "Fast Forwarding..." }, () => this._stopAutomation());
                 this._scheduleNextClick(nextBtn, 800);
             }
         }
@@ -164,17 +162,14 @@
             this.ui.applyVisuals('IGNORE', mode);
 
             const nextBtn = this.context.getNextButton();
-            
+
             if (shouldNext && nextBtn) {
-                // SECURITY FIX: Sanitize the raw game name before putting it into HTML <b> tags
-                const safeName = this.sanitizer.escapeHTML(name);
-                
                 this.ui.showRunningToast(
-                    `<b>${safeName}</b> ignored. Moving next...`,
+                    { bold: name, text: 'ignored. Moving next...' },
                     () => { this._stopAutomation(); }
                 );
                 this._scheduleNextClick(nextBtn, 2000);
-            } 
+            }
         }
 
         _scheduleNextClick(buttonElement, delay) {

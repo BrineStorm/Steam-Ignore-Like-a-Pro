@@ -30,25 +30,28 @@
         }
 
         async processIgnoreRequest(intent) {
-            const { appid, reason, linkElement } = intent;
+            const { appid, reason } = intent;
 
             if (this.sessionMap.has(appid)) return;
 
             const success = await this.api.ignore(appid, reason);
+            if (success) this._onIgnoreSuccess(intent);
+        }
 
-            if (success) {
-                this.sessionMap.set(appid, reason);
-                this._saveSession();
+        _onIgnoreSuccess(intent) {
+            const { appid, reason, linkElement } = intent;
 
-                const containerObj = this.strategies.findContainer(linkElement);
-                const contextEl = containerObj ? containerObj.element : linkElement;
+            this.sessionMap.set(appid, reason);
+            this._saveSession();
 
-                const name = this.nameExtractor.get(appid, contextEl);
-                const source = reason === 0 ? "Default Ignore" : "Played Elsewhere";
-                this.stats.save(name, source);
+            const containerObj = this.strategies.findContainer(linkElement);
+            const contextEl = containerObj ? containerObj.element : linkElement;
 
-                this.refreshBadgesForGame(appid);
-            }
+            const name = this.nameExtractor.get(appid, contextEl);
+            const source = reason === 0 ? "Default Ignore" : "Played Elsewhere";
+            this.stats.save(name, source);
+
+            this.refreshBadgesForGame(appid);
         }
 
         refreshBadgesForGame(appid) {
@@ -76,7 +79,7 @@
             
             // Shared Infrastructure
             const sessionService = new window.ILAP.SessionStateService();
-            const resourceService = { getIconUrl: (name) => chrome.runtime.getURL(`./assets/icons/${name}`) };
+            const resourceService = new window.ILAP.ResourceService();
 
             // UI Dependencies
             const strategies = new MI.ContainerStrategyProvider();
