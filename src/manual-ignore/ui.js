@@ -25,16 +25,18 @@
         }
     }
 
+    const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
+
     class BadgeFactory {
         static create(appid, typeClass, reason, iconUrl) {
             const overlay = document.createElement('div');
             overlay.className = `ilap-ignored-overlay ${typeClass}`;
             overlay.dataset.ilapAppid = appid;
-            
-            let tooltipText = "Ignore applied by";
+
+            let tooltipText = t('ignore_applied_by');
             if (reason === 2) {
-                overlay.style.backgroundColor = '#3ca8fc'; 
-                tooltipText = "Ignored (Already Played) applied by";
+                overlay.style.backgroundColor = '#4072CB';
+                tooltipText = t('ignored_already_played_applied_by');
             }
 
             overlay.addEventListener('click', (e) => {

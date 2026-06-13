@@ -15,6 +15,14 @@
         NEGATIVE: 'rgb(163, 76, 37)'
     };
 
+    const TIMING = {
+        LOOP_PAUSE_MS: 500,             // pause between slides in the processing loop
+        CONTINUE_CLICK_MS: 2500,        // wait after clicking a "Continue" interstitial
+        NEXT_CLICK_MS: 800,             // wait after advancing to the next slide
+        IGNORE_CLICK_MS: 150,           // wait after clicking the Ignore button
+        ACTIVE_STATE_TIMEOUT_MS: 2500   // max wait for the Ignore button to flip to active
+    };
+
     class SlideScanner {
         static getActiveSlide(dialog) {
             const container = dialog.querySelector('div[class*="Focusable"][class*="Panel"]')?.parentElement ||
@@ -150,9 +158,9 @@
                 if (!dialog) break; 
                 
                 const result = await this._processCurrentSlide(dialog);
-                if (!result) break; 
-                
-                await new Promise(r => setTimeout(r, 500));
+                if (!result) break;
+
+                await new Promise(r => setTimeout(r, TIMING.LOOP_PAUSE_MS));
             }
             this.stop();
         }
@@ -166,7 +174,7 @@
             if (!nextBtn) {
                 const continueBtn = SlideScanner.getContinueButton(slide);
                 if (continueBtn) {
-                     await this._clickWithDelay(continueBtn, 2500);
+                     await this._clickWithDelay(continueBtn, TIMING.CONTINUE_CLICK_MS);
                      return true; 
                 }
                 return false; 
@@ -175,14 +183,14 @@
             const gameInfo = SlideScanner.getGameInfo(slide, this.nameExtractor);
 
             if (this.config.skipPositive && gameInfo.isPositive) {
-                await this._clickWithDelay(nextBtn, 800);
+                await this._clickWithDelay(nextBtn, TIMING.NEXT_CLICK_MS);
                 return true;
             }
 
             const ignoreBtn = SlideScanner.getIgnoreButton(slide);
             if (ignoreBtn) {
                 if (!this._isButtonActive(ignoreBtn)) {
-                    await this._clickWithDelay(ignoreBtn, 150);
+                    await this._clickWithDelay(ignoreBtn, TIMING.IGNORE_CLICK_MS);
                     const success = await this._waitForActiveState(ignoreBtn);
                     
                     if (success) {
@@ -194,13 +202,13 @@
             } else {
                 const continueBtn = SlideScanner.getContinueButton(slide);
                 if (continueBtn) {
-                     await this._clickWithDelay(continueBtn, 2500);
+                     await this._clickWithDelay(continueBtn, TIMING.CONTINUE_CLICK_MS);
                      return true;
                 }
                 return false;
             }
 
-            await this._clickWithDelay(nextBtn, 800);
+            await this._clickWithDelay(nextBtn, TIMING.NEXT_CLICK_MS);
             return true;
         }
 
@@ -225,7 +233,7 @@
             return hashedClasses.length >= 2;
         }
 
-        _waitForActiveState(element, timeout = 2500) {
+        _waitForActiveState(element, timeout = TIMING.ACTIVE_STATE_TIMEOUT_MS) {
             return new Promise(resolve => {
                 if (this._isButtonActive(element)) return resolve(true);
                 const obs = new MutationObserver(() => {

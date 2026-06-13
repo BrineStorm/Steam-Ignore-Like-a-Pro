@@ -2,18 +2,20 @@
     'use strict';
 
     const Sanitizer = window.ILAP.Sanitizer;
+    const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
 
     function getModeLabel(mode) {
-        return mode === 'all' ? "Every Game" : "Bad Reviews";
+        return mode === 'all' ? t('mode_every_game') : t('mode_bad_reviews');
     }
 
     const TOOLTIP_BUILDERS = {
-        NO_REVIEWS: ({ safeBadgeLabel }) => `
-            <div style="margin-bottom: 6px;">
-                <span>Ignore isn't applied for games without or with insufficient reviews.</span>
+        NO_REVIEWS: ({ safeIconUrl, safeBadgeLabel }) => `
+            <div style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 6px;">
+                <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle; flex-shrink: 0; margin-top: 1px;">
+                <span>${Sanitizer.escapeHTML(t('no_reviews_explanation'))}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px; margin-top: 8px;">
-                <span style="color: #8f98a0;">Ignore criteria -</span>
+                <span style="color: #8f98a0;">${Sanitizer.escapeHTML(t('ignore_criteria'))} -</span>
                 <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
                     ${safeBadgeLabel}
                 </span>
@@ -21,11 +23,11 @@
         `,
         IGNORE: ({ safeIconUrl, safeBadgeLabel }) => `
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
-                <span>Ignored by</span>
                 <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
+                <span>${Sanitizer.escapeHTML(t('ignored_by'))}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="color: #8f98a0;">Ignore criteria -</span>
+                <span style="color: #8f98a0;">${Sanitizer.escapeHTML(t('ignore_criteria'))} -</span>
                 <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
                     ${safeBadgeLabel}
                 </span>
@@ -33,11 +35,11 @@
         `,
         DEFAULT: ({ safeIconUrl, safeBadgeLabel }) => `
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
-                <span style="color: #66c0f4;">Not auto-ignored by</span>
                 <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
+                <span style="color: #66c0f4;">${Sanitizer.escapeHTML(t('not_auto_ignored_by'))}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="color: #8f98a0;">Ignore criteria -</span>
+                <span style="color: #8f98a0;">${Sanitizer.escapeHTML(t('ignore_criteria'))} -</span>
                 <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
                     ${safeBadgeLabel}
                 </span>
@@ -79,33 +81,33 @@
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="font-weight: bold; color: #fff; display: flex; align-items: center; gap: 8px;">
                         <img src="${safeIconUrl}" style="width:16px;">
-                        Queue Helper
+                        ${Sanitizer.escapeHTML(t('queue_helper'))}
                     </div>
                     <div style="display: flex; align-items: center;">
-                        <div id="ilap-disable-btn" style="font-size: 10px; color: #8f98a0; border: 1px solid #3d4a5d; padding: 3px 8px; border-radius: 3px; cursor: pointer; margin-right: 12px; background: transparent; transition: all 0.2s;">Disable</div>
+                        <div id="ilap-disable-btn" style="font-size: 10px; color: #8f98a0; border: 1px solid #3d4a5d; padding: 3px 8px; border-radius: 3px; cursor: pointer; margin-right: 12px; background: transparent; transition: all 0.2s;">${Sanitizer.escapeHTML(t('disable'))}</div>
                         <span id="ilap-close-x" style="font-size: 14px; color: #8f98a0; cursor: pointer; line-height: 1;">✕</span>
                     </div>
                 </div>
 
                 <button id="ilap-run-btn" style="background: #5c7e10; color: white; border: none; padding: 10px; border-radius: 2px; cursor: pointer; font-size: 13px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                    Run Auto Ignore
+                    ${Sanitizer.escapeHTML(t('run_auto_ignore'))}
                     <span id="ilap-mode-badge" style="background: rgba(0,0,0,0.2); font-size: 10px; padding: 2px 6px; border-radius: 3px; color: #e1e1e1;">
                         [${safeModeLabel}]
                     </span>
                 </button>
-                
+
                 <button id="ilap-ff-btn" style="background: #3d4a5d; color: white; border: none; padding: 8px; border-radius: 2px; cursor: pointer; font-size: 11px;">
-                    Fast Forward (No Ignore)
+                    ${Sanitizer.escapeHTML(t('fast_forward_no_ignore'))}
                 </button>
             `;
 
             document.body.appendChild(toast);
 
             document.getElementById('ilap-run-btn').onclick = handlers.onRun;
-            
+
             document.getElementById('ilap-ff-btn').onclick = () => {
                 const btn = document.getElementById('ilap-ff-btn');
-                btn.textContent = "Skipping...";
+                btn.textContent = t('skipping');
                 btn.style.opacity = "0.7";
                 handlers.onFastForward();
             };
@@ -157,17 +159,25 @@
             toast.innerHTML = `
                 <div style="font-size: 13px; line-height: 1.4;">${messageHtml}</div>
                 <div style="display: flex; justify-content: flex-end;">
-                    <button id="ilap-stop-btn" style="background: #d32f2f; color: white; border: none; padding: 4px 10px; border-radius: 2px; cursor: pointer; font-size: 11px; font-weight: bold;">STOP</button>
+                    <button id="ilap-stop-btn" style="background: #d32f2f; color: white; border: none; padding: 4px 10px; border-radius: 2px; cursor: pointer; font-size: 11px; font-weight: bold;">${Sanitizer.escapeHTML(t('toast_stop'))}</button>
                 </div>
             `;
 
             const btn = document.getElementById('ilap-stop-btn');
             btn.onclick = () => {
-                btn.textContent = "STOPPED";
+                btn.textContent = t('toast_stopped');
                 btn.style.opacity = "0.7";
                 btn.style.cursor = "default";
                 onStop();
             };
+        }
+
+        showFastForwardToast(onStop) {
+            this.showRunningToast({ text: t('fast_forwarding') }, onStop);
+        }
+
+        showIgnoredToast(name, onStop) {
+            this.showRunningToast({ bold: name, text: t('ignored_moving_next') }, onStop);
         }
 
         applyVisuals(type, reasonMode) {
@@ -207,7 +217,7 @@
             tooltip.style.cssText = `position: absolute; bottom: 140%; right: -10px; background: #171a21; color: #c7d5e0; padding: 8px 12px; border-radius: 4px; border: 1px solid ${color}; min-width: 200px; font-size: 11px; z-index: 1000; pointer-events: none; visibility: hidden; opacity: 0; transition: 0.15s; text-align: left; line-height: 1.4;`;
             
             const safeIconUrl = Sanitizer.escapeHTML(this.resources.getIconUrl('icon16.png'));
-            const safeBadgeLabel = Sanitizer.escapeHTML(reasonMode === 'all' ? "Every Game" : "Bad Reviews");
+            const safeBadgeLabel = Sanitizer.escapeHTML(getModeLabel(reasonMode));
 
             const builder = TOOLTIP_BUILDERS[type] || TOOLTIP_BUILDERS.DEFAULT;
             tooltip.innerHTML = builder({ safeIconUrl, safeBadgeLabel });

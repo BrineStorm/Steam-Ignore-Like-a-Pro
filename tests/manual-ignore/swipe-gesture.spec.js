@@ -100,9 +100,9 @@ test.describe('Manual Ignore — swipe gesture', () => {
     });
 
     test('Default and platform swipes are isolated: when platform=off, left swipe is no-op', async ({ page, context }) => {
-        // Default stays at swipeRightRight, platform explicitly disabled.
+        // Default stays at swipeRight, platform explicitly disabled.
         await setExtensionStorage(context, {
-            ilap_shortcut_key: 'swipeRightRight',
+            ilap_shortcut_key: 'swipeRight',
             ilap_platform_key: 'off',
         });
         await gotoSearch(page);
@@ -126,7 +126,7 @@ test.describe('Manual Ignore — swipe gesture', () => {
     test('Default-only mapping: when default=off, right swipe is no-op but platform left still works', async ({ page, context }) => {
         await setExtensionStorage(context, {
             ilap_shortcut_key: 'off',
-            ilap_platform_key: 'swipeRightLeft',
+            ilap_platform_key: 'swipeLeft',
         });
         await gotoSearch(page);
         await page.waitForTimeout(300);

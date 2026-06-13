@@ -40,7 +40,7 @@ test.describe('Manual Ignore — stats reach the popup history', () => {
         const { link, appid } = await pickFirstAppLink(page, LIST_ITEM);
 
         // Capture the rendered name so we can assert it ends up in the popup.
-        // ConfigService default is swipeRightRight, so a right swipe maps to
+        // ConfigService default is swipeRight, so a right swipe maps to
         // reason=0. The same name extraction path is used on the badge and
         // in stats, which means the popup should show this exact string.
         const item = page.locator(LIST_ITEM)
@@ -102,7 +102,7 @@ test.describe('Manual Ignore — stats reach the popup history', () => {
         // Map Shift+Click to platform (reason=2). Default stays as right swipe.
         await page.evaluate(() => new Promise((resolve) => {
             chrome.storage.local.set({
-                ilap_shortcut_key: 'swipeRightRight',
+                ilap_shortcut_key: 'swipeRight',
                 ilap_platform_key: 'shiftKey',
             }, resolve);
         }));

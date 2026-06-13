@@ -47,8 +47,9 @@
         }
 
         _updateInternal(res) {
-            if (res[CONFIG_KEYS.SHORTCUT] !== undefined) this.config.defaultKey = res[CONFIG_KEYS.SHORTCUT];
-            if (res[CONFIG_KEYS.PLATFORM] !== undefined) this.config.platformKey = res[CONFIG_KEYS.PLATFORM];
+            const normalize = window.ILAP.normalizeShortcut;
+            if (res[CONFIG_KEYS.SHORTCUT] !== undefined) this.config.defaultKey = normalize(res[CONFIG_KEYS.SHORTCUT]);
+            if (res[CONFIG_KEYS.PLATFORM] !== undefined) this.config.platformKey = normalize(res[CONFIG_KEYS.PLATFORM]);
             if (res[CONFIG_KEYS.MASTER] !== undefined) this.config.enabled = res[CONFIG_KEYS.MASTER];
         }
     }
@@ -237,7 +238,7 @@
 
             if (distance >= this.threshold) {
                 const directionName = dx > 0 ? 'Right' : 'Left';
-                const swipeKey = `swipeRight${directionName}`; 
+                const swipeKey = `swipe${directionName}`;
                 
                 const config = this.configService.get();
                 if (!config.enabled) return;

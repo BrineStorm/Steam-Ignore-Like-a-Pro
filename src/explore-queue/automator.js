@@ -1,6 +1,11 @@
 (function() {
     'use strict';
 
+    const TIMING = {
+        FAST_FORWARD_DELAY_MS: 800,   // delay before auto-clicking Next while fast-forwarding
+        IGNORE_ADVANCE_DELAY_MS: 2000 // delay before auto-clicking Next after an ignore
+    };
+
     class ExploreAutomator {
         constructor(deps) {
             if (!deps.api || typeof deps.api.ignore !== 'function') throw new TypeError("[ILAP] Invalid ApiAdapter provided");
@@ -124,8 +129,8 @@
         _executeFastForward() {
             const nextBtn = this.context.getNextButton();
             if (nextBtn) {
-                this.ui.showRunningToast({ text: "Fast Forwarding..." }, () => this._stopAutomation());
-                this._scheduleNextClick(nextBtn, 800);
+                this.ui.showFastForwardToast(() => this._stopAutomation());
+                this._scheduleNextClick(nextBtn, TIMING.FAST_FORWARD_DELAY_MS);
             }
         }
 
@@ -164,11 +169,8 @@
             const nextBtn = this.context.getNextButton();
 
             if (shouldNext && nextBtn) {
-                this.ui.showRunningToast(
-                    { bold: name, text: 'ignored. Moving next...' },
-                    () => { this._stopAutomation(); }
-                );
-                this._scheduleNextClick(nextBtn, 2000);
+                this.ui.showIgnoredToast(name, () => { this._stopAutomation(); });
+                this._scheduleNextClick(nextBtn, TIMING.IGNORE_ADVANCE_DELAY_MS);
             }
         }
 

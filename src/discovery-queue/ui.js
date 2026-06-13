@@ -56,6 +56,9 @@
         }
     }
 
+    const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
+    const escapeHTML = (s) => (window.ILAP && window.ILAP.Sanitizer) ? window.ILAP.Sanitizer.escapeHTML(s) : String(s);
+
     class DiscoveryQueueUI {
         constructor() {
             this.container = null;
@@ -65,7 +68,7 @@
         }
 
         mount(insertionPoint, events) {
-            if (this.container) return; 
+            if (this.container) return;
 
             this.container = document.createElement('div');
             this.container.className = 'ilap-controls-container';
@@ -73,18 +76,18 @@
 
             const label = document.createElement('label');
             label.className = 'ilap-checkbox-label';
-            
+
             this.checkbox = document.createElement('input');
             this.checkbox.type = 'checkbox';
             this.checkbox.className = 'ilap-checkbox';
             this.checkbox.addEventListener('change', (e) => events.onCheckboxChange(e.target.checked));
-            
+
             label.appendChild(this.checkbox);
-            label.appendChild(document.createTextNode("Keep High Score")); 
+            label.appendChild(document.createTextNode(t('keep_high_score')));
 
             this.button = document.createElement('button');
             this.button.id = IDS.BUTTON;
-            this.button.innerHTML = `<span class="btn-symbol">▶</span> Start Auto Ignore`;
+            this.button.innerHTML = `<span class="btn-symbol">▶</span> ${escapeHTML(t('start_auto_ignore'))}`;
             this.button.addEventListener('click', events.onToggle);
 
             this.container.appendChild(label);
@@ -106,12 +109,12 @@
 
         updateState(isRunning, processedCount) {
             if (!this.button) return;
-            
+
             if (isRunning) {
-                this.button.innerHTML = `<span class="btn-symbol">⏹</span> Stop (${processedCount})`;
+                this.button.innerHTML = `<span class="btn-symbol">⏹</span> ${escapeHTML(t('stop_with_count', { count: processedCount }))}`;
                 this.button.classList.add('running');
             } else {
-                this.button.innerHTML = `<span class="btn-symbol">▶</span> Start Auto Ignore`;
+                this.button.innerHTML = `<span class="btn-symbol">▶</span> ${escapeHTML(t('start_auto_ignore'))}`;
                 this.button.classList.remove('running');
             }
         }

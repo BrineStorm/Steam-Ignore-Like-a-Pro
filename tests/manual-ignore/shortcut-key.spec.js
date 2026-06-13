@@ -55,7 +55,7 @@ test.describe('Manual Ignore — alternative shortcut (Ctrl+Click)', () => {
         await expect(item.locator(SEL.overlay)).toBeVisible({ timeout: 5000 });
     });
 
-    test('After switching default to ctrlKey: swipeRightRight no longer triggers ignore', async ({ page, context }) => {
+    test('After switching default to ctrlKey: swipeRight no longer triggers ignore', async ({ page, context }) => {
         await setExtensionStorage(context, {
             ilap_shortcut_key: 'ctrlKey',
             ilap_platform_key: 'off',

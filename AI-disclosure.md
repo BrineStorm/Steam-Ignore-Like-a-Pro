@@ -16,14 +16,14 @@ This is a browser extension consisting of **source code**, **icons**, and **UI a
 
 ## Appendix: SOLID assessment (Claude AI review)
 
-Evaluated against the final source as of May 10, 2026
+Evaluated against the source as of June 9, 2026 (HEAD `3a105eb`)
 
 | Criterion | Score | Key note |
 |-----------|-------|----------|
-| **S** — Single Responsibility | 9/10 | Classes own one concern each — pure logic, DOM reading and I/O are kept apart. Larger orchestrators deliberately group adjacent steps for readability. |
-| **O** — Open/Closed | 9/10 | New behaviour plugs in by adding a record to a strategy map (name extraction, containers, tooltip variants, queue mode) — no edits to existing code. |
-| **L** — Liskov Substitution | 8/10 | Strategies and adapters are interchangeable via duck-typing and runtime `typeof` guards. Formal interfaces would require TypeScript, which is out of scope for vanilla-JS at this size. |
-| **I** — Interface Segregation | 8.5/10 | Adapters stay minimal (`{ignore}`, `{save}`, `{get}`); config is split into a reader and a change emitter. Each class receives just the surface it actually uses. |
-| **D** — Dependency Inversion | 9.5/10 | Business classes receive their collaborators through DI; direct `chrome.*` access is contained in infrastructure services, and the shared `ResourceService` is hoisted into the global namespace. |
+| **S** — Single Responsibility | 9/10 | Classes own one concern each — pure logic, DOM reading and I/O are kept apart (`StatsLogic` vs `StatsManager`; `BadgeFactory`/`BadgeRenderer`/`DuplicateDetector`). Larger orchestrators deliberately group adjacent steps for readability. |
+| **O** — Open/Closed | 9/10 | New behaviour plugs in by adding a record to a strategy map (`NameExtractionStrategyProvider`, `ContainerStrategyProvider`, `DecisionEngine.strategies`) — no edits to existing code. |
+| **L** — Liskov Substitution | 8/10 | Strategies and adapters are interchangeable via a shared signature and runtime `typeof` guards in the automators. Formal interfaces would require TypeScript, which is out of scope for vanilla-JS at this size. |
+| **I** — Interface Segregation | 8.5/10 | Adapters stay minimal (`{ignore}`, `{save}`, `{get}`); each class receives just the surface it actually uses. |
+| **D** — Dependency Inversion | 9.5/10 | Business classes receive their collaborators through DI; direct `window.ILAP.*` / `chrome.*` access is contained in thin adapters, never inside business logic. |
 
-**Overall: 8.8 / 10.** Further improvement would amount to over-engineering for a browser extension of this scope.
+**Overall: 8.8 / 10** for SOLID structure. The scores reflect architecture only. Further SOLID restructuring would amount to over-engineering for a browser extension of this scope.

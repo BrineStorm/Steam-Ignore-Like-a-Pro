@@ -73,7 +73,7 @@ test.describe('Popup — settings accordion', () => {
         await openPopupAndExpandSettings(page, context);
 
         const select = page.locator('#default-key');
-        await expect(select).toHaveValue('swipeRightRight');
+        await expect(select).toHaveValue('swipeRight');
 
         await select.selectOption('ctrlKey');
         await page.waitForTimeout(400);

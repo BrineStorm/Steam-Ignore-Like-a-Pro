@@ -55,13 +55,15 @@
 
     // === Stats Domain (SRP Fix) ===
 
+    const HISTORY_LIMIT = 20; // max entries kept in ilap_ignored_history
+
     const StatsLogic = {
         increment(currentCount) {
             return (currentCount || 0) + 1;
         },
         pushHistory(currentHistory, name, source) {
             const history = [{ name, source }, ...(currentHistory || [])];
-            return history.slice(0, 20);
+            return history.slice(0, HISTORY_LIMIT);
         }
     };
 

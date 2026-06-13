@@ -148,7 +148,7 @@
     }
 
     window.addEventListener('load', () => {
-        const defaultConfig = { defaultKey: 'swipeRightRight', platformKey: 'swipeRightLeft', enabled: true };
+        const defaultConfig = { defaultKey: 'swipeRight', platformKey: 'swipeLeft', enabled: true };
         const configService = new window.ILAP.ManualIgnore.ConfigService(defaultConfig);
         new App(configService).init();
     });
