@@ -1,10 +1,9 @@
-const { test, expect } = require('@playwright/test');
-
-const AUTH_FILE = 'playwright/.auth/user.json';
-
-test.use({ storageState: AUTH_FILE });
+const { test, expect } = require('../_fixtures.js');
 
 const SEL = {
+    // The "Explore Your Discovery Queue" widget on a tag page; clicking it opens
+    // the modal. role="button" is the focusable opener inside the widget.
+    queueWidget: '.SaleSectionCtn.discoveryqueue div[role="button"]',
     modal: '.FullModalOverlay div[role="dialog"]',
     panel: '#ilap-queue-controls',
     button: '#queue-auto-ignore-btn',
@@ -12,25 +11,20 @@ const SEL = {
     closeBtn: '.FullModalOverlay div[aria-label="Close"]',
 };
 
-// Steam's /explore/ either lands inside an open queue modal or shows a
-// "Start a new queue" CTA. This helper covers both.
+// The Discovery Queue modal (.FullModalOverlay div[role="dialog"]) — the one the
+// DQ module injects #ilap-queue-controls into — is NOT the /explore/next/ page
+// (that's the Explore Queue / "Queue Helper" toast surface). The modal opens
+// from the "Explore Your Discovery Queue" widget that Steam renders below the
+// fold on tag pages. Navigate to a tag, scroll the widget in, click it.
 async function openQueueModal(page) {
-    await page.goto('/explore/');
+    await page.goto('/tags/en/Collectathon');
+
+    const widget = page.locator(SEL.queueWidget).first();
+    await widget.waitFor({ state: 'attached', timeout: 15000 });
+    await widget.scrollIntoViewIfNeeded();
+    await widget.click();
 
     const modal = page.locator(SEL.modal).first();
-    try {
-        await modal.waitFor({ state: 'visible', timeout: 5000 });
-        return modal;
-    } catch (_) { /* fall through to CTA */ }
-
-    const startCta = page.locator('a[href*="/explore/"], button, div[role="button"]')
-        .filter({ hasText: /start.*queue|start exploring|next.*queue/i })
-        .first();
-
-    if (await startCta.isVisible().catch(() => false)) {
-        await startCta.click().catch(() => {});
-    }
-
     await modal.waitFor({ state: 'visible', timeout: 15000 });
     return modal;
 }
@@ -72,27 +66,45 @@ test.describe('Discovery Queue UI', () => {
         await expect(checkbox).not.toBeChecked();
     });
 
-    // DQ automator clicks Steam's in-page Ignore button — no API calls,
-    // no rate limit. Safe to run for real.
-    test('Start activates the loop (running class + Stop label), Stop returns to idle', async ({ page }) => {
-        test.setTimeout(60_000);
+    // DQ automator clicks Steam's in-page Ignore button (no API calls / no rate
+    // limit). This DOES ignore real games on the test account — accepted: a
+    // future cleanup test will undo ignores by date via the popup's ignored-games
+    // link (see CLAUDE.local.md). Driving ~12 real ignores also forces the queue
+    // to run out at least once, exercising the "Continue" interstitial that spins
+    // up a fresh queue (the infinite-feed path).
+    test('Start runs the loop, ignores ~12 games across a queue boundary (Continue), Stop → idle', async ({ page }) => {
+        test.setTimeout(120_000);
         await openQueueModal(page);
 
         const btn = page.locator(SEL.button);
         await expect(btn).toBeVisible({ timeout: 10000 });
         await expect(btn).not.toHaveClass(/running/);
 
+        // The active slide (and its Ignore button) renders a beat after the modal;
+        // wait for the current game's app link so the very first iteration has a
+        // slide to act on.
+        await page.locator(`${SEL.modal} a[href*="/app/"]`).first()
+            .waitFor({ state: 'attached', timeout: 10000 }).catch(() => {});
+
         await btn.click();
 
+        // Loop engaged.
         await expect(btn).toHaveClass(/running/, { timeout: 5000 });
         await expect(btn).toContainText(/stop/i);
 
-        // Let the automator process a couple of slides for real before stopping.
-        await page.waitForTimeout(4000);
+        // The running button label carries the processed (ignored) counter. Wait
+        // until it reaches the target — a single served queue is short, so this
+        // can only happen if the automator clicked "Continue" to start a new one.
+        const TARGET = 12;
+        await expect.poll(async () => {
+            const txt = (await btn.textContent()) || '';
+            const m = txt.match(/(\d+)/);
+            return m ? Number(m[1]) : 0;
+        }, { timeout: 100_000, intervals: [1500] }).toBeGreaterThanOrEqual(TARGET);
 
+        // Stop → back to idle.
         await btn.click();
-
-        await expect(btn).not.toHaveClass(/running/, { timeout: 5000 });
+        await expect(btn).not.toHaveClass(/running/, { timeout: 10000 });
         await expect(btn).toContainText(/start auto ignore/i);
     });
 

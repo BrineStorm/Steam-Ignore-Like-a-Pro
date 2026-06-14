@@ -70,7 +70,7 @@ Store listings are currently under review. In the meantime, you can install manu
 
 1. Clone or download the repository.
 2. Open a terminal in the project root and run `npm install`.
-3. Run `npm run build.js` (or `node build`) to generate the `dist/` folders.
+3. Run `npm run build` (or `node build.js`) to generate the `dist/` folders.
 
 ### Chrome | Edge
 
@@ -102,7 +102,7 @@ Yes. The extension interacts with page elements and structural DOM classes, not 
 
 ## Project structure
 
-- `manifest.json` - MV3 extension manifest.
+- `platform/` - MV3 manifests, one per target (`chromium/manifest.json`, `firefox/manifest.json`).
 - `build.js` - Node script to compile platform-specific distributions (Chromium/Firefox).
 - `styles/styles.css` - Global CSS for injected badges and tooltips.
 - `ui/` - Contains the popup interface (HTML, CSS, JS).

@@ -20,13 +20,28 @@
         CONTINUE_CLICK_MS: 2500,        // wait after clicking a "Continue" interstitial
         NEXT_CLICK_MS: 800,             // wait after advancing to the next slide
         IGNORE_CLICK_MS: 150,           // wait after clicking the Ignore button
-        ACTIVE_STATE_TIMEOUT_MS: 2500   // max wait for the Ignore button to flip to active
+        ACTIVE_STATE_TIMEOUT_MS: 2500,  // max wait for the Ignore button to flip to active
+        CONFIRM_PRIMARY_MS: 1000,       // primary: wait for the button to reflect "ignored" before any request
+        CONFIRM_FALLBACK_MS: 4000,      // fallback: max wait for dynamicstore userdata to reflect the ignore
+        CONFIRM_POLL_MS: 600            // gap between userdata polls in the fallback
     };
+
+    // Authoritative ignore-state source: Steam's own dynamic store. Same-origin
+    // GET (read-only — NOT an ignore API call), returns rgIgnoredApps as the map
+    // of every ignored appid. Used only as a fallback when the in-page button
+    // can't confirm (currently Steam's web ignore button renders no pressed/mask
+    // state, so primary confirmation silently fails).
+    const USERDATA_URL = 'https://store.steampowered.com/dynamicstore/userdata/';
 
     class SlideScanner {
         static getActiveSlide(dialog) {
-            const container = dialog.querySelector('div[class*="Focusable"][class*="Panel"]')?.parentElement ||
-                              dialog.querySelector('._3q6eNRFBrPSFSGEn8uRFZ3');
+            // The specific carousel container (Prev/Current/Next cards) MUST be
+            // tried first — its children[2] is the active card holding the Ignore
+            // button. The generic Focusable-Panel parent matches a broader node
+            // whose children[2] is NOT the active card (Ignore lives elsewhere),
+            // so as a primary it silently breaks the loop. Keep it as fallback only.
+            const container = dialog.querySelector('._3q6eNRFBrPSFSGEn8uRFZ3') ||
+                              dialog.querySelector('div[class*="Focusable"][class*="Panel"]')?.parentElement;
             return (container && container.children.length > 2) ? container.children[2] : null;
         }
 
@@ -109,6 +124,13 @@
 
             return { name, isPositive };
         }
+
+        static getAppId(slide) {
+            const link = slide.querySelector('a[href*="/app/"]');
+            const href = link && link.getAttribute('href');
+            const m = href && href.match(/\/app\/(\d+)/);
+            return m ? m[1] : null;
+        }
     }
 
     class DiscoveryQueueAutomator {
@@ -170,36 +192,10 @@
             if (!slide) return false;
 
             const nextBtn = SlideScanner.getNextButton(dialog);
-            
+
+            // End of the served queue → click "Continue" to spin up a fresh one
+            // (keeps the feed effectively infinite).
             if (!nextBtn) {
-                const continueBtn = SlideScanner.getContinueButton(slide);
-                if (continueBtn) {
-                     await this._clickWithDelay(continueBtn, TIMING.CONTINUE_CLICK_MS);
-                     return true; 
-                }
-                return false; 
-            }
-
-            const gameInfo = SlideScanner.getGameInfo(slide, this.nameExtractor);
-
-            if (this.config.skipPositive && gameInfo.isPositive) {
-                await this._clickWithDelay(nextBtn, TIMING.NEXT_CLICK_MS);
-                return true;
-            }
-
-            const ignoreBtn = SlideScanner.getIgnoreButton(slide);
-            if (ignoreBtn) {
-                if (!this._isButtonActive(ignoreBtn)) {
-                    await this._clickWithDelay(ignoreBtn, TIMING.IGNORE_CLICK_MS);
-                    const success = await this._waitForActiveState(ignoreBtn);
-                    
-                    if (success) {
-                        this.processedCount++;
-                        this._notifyUI();
-                        this.stats.save(gameInfo.name, "Queue");
-                    }
-                }
-            } else {
                 const continueBtn = SlideScanner.getContinueButton(slide);
                 if (continueBtn) {
                      await this._clickWithDelay(continueBtn, TIMING.CONTINUE_CLICK_MS);
@@ -208,8 +204,82 @@
                 return false;
             }
 
+            const gameInfo = SlideScanner.getGameInfo(slide, this.nameExtractor);
+
+            // Keep High Score advances past POSITIVE games without ignoring.
+            // Mixed/negative are NOT skipped — they fall through to the ignore path.
+            if (this.config.skipPositive && gameInfo.isPositive) {
+                await this._clickWithDelay(nextBtn, TIMING.NEXT_CLICK_MS);
+                return true;
+            }
+
+            const ignoreBtn = SlideScanner.getIgnoreButton(slide);
+            if (!ignoreBtn) {
+                // No ignore control on this slide (e.g. an interstitial). Try
+                // Continue, otherwise stop — never advance past a game we didn't act on.
+                const continueBtn = SlideScanner.getContinueButton(slide);
+                if (continueBtn) {
+                     await this._clickWithDelay(continueBtn, TIMING.CONTINUE_CLICK_MS);
+                     return true;
+                }
+                return false;
+            }
+
+            // Already ignored (cheap button check, no request) → just advance.
+            if (this._isButtonActive(ignoreBtn)) {
+                await this._clickWithDelay(nextBtn, TIMING.NEXT_CLICK_MS);
+                return true;
+            }
+
+            const appid = SlideScanner.getAppId(slide);
+
+            // Ignore by a LIVE click on the prohibition icon (no ignore API).
+            await this._clickWithDelay(ignoreBtn, TIMING.IGNORE_CLICK_MS);
+
+            // Confirm before advancing. HARD RULE: no confirmed ignore → no advance.
+            const confirmed = await this._confirmIgnored(ignoreBtn, appid);
+            if (!confirmed) return false;
+
+            this.processedCount++;
+            this._notifyUI();
+            this.stats.save(gameInfo.name, "Queue");
+
             await this._clickWithDelay(nextBtn, TIMING.NEXT_CLICK_MS);
             return true;
+        }
+
+        // Two-tier confirmation, in order of cheapness:
+        //   1) PRIMARY — the in-page button reflects the ignored state. Free, no
+        //      request. (Currently a no-op: Steam's web button renders no pressed
+        //      state, so this times out and we fall through.)
+        //   2) FALLBACK — authoritative read of dynamicstore userdata. One GET per
+        //      unconfirmed ignore, keeping requests at "one click → at most one GET".
+        async _confirmIgnored(ignoreBtn, appid) {
+            if (await this._waitForActiveState(ignoreBtn, TIMING.CONFIRM_PRIMARY_MS)) return true;
+            if (!appid) return false;
+            return this._verifyIgnoredViaUserdata(appid);
+        }
+
+        async _verifyIgnoredViaUserdata(appid) {
+            const key = String(appid);
+            const deadline = Date.now() + TIMING.CONFIRM_FALLBACK_MS;
+            while (Date.now() < deadline) {
+                try {
+                    const res = await fetch(`${USERDATA_URL}?_=${Date.now()}`, {
+                        credentials: 'include',
+                        cache: 'no-store'
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        const ignored = data && data.rgIgnoredApps;
+                        if (ignored && Object.prototype.hasOwnProperty.call(ignored, key)) return true;
+                    }
+                } catch (e) {
+                    // Transient network/parse issue — retry until the deadline.
+                }
+                await new Promise(r => setTimeout(r, TIMING.CONFIRM_POLL_MS));
+            }
+            return false;
         }
 
         _notifyUI() {

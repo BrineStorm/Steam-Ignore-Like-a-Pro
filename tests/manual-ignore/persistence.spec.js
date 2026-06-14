@@ -1,19 +1,15 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('../_fixtures.js');
 const {
-    AUTH_FILE,
     SEL,
-    stubIgnoreApi,
-    getApiCalls,
+    interceptIgnoreApi,
     rightClickSwipe,
-    pickFirstAppLink,
+    pickFirstRow,
+    searchRow,
     waitForContentScript,
 } = require('./_helpers');
 const { clearExtensionStorage } = require('../_extension.js');
 
-test.use({ storageState: AUTH_FILE });
-
 const SEARCH_URL = '/search/?term=action';
-const LIST_ITEM = '.tab_item';
 const SESSION_KEY = 'ilap_session_map_v2';
 
 test.beforeEach(async ({ context }) => {
@@ -26,25 +22,21 @@ test.afterEach(async ({ context }) => {
 
 test.describe('Manual Ignore — session persistence across reload', () => {
 
-    test('Ignore → reload → badge re-renders from ilap_session_map_v2 with no new API call', async ({ page }) => {
+    test('Ignore → reload → badge re-renders from ilap_session_map_v2 with no new API call', async ({ page, context }) => {
+        const calls = await interceptIgnoreApi(context);
+
         // 1. Ignore a game so the session map records [appid → reason].
         await page.goto(SEARCH_URL);
         // Start with a clean sessionStorage so a stray entry from another test
         // can't fake a passing reload-render.
         await page.evaluate(() => sessionStorage.clear());
         await waitForContentScript(page);
-        await stubIgnoreApi(page);
 
-        const { link, appid } = await pickFirstAppLink(page, LIST_ITEM);
+        const { link, appid } = await pickFirstRow(page);
         await rightClickSwipe(page, link, 60);
 
-        const item = page.locator(LIST_ITEM)
-            .filter({ has: page.locator(`a[href*="/app/${appid}"]`) })
-            .first();
-        await expect(item.locator(SEL.overlay)).toBeVisible({ timeout: 5000 });
-
-        const callsBefore = await getApiCalls(page);
-        expect(callsBefore).toHaveLength(1);
+        await expect(searchRow(page, appid).locator(SEL.overlay)).toBeVisible({ timeout: 5000 });
+        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
 
         // 2. Sanity: the session map actually holds this appid.
         const sessionDump = await page.evaluate((key) => sessionStorage.getItem(key), SESSION_KEY);
@@ -55,15 +47,11 @@ test.describe('Manual Ignore — session persistence across reload', () => {
         // 3. Reload — sessionStorage survives in the same tab, chrome.storage too.
         await page.reload();
         await waitForContentScript(page);
-        // Re-stub on the fresh document and reset the call counter. The
-        // adapter resolves window.ILAP.apiIgnoreGame at every call, so the
-        // re-stub is honored even if refreshAll already ran once.
-        await stubIgnoreApi(page);
 
         // 4. If Steam re-rendered the same appid in the results (search top
         //    entries are stable for these terms), the badge should appear
         //    purely from refreshAll() — no swipe, no API call.
-        const linkAfter = page.locator(`a[href*="/app/${appid}"]`).first();
+        const linkAfter = page.locator(`a[href*="/app/${appid}/"]`).first();
         const linkAttached = await linkAfter
             .waitFor({ state: 'attached', timeout: 5000 })
             .then(() => true)
@@ -74,9 +62,10 @@ test.describe('Manual Ignore — session persistence across reload', () => {
         const restoredBadge = page.locator(`.ilap-ignored-overlay[data-ilap-appid="${appid}"]`).first();
         await expect(restoredBadge).toBeVisible({ timeout: 8000 });
 
-        // 5. The restoration must NOT have called the ignore API again.
-        const callsAfter = await getApiCalls(page);
-        expect(callsAfter).toHaveLength(0);
+        // 5. The restoration must NOT have called the ignore API again — the
+        //    cumulative call count is unchanged from the single swipe above.
+        await page.waitForTimeout(500);
+        expect(calls).toHaveLength(1);
 
         // 6. Session map is still intact after the reload (not wiped by the
         //    content script's init sequence).

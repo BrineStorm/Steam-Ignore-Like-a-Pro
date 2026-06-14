@@ -115,7 +115,7 @@ Steam-Ignore-Like-a-Pro/
 ├── styles/styles.css
 ├── build.js
 └── tests/
-    ├── auth.setup.spec.js       # Manual Steam login, saves cookies to playwright/.auth/
+    ├── auth.setup.spec.js       # Manual Steam login, saves cookies to ~/.playwright-states/steam.json (outside repo)
     ├── _extension.js            # Shared helpers: getExtensionId, storage read/write/clear, popupUrl
     ├── cross-cutting/
     │   ├── history-cap.spec.js       # ilap_ignored_history capped at 20

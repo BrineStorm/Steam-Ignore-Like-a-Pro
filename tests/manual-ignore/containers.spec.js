@@ -1,16 +1,14 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('../_fixtures.js');
 const {
-    AUTH_FILE,
     SEL,
-    stubIgnoreApi,
-    getApiCalls,
+    interceptIgnoreApi,
     rightClickSwipe,
     pickFirstAppLink,
+    pickFirstRow,
+    searchRow,
     waitForContentScript,
 } = require('./_helpers');
 const { clearExtensionStorage } = require('../_extension.js');
-
-test.use({ storageState: AUTH_FILE });
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
@@ -20,22 +18,17 @@ test.afterEach(async ({ context }) => {
     await clearExtensionStorage(context);
 });
 
-// Each entry exercises a different branch of ContainerStrategyProvider:
-//   - List Item     → .tab_item             (search results)
-//   - Generic Wrap  → .dailydeal_cap        (storefront daily deals)
+// Homepage React surfaces. Each exercises a non-list branch of
+// ContainerStrategyProvider:
+//   - Generic Wrap  → .dailydeal_cap              (storefront daily deals)
 //   - Direct Image  → [class*="CapsuleImageCtn"]  (React storefront tiles)
+// Both resolve to a 'grid' badge.
 const SURFACES = [
-    {
-        name: 'search results — List strategy',
-        url: '/search/?term=action',
-        container: '.tab_item',
-        expectVariant: SEL.listBadge,
-    },
     {
         name: 'storefront daily deal — Wrapper strategy',
         url: '/',
         container: '.dailydeal_cap',
-        expectVariant: SEL.gridBadge, // wrapper resolves daily deals as 'grid'
+        expectVariant: SEL.gridBadge,
     },
     {
         name: 'React storefront tile — Direct Image strategy',
@@ -47,11 +40,28 @@ const SURFACES = [
 
 test.describe('Manual Ignore — container strategies across Steam surfaces', () => {
 
+    test('Swipe lands a badge on: search results — Fallback strategy (grid)', async ({ page, context }) => {
+        const calls = await interceptIgnoreApi(context);
+        await page.goto('/search/?term=action');
+        await waitForContentScript(page);
+
+        // Search rows ARE the /app/ link; the extension resolves them via the
+        // Fallback strategy → 'grid' badge appended onto the row.
+        const { link, appid } = await pickFirstRow(page);
+        await rightClickSwipe(page, link, 60);
+
+        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
+        expect(calls[0].appid).toBe(appid);
+        expect(calls[0].reason).toBe(0);
+
+        await expect(searchRow(page, appid).locator(SEL.gridBadge)).toBeVisible({ timeout: 5000 });
+    });
+
     for (const surface of SURFACES) {
-        test(`Swipe lands a badge on: ${surface.name}`, async ({ page }) => {
+        test(`Swipe lands a badge on: ${surface.name}`, async ({ page, context }) => {
+            const calls = await interceptIgnoreApi(context);
             await page.goto(surface.url);
             await waitForContentScript(page);
-            await stubIgnoreApi(page);
 
             // Storefront takes a moment to hydrate React widgets — give the
             // requested container time to materialize, otherwise skip with a
@@ -66,8 +76,7 @@ test.describe('Manual Ignore — container strategies across Steam surfaces', ()
             const { link, appid } = await pickFirstAppLink(page, surface.container);
             await rightClickSwipe(page, link, 60);
 
-            const calls = await getApiCalls(page);
-            expect(calls).toHaveLength(1);
+            await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
             expect(calls[0].appid).toBe(appid);
             expect(calls[0].reason).toBe(0);
 
@@ -85,10 +94,10 @@ test.describe('Manual Ignore — container strategies across Steam surfaces', ()
     // the same though: swipe → ContainerStrategyProvider must resolve, badge
     // must end up tied to the swiped appid via data-ilap-appid.
 
-    test('Swipe lands a badge on: tag browse (/tag/browse/?tags=19)', async ({ page }) => {
+    test('Swipe lands a badge on: tag browse (/tag/browse/?tags=19)', async ({ page, context }) => {
+        const calls = await interceptIgnoreApi(context);
         await page.goto('/tag/browse/?tags=19'); // Action tag — populated reliably.
         await waitForContentScript(page);
-        await stubIgnoreApi(page);
 
         // Tag browse hydrates capsules asynchronously. Pick the first /app/ link
         // and wait for its image container to attach before swiping.
@@ -109,8 +118,7 @@ test.describe('Manual Ignore — container strategies across Steam surfaces', ()
 
         await rightClickSwipe(page, link, 60);
 
-        const calls = await getApiCalls(page);
-        expect(calls).toHaveLength(1);
+        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
         expect(calls[0].appid).toBe(appid);
 
         // The variant doesn't matter for this surface — what matters is that
@@ -120,11 +128,11 @@ test.describe('Manual Ignore — container strategies across Steam surfaces', ()
         await expect(badge).toBeVisible({ timeout: 5000 });
     });
 
-    test('Swipe lands a badge on: app detail page (/app/730 — sidebar recs)', async ({ page }) => {
+    test('Swipe lands a badge on: app detail page (/app/730 — sidebar recs)', async ({ page, context }) => {
         const CURRENT_APP = '730'; // Counter-Strike 2 — reliably has recommendation tiles.
+        const calls = await interceptIgnoreApi(context);
         await page.goto(`/app/${CURRENT_APP}/`);
         await waitForContentScript(page);
-        await stubIgnoreApi(page);
 
         // Find the first /app/<other>/ link — recommendation tiles, "More like
         // this", franchise blocks. Excluding the current appid avoids matching
@@ -147,8 +155,7 @@ test.describe('Manual Ignore — container strategies across Steam surfaces', ()
 
         await rightClickSwipe(page, link, 60);
 
-        const calls = await getApiCalls(page);
-        expect(calls).toHaveLength(1);
+        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
         expect(calls[0].appid).toBe(appid);
 
         const badge = page.locator(`.ilap-ignored-overlay[data-ilap-appid="${appid}"]`).first();

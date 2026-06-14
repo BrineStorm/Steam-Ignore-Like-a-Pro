@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('../_fixtures.js');
 const { AUTH_FILE, SEL, openExploreQueue } = require('./_helpers');
 const { setExtensionStorage, getExtensionStorage } = require('../_extension.js');
 

@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('../_fixtures.js');
 const {
     getExtensionId,
     setExtensionStorage,
@@ -25,7 +25,9 @@ test.describe('Popup — main view', () => {
         await expect(toggle).toBeChecked();
         await expect(page.locator('#ui-wrapper')).not.toHaveClass(/disabled/);
 
-        await toggle.click();
+        // The <input> is visually collapsed (opacity:0; width:0; height:0); the
+        // visible, clickable surface is the sibling .slider inside the label.
+        await page.locator('#master-toggle + .slider').click();
         await page.waitForTimeout(300);
 
         const stored = await getExtensionStorage(context, 'ilap_master_enabled');

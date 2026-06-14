@@ -1,23 +1,35 @@
-const { test, expect } = require('@playwright/test');
-const { AUTH_FILE, SEL, APP_A, APP_B, openExploreQueue, readSession } = require('./_helpers');
+const { test, expect } = require('../_fixtures.js');
+const { SEL, openExploreQueue, readSession } = require('./_helpers');
+const { setExtensionStorage } = require('../_extension.js');
 
-test.use({ storageState: AUTH_FILE });
+// The discovery queue serves whatever game is next — callers can't pick an
+// appid, so these tests assert against the appid actually returned by
+// openExploreQueue (not hardcoded 730/570).
 
 test.describe('Explore Queue — intent persistence and navigation', () => {
 
-    test('Run sets ACTIVE intent and ACTIVE_APPID in sessionStorage', async ({ page }) => {
-        await openExploreQueue(page, APP_A);
+    test.beforeEach(async ({ context }) => {
+        // autoNext OFF so Run never auto-advances the page — keeps the
+        // intent/reload assertions deterministic (spared → visuals+stop;
+        // ignore → API+stop; neither navigates).
+        await setExtensionStorage(context, { ilap_q_master: true, ilap_q_next: false });
+    });
+
+    test('Run sets ACTIVE intent and ACTIVE_APPID (served appid) in sessionStorage', async ({ page }) => {
+        const appid = await openExploreQueue(page);
+        expect(appid).toBeTruthy();
 
         await page.locator(SEL.runBtn).click();
         await page.waitForTimeout(300);
 
         const session = await readSession(page);
         expect(session.ACTIVE).toBe('true');
-        expect(session.ACTIVE_APPID).toBe(String(APP_A));
+        expect(session.ACTIVE_APPID).toBe(appid);
     });
 
     test('Reload of same queue page in ACTIVE state does NOT show start prompt (regression: EQ reload bug)', async ({ page }) => {
-        await openExploreQueue(page, APP_A);
+        const appid = await openExploreQueue(page);
+        expect(appid).toBeTruthy();
 
         await page.locator(SEL.runBtn).click();
         await page.waitForTimeout(300);
@@ -26,24 +38,30 @@ test.describe('Explore Queue — intent persistence and navigation', () => {
         await page.reload();
         await page.waitForTimeout(2000);
 
-        // Start prompt's Run button must not reappear. Either no toast (decided
-        // immediately and applied visuals) or a running toast with STOP — never
-        // the start prompt with #ilap-run-btn.
+        // Same appid → legitimate reload → no start prompt (#ilap-run-btn).
         await expect(page.locator(SEL.runBtn)).toHaveCount(0);
 
         const session = await readSession(page);
         expect(session.ACTIVE).toBe('true');
-        expect(session.ACTIVE_APPID).toBe(String(APP_A));
+        expect(session.ACTIVE_APPID).toBe(appid);
     });
 
     test('Sideways navigation to a different appid without nav token re-shows the start prompt', async ({ page }) => {
-        await openExploreQueue(page, APP_A);
+        const appidX = await openExploreQueue(page, 0);
+        expect(appidX).toBeTruthy();
 
         await page.locator(SEL.runBtn).click();
         await page.waitForTimeout(300);
 
-        // Direct URL change to a different game (no _scheduleNextClick token issued).
-        await openExploreQueue(page, APP_B);
+        // Land on a DIFFERENT game's queue page via an explicit queue position.
+        // A fresh load with no nav token = a sideways navigation, which must
+        // reset the automation and re-prompt.
+        let appidY = appidX;
+        for (let pos = 1; pos <= 6 && appidY === appidX; pos++) {
+            appidY = await openExploreQueue(page, pos);
+        }
+        expect(appidY).toBeTruthy();
+        expect(appidY).not.toBe(appidX);
 
         await expect(page.locator(SEL.runBtn)).toBeVisible({ timeout: 15000 });
 
@@ -53,7 +71,7 @@ test.describe('Explore Queue — intent persistence and navigation', () => {
     });
 
     test('Manual click on Steam Next button while ACTIVE issues a nav token', async ({ page }) => {
-        await openExploreQueue(page, APP_A);
+        await openExploreQueue(page);
 
         const nextBtn = page.locator(SEL.nextBtn);
         if ((await nextBtn.count()) === 0) {

@@ -7,8 +7,8 @@
   "scripts": {
     "build": "node build.js",
     "build:test": "node build.js --test",
-    "test": "npm run build:test && npx playwright test",
-    "test:auth": "npm run build:test && npx playwright test tests/auth.setup.spec.js",
+    "test": "npm run build:test && npx playwright test --project=chromium",
+    "test:auth": "npm run build:test && npx playwright test --project=setup",
     "test_dq": "npm run build:test && npx playwright test tests/discovery-queue",
     "test_eq": "npm run build:test && npx playwright test tests/explore-queue",
     "test_mi": "npm run build:test && npx playwright test tests/manual-ignore",

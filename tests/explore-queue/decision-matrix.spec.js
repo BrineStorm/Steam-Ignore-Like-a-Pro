@@ -1,72 +1,45 @@
 const { test, expect } = require('@playwright/test');
-const { AUTH_FILE, openExploreQueue } = require('./_helpers');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
 
-test.use({ storageState: AUTH_FILE });
+// DecisionEngine (src/explore-queue/utils.js) is a PURE static class. The old
+// version drove it from page context via window.ILAP.Explore — but content
+// scripts run in the isolated world, invisible to page.evaluate. Since the logic
+// has zero DOM/browser dependency, load it directly in Node (vm + a window stub)
+// and assert the contract. No browser, no Steam login, fast.
+function loadDecisionEngine() {
+    const code = fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'explore-queue', 'utils.js'),
+        'utf8'
+    );
+    const sandbox = { window: {} };
+    vm.createContext(sandbox);
+    vm.runInContext(code, sandbox);
+    return sandbox.window.ILAP.Explore.DecisionEngine;
+}
 
-// DecisionEngine is a pure static class exposed on window.ILAP.Explore. We can
-// drive its strategy map directly from the page context without hunting for a
-// Mostly Positive game in Steam's live queue — the analyzer's classification
-// path (Blue vs non-Blue text color) is exercised elsewhere in
-// bad-mode-ignore.spec.js. Here we lock the contract between reviewState and
-// mode.
-//
 // reviewState comes from ReviewAnalyzer.classify:
 //   - 'IGNORE'     → at least one Mixed/Negative (non-Blue) status row
-//   - 'SPARE'      → only Mostly Positive / Very Positive (all-Blue) rows
+//   - 'SPARE'      → only Mostly/Very Positive (all-Blue) rows
 //   - 'NO_REVIEWS' → no usable rows
-test.describe('Explore Queue — DecisionEngine decision matrix', () => {
+test.describe('Explore Queue — DecisionEngine decision matrix (unit)', () => {
+    const DE = loadDecisionEngine();
 
-    test('Mostly Positive (SPARE) is spared in bad mode, ignored in all mode', async ({ page }) => {
-        // EQ scripts load on a queue page, not on /explore/ alone.
-        await openExploreQueue(page);
-        await page.waitForFunction(
-            () => window.ILAP && window.ILAP.Explore && window.ILAP.Explore.DecisionEngine,
-            null,
-            { timeout: 15000 }
-        );
-
-        const decisions = await page.evaluate(() => {
-            const DE = window.ILAP.Explore.DecisionEngine;
-            return {
-                spareBad:     DE.decide('SPARE', 'bad'),
-                spareAll:     DE.decide('SPARE', 'all'),
-                ignoreBad:    DE.decide('IGNORE', 'bad'),
-                ignoreAll:    DE.decide('IGNORE', 'all'),
-                noReviewsBad: DE.decide('NO_REVIEWS', 'bad'),
-                noReviewsAll: DE.decide('NO_REVIEWS', 'all'),
-            };
-        });
-
-        // Bad mode: only Mixed/Negative gets ignored.
-        expect(decisions.spareBad).toBe('SHOULD_SPARE');
-        expect(decisions.ignoreBad).toBe('SHOULD_IGNORE');
-        expect(decisions.noReviewsBad).toBe('SHOULD_SPARE');
-
-        // All mode: everything gets ignored regardless of review state.
-        expect(decisions.spareAll).toBe('SHOULD_IGNORE');
-        expect(decisions.ignoreAll).toBe('SHOULD_IGNORE');
-        expect(decisions.noReviewsAll).toBe('SHOULD_IGNORE');
+    test('bad mode: only IGNORE is ignored; SPARE / NO_REVIEWS are spared', () => {
+        expect(DE.decide('SPARE', 'bad')).toBe('SHOULD_SPARE');
+        expect(DE.decide('IGNORE', 'bad')).toBe('SHOULD_IGNORE');
+        expect(DE.decide('NO_REVIEWS', 'bad')).toBe('SHOULD_SPARE');
     });
 
-    test('Unknown mode falls back to bad mode strategy', async ({ page }) => {
-        await openExploreQueue(page);
-        await page.waitForFunction(
-            () => window.ILAP && window.ILAP.Explore && window.ILAP.Explore.DecisionEngine,
-            null,
-            { timeout: 15000 }
-        );
+    test('all mode: everything is ignored regardless of review state', () => {
+        expect(DE.decide('SPARE', 'all')).toBe('SHOULD_IGNORE');
+        expect(DE.decide('IGNORE', 'all')).toBe('SHOULD_IGNORE');
+        expect(DE.decide('NO_REVIEWS', 'all')).toBe('SHOULD_IGNORE');
+    });
 
-        const decisions = await page.evaluate(() => {
-            const DE = window.ILAP.Explore.DecisionEngine;
-            return {
-                spareUnknown:  DE.decide('SPARE', 'gibberish'),
-                ignoreUnknown: DE.decide('IGNORE', 'gibberish'),
-            };
-        });
-
-        // If a future bug ships a stale mode string, the safe default is
-        // bad-mode (don't mass-ignore everything).
-        expect(decisions.spareUnknown).toBe('SHOULD_SPARE');
-        expect(decisions.ignoreUnknown).toBe('SHOULD_IGNORE');
+    test('unknown mode falls back to the bad-mode strategy (never mass-ignore)', () => {
+        expect(DE.decide('SPARE', 'gibberish')).toBe('SHOULD_SPARE');
+        expect(DE.decide('IGNORE', 'gibberish')).toBe('SHOULD_IGNORE');
     });
 });

@@ -1,23 +1,21 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('../_fixtures.js');
 const {
-    AUTH_FILE,
     SEL,
-    stubIgnoreApi,
+    interceptIgnoreApi,
     rightClickSwipe,
-    pickFirstAppLink,
+    pickFirstRow,
+    searchRow,
     waitForContentScript,
 } = require('./_helpers');
 const {
     getExtensionId,
     clearExtensionStorage,
+    setExtensionStorage,
     getExtensionStorage,
     popupUrl,
 } = require('../_extension.js');
 
-test.use({ storageState: AUTH_FILE });
-
 const SEARCH_URL = '/search/?term=action';
-const LIST_ITEM = '.tab_item';
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
@@ -30,27 +28,25 @@ test.afterEach(async ({ context }) => {
 test.describe('Manual Ignore — stats reach the popup history', () => {
 
     test('After ignore: popup shows Last Ignored and history dropdown lists the game name', async ({ page, context }) => {
-        // 1) Drive a real ignore from the search page. API call is stubbed, but
-        //    saveStats / getGameName are NOT — they hit chrome.storage.local
-        //    and the real DOM-based name extractor.
+        // 1) Drive a real ignore from the search page. The ignore POST is
+        //    intercepted, but saveStats / getGameName are NOT — they hit
+        //    chrome.storage.local and the real DOM-based name extractor.
+        const calls = await interceptIgnoreApi(context);
         await page.goto(SEARCH_URL);
         await waitForContentScript(page);
-        await stubIgnoreApi(page);
 
-        const { link, appid } = await pickFirstAppLink(page, LIST_ITEM);
+        const { link, appid } = await pickFirstRow(page);
 
         // Capture the rendered name so we can assert it ends up in the popup.
-        // ConfigService default is swipeRight, so a right swipe maps to
-        // reason=0. The same name extraction path is used on the badge and
-        // in stats, which means the popup should show this exact string.
-        const item = page.locator(LIST_ITEM)
-            .filter({ has: page.locator(`a[href*="/app/${appid}"]`) })
-            .first();
-        const titleEl = item.locator('.title, [class*="GameName"], [class*="AppName"]').first();
-        const expectedName = (await titleEl.textContent().catch(() => null) || '').trim();
+        // ConfigService default is swipeRight → reason=0. The same name
+        // extraction path feeds the badge and the stats, so the popup should
+        // show this exact string.
+        const expectedName = (await searchRow(page, appid).locator('.title').first()
+            .textContent().catch(() => null) || '').trim();
 
         await rightClickSwipe(page, link, 60);
-        await expect(item.locator(SEL.overlay)).toBeVisible({ timeout: 5000 });
+        await expect(searchRow(page, appid).locator(SEL.overlay)).toBeVisible({ timeout: 5000 });
+        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
 
         // 2) Wait until storage actually lands. The save is async (chained
         //    chrome.storage.local.get → set), so poll instead of sleeping.
@@ -67,8 +63,8 @@ test.describe('Manual Ignore — stats reach the popup history', () => {
         expect(recordedName).toBeTruthy();
         // Source is "Default Ignore" for reason=0.
         expect(stored.ilap_ignored_history[0].source).toBe('Default Ignore');
-        // Sanity: if we managed to scrape a name from the tab item, it should
-        // be the same one Steam-side extractor used.
+        // Sanity: if we managed to scrape a name from the row, it should be the
+        // same one the Steam-side extractor used.
         if (expectedName) expect(recordedName).toBe(expectedName);
 
         // 3) Open the popup and verify the UI surfaces the same data.
@@ -94,28 +90,23 @@ test.describe('Manual Ignore — stats reach the popup history', () => {
     });
 
     test('After Shift+Click (Already Played): history source is "Played Elsewhere"', async ({ page, context }) => {
-        await context.serviceWorkers(); // ensure SW is up before the goto
+        // Map Shift+Click to platform (reason=2). Default stays as right swipe.
+        await setExtensionStorage(context, {
+            ilap_shortcut_key: 'swipeRight',
+            ilap_platform_key: 'shiftKey',
+        });
+
+        const calls = await interceptIgnoreApi(context);
         await page.goto(SEARCH_URL);
         await waitForContentScript(page);
-        await stubIgnoreApi(page);
-
-        // Map Shift+Click to platform (reason=2). Default stays as right swipe.
-        await page.evaluate(() => new Promise((resolve) => {
-            chrome.storage.local.set({
-                ilap_shortcut_key: 'swipeRight',
-                ilap_platform_key: 'shiftKey',
-            }, resolve);
-        }));
         await page.waitForTimeout(400);
 
-        const { link, appid } = await pickFirstAppLink(page, LIST_ITEM);
+        const { link, appid } = await pickFirstRow(page);
         await link.scrollIntoViewIfNeeded();
         await link.click({ modifiers: ['Shift'], force: true });
 
-        const item = page.locator(LIST_ITEM)
-            .filter({ has: page.locator(`a[href*="/app/${appid}"]`) })
-            .first();
-        await expect(item.locator(SEL.overlay)).toBeVisible({ timeout: 5000 });
+        await expect(searchRow(page, appid).locator(SEL.overlay)).toBeVisible({ timeout: 5000 });
+        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
 
         await expect.poll(
             async () => (await getExtensionStorage(context, 'ilap_ignored_count')).ilap_ignored_count,

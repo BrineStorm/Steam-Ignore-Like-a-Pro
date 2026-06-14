@@ -1,8 +1,10 @@
 ﻿const { test, expect } = require('@playwright/test');
 const fs = require('fs');
+const path = require('path');
 
-// File where we store session cookies
-const AUTH_FILE = 'playwright/.auth/user.json';
+// File where we store session cookies. Lives OUTSIDE the repo (the project tree
+// may be cloud-synced) — see tests/_fixtures.js for the canonical path.
+const { AUTH_FILE } = require('./_fixtures.js');
 
 test('Setup: Login to Steam', async ({ page }) => {
     // OVERRIDE TIMEOUT: Set timeout to 5 minutes just for this test
@@ -23,7 +25,7 @@ test('Setup: Login to Steam', async ({ page }) => {
 
     // 3. Save storage state (cookies, local storage)
     // Ensure directory exists
-    const dir = 'playwright/.auth';
+    const dir = path.dirname(AUTH_FILE);
     if (!fs.existsSync(dir)){
         fs.mkdirSync(dir, { recursive: true });
     }

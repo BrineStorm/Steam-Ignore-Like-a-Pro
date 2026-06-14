@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('../_fixtures.js');
 const {
     getExtensionId,
     setExtensionStorage,
@@ -31,7 +31,8 @@ test.describe('Popup — settings accordion', () => {
         const qMaster = page.locator('#q-master');
         await expect(qMaster).toBeChecked();
 
-        await qMaster.click();
+        // The checkbox is visually collapsed; click the visible .slider surface.
+        await page.locator('#q-master + .slider').click();
         await page.waitForTimeout(300);
 
         const stored = await getExtensionStorage(context, 'ilap_q_master');
@@ -45,7 +46,7 @@ test.describe('Popup — settings accordion', () => {
         const qNext = page.locator('#q-next');
         await expect(qNext).not.toBeChecked();
 
-        await qNext.click();
+        await page.locator('#q-next + .slider').click();
         await page.waitForTimeout(300);
 
         const stored = await getExtensionStorage(context, 'ilap_q_next');
@@ -58,12 +59,14 @@ test.describe('Popup — settings accordion', () => {
         const qMode = page.locator('#q-mode-toggle');
         await expect(qMode).not.toBeChecked(); // default: bad
 
-        await qMode.click();
+        // The checkbox is collapsed; the visible toggle is the .wide-track.
+        const modeTrack = page.locator('#q-mode-toggle ~ .wide-track');
+        await modeTrack.click();
         await page.waitForTimeout(300);
         let stored = await getExtensionStorage(context, 'ilap_q_mode');
         expect(stored.ilap_q_mode).toBe('all');
 
-        await qMode.click();
+        await modeTrack.click();
         await page.waitForTimeout(300);
         stored = await getExtensionStorage(context, 'ilap_q_mode');
         expect(stored.ilap_q_mode).toBe('bad');
@@ -105,12 +108,12 @@ test.describe('Popup — settings accordion', () => {
         });
         await openPopupAndExpandSettings(page, context);
 
-        const platOptions = page.locator('#platform-key option');
-        const ctrlOpt = platOptions.locator('[value="ctrlKey"]');
+        // The custom dropdown keeps the native <select> as the value store and
+        // mirrors mutual exclusion onto its <option> disabled state.
+        const ctrlOpt = page.locator('#platform-key option[value="ctrlKey"]');
         await expect(ctrlOpt).toBeDisabled();
 
-        const defOptions = page.locator('#default-key option');
-        const shiftOpt = defOptions.locator('[value="shiftKey"]');
+        const shiftOpt = page.locator('#default-key option[value="shiftKey"]');
         await expect(shiftOpt).toBeDisabled();
     });
 });

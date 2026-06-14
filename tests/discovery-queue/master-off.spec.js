@@ -1,32 +1,24 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('../_fixtures.js');
 const { setExtensionStorage, clearExtensionStorage } = require('../_extension.js');
 
-const AUTH_FILE = 'playwright/.auth/user.json';
-
-test.use({ storageState: AUTH_FILE });
-
 const SEL = {
+    queueWidget: '.SaleSectionCtn.discoveryqueue div[role="button"]',
     modal: '.FullModalOverlay div[role="dialog"]',
     panel: '#ilap-queue-controls',
     button: '#queue-auto-ignore-btn',
 };
 
 // Copy of the helper from ui.spec.js — kept inline so this regression spec is
-// self-contained (the rest of the DQ specs assume master=ON).
+// self-contained (the rest of the DQ specs assume master=ON). The DQ modal opens
+// from the "Explore Your Discovery Queue" widget below the fold on a tag page.
 async function openQueueModal(page) {
-    await page.goto('/explore/');
-    const modal = page.locator(SEL.modal).first();
-    try {
-        await modal.waitFor({ state: 'visible', timeout: 5000 });
-        return modal;
-    } catch (_) { /* fall through to CTA */ }
+    await page.goto('/tags/en/Collectathon');
+    const widget = page.locator(SEL.queueWidget).first();
+    await widget.waitFor({ state: 'attached', timeout: 15000 });
+    await widget.scrollIntoViewIfNeeded();
+    await widget.click();
 
-    const startCta = page.locator('a[href*="/explore/"], button, div[role="button"]')
-        .filter({ hasText: /start.*queue|start exploring|next.*queue/i })
-        .first();
-    if (await startCta.isVisible().catch(() => false)) {
-        await startCta.click().catch(() => {});
-    }
+    const modal = page.locator(SEL.modal).first();
     await modal.waitFor({ state: 'visible', timeout: 15000 });
     return modal;
 }

@@ -1,19 +1,16 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('../_fixtures.js');
 const {
-    AUTH_FILE,
     SEL,
-    stubIgnoreApi,
-    getApiCalls,
+    interceptIgnoreApi,
     rightClickSwipe,
-    pickFirstAppLink,
+    pickFirstRow,
+    searchRow,
+    SEARCH_ROW,
     waitForContentScript,
 } = require('./_helpers');
 const { clearExtensionStorage, setExtensionStorage } = require('../_extension.js');
 
-test.use({ storageState: AUTH_FILE });
-
 const SEARCH_URL = '/search/?term=action';
-const LIST_ITEM = '.tab_item';
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
@@ -31,28 +28,23 @@ test.describe('Manual Ignore — alternative shortcut (Ctrl+Click)', () => {
             ilap_platform_key: 'off',
         });
 
+        const calls = await interceptIgnoreApi(context);
         await page.goto(SEARCH_URL);
         await waitForContentScript(page);
-        await stubIgnoreApi(page);
         // ConfigService.listen() picks up storage changes asynchronously.
         await page.waitForTimeout(400);
 
-        const { link, appid } = await pickFirstAppLink(page, LIST_ITEM);
+        const { link, appid } = await pickFirstRow(page);
         await link.scrollIntoViewIfNeeded();
         // Use force:true so Steam's nav overlays don't intercept; the click
         // event still fires through document.body capture-phase listener.
         await link.click({ modifiers: ['Control'], force: true });
-        await page.waitForTimeout(400);
 
-        const calls = await getApiCalls(page);
-        expect(calls).toHaveLength(1);
+        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
         expect(calls[0].appid).toBe(appid);
         expect(calls[0].reason).toBe(0);
 
-        const item = page.locator(LIST_ITEM)
-            .filter({ has: page.locator(`a[href*="/app/${appid}"]`) })
-            .first();
-        await expect(item.locator(SEL.overlay)).toBeVisible({ timeout: 5000 });
+        await expect(searchRow(page, appid).locator(SEL.overlay)).toBeVisible({ timeout: 5000 });
     });
 
     test('After switching default to ctrlKey: swipeRight no longer triggers ignore', async ({ page, context }) => {
@@ -61,16 +53,16 @@ test.describe('Manual Ignore — alternative shortcut (Ctrl+Click)', () => {
             ilap_platform_key: 'off',
         });
 
+        const calls = await interceptIgnoreApi(context);
         await page.goto(SEARCH_URL);
         await waitForContentScript(page);
-        await stubIgnoreApi(page);
         await page.waitForTimeout(400);
 
-        const { link } = await pickFirstAppLink(page, LIST_ITEM);
+        const { link } = await pickFirstRow(page);
         await rightClickSwipe(page, link, 60);
         await page.waitForTimeout(500);
 
-        expect(await getApiCalls(page)).toHaveLength(0);
+        expect(calls).toHaveLength(0);
         await expect(page.locator(SEL.overlay)).toHaveCount(0);
     });
 
@@ -80,34 +72,28 @@ test.describe('Manual Ignore — alternative shortcut (Ctrl+Click)', () => {
             ilap_platform_key: 'shiftKey',
         });
 
+        const calls = await interceptIgnoreApi(context);
         await page.goto(SEARCH_URL);
         await waitForContentScript(page);
-        await stubIgnoreApi(page);
         await page.waitForTimeout(400);
 
-        const items = page.locator(LIST_ITEM);
-        await items.first().waitFor({ state: 'attached', timeout: 10000 });
+        // Each search row IS an /app/ link; take two distinct rows so dedup
+        // doesn't suppress the second call.
+        const rows = page.locator(SEARCH_ROW);
+        await rows.first().waitFor({ state: 'attached', timeout: 10000 });
+        const firstLink = rows.nth(0);
+        const secondLink = rows.nth(1);
 
-        // Two distinct list items so dedup doesn't suppress the second call.
-        const firstLink = items.nth(0).locator('a[href*="/app/"]').first();
-        const secondLink = items.nth(1).locator('a[href*="/app/"]').first();
-
-        const firstHref = await firstLink.getAttribute('href');
-        const secondHref = await secondLink.getAttribute('href');
-        const firstId = firstHref.match(/\/app\/(\d+)/)[1];
-        const secondId = secondHref.match(/\/app\/(\d+)/)[1];
+        const firstId = (await firstLink.getAttribute('href')).match(/\/app\/(\d+)/)[1];
+        const secondId = (await secondLink.getAttribute('href')).match(/\/app\/(\d+)/)[1];
         expect(firstId).not.toBe(secondId);
 
         await firstLink.scrollIntoViewIfNeeded();
         await firstLink.click({ modifiers: ['Control'], force: true });
-        await page.waitForTimeout(300);
-
         await secondLink.scrollIntoViewIfNeeded();
         await secondLink.click({ modifiers: ['Shift'], force: true });
-        await page.waitForTimeout(300);
 
-        const calls = await getApiCalls(page);
-        expect(calls).toHaveLength(2);
+        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(2);
         const byId = Object.fromEntries(calls.map(c => [c.appid, c.reason]));
         expect(byId[firstId]).toBe(0);
         expect(byId[secondId]).toBe(2);

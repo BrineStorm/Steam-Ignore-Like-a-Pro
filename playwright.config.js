@@ -9,7 +9,12 @@ const CHROMIUM_EXTENSION_PATH = path.join(__dirname, 'dist', 'chromium-test');
 
 module.exports = defineConfig({
   testDir: './tests',
-  
+
+  // Snapshot ignored apps before the run; un-ignore exactly the diff after.
+  // Keeps the test account clean of games the suite ignores. See tests/_cleanup.js.
+  globalSetup: require.resolve('./tests/global-setup.js'),
+  globalTeardown: require.resolve('./tests/global-teardown.js'),
+
   // Timeout for each test (30 seconds)
   timeout: 30 * 1000,
   
@@ -17,8 +22,12 @@ module.exports = defineConfig({
     timeout: 5000
   },
 
-  // Run tests sequentially to avoid conflicting login states
+  // Run tests sequentially to avoid conflicting login states.
+  // One worker = one headed browser window at a time. Extensions are heavy in
+  // headed mode; more workers race for CPU and the service-worker handshake
+  // (context.waitForEvent('serviceworker')) starts timing out.
   fullyParallel: false,
+  workers: 1,
 
   // Simple console reporter
   reporter: 'list',
@@ -39,7 +48,23 @@ module.exports = defineConfig({
 
   projects: [
     {
+      // Manual Steam login. Only run via `npm run test:auth` (--project=setup).
+      // Kept out of the default run so `npm test` never blocks waiting for login.
+      name: 'setup',
+      testMatch: /auth\.setup\.spec\.js/,
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: {
+            args: [
+                `--disable-extensions-except=${CHROMIUM_EXTENSION_PATH}`,
+                `--load-extension=${CHROMIUM_EXTENSION_PATH}`
+            ],
+        }
+      },
+    },
+    {
       name: 'chromium',
+      testIgnore: /auth\.setup\.spec\.js/,
       use: {
         ...devices['Desktop Chrome'],
         // Chrome-specific args to load the unpacked extension
