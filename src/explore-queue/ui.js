@@ -209,8 +209,10 @@
             
             const badge = document.createElement('div');
             badge.className = 'ilap-micro-badge';
-            badge.style.cssText = `position: absolute; top: -10px; right: 2px; background: ${color}; color: white; font-size: 7px; font-weight: 800; padding: 1px 4px; border-radius: 3px; z-index: 100; text-transform: uppercase; cursor: help;`;            
-            badge.textContent = type === 'NO_REVIEWS' ? 'NO REVIEWS' : type;
+            const badgeBg = type === 'IGNORE' ? color : (this.colors.BADGE_BLUE_BG || color);
+            badge.style.cssText = `position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: ${badgeBg}; color: white; font-size: 11px; font-weight: 800; padding: 2px 9px; border-radius: 4px; z-index: 100; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; cursor: help;`;
+            const BADGE_LABELS = { 'NO_REVIEWS': 'NO REVIEWS', 'SPARE': 'SPARED' };
+            badge.textContent = BADGE_LABELS[type] || type;
 
             const tooltip = document.createElement('div');
             tooltip.className = 'ilap-tooltip';

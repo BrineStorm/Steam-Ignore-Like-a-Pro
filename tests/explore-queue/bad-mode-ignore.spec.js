@@ -21,7 +21,7 @@ async function readVerdict(page, timeoutMs = 8000) {
     }
     const text = (await badge.first().textContent().catch(() => '') || '').trim().toUpperCase();
     if (text === 'IGNORE') return 'IGNORE';
-    if (text === 'SPARE') return 'SPARE';
+    if (text === 'SPARED') return 'SPARE';
     if (text === 'NO REVIEWS') return 'NO_REVIEWS';
     return null;
 }

@@ -9,6 +9,7 @@
         GRAY: 'rgb(136, 136, 136)',
         RED_BG: '#d32f2f',
         BLUE_BG: '#66c0f4',
+        BADGE_BLUE_BG: '#2a6cc6',
         OFF_BG: '#888888',
         YELLOW_BG: '#c1a50a' 
     };

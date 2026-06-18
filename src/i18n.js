@@ -40,7 +40,7 @@
 
             your_discovery_queue: "Your Discovery Queue",
             section_manual_ignore: "Manual Ignore",
-            click_next_after_ignore: "Click Next after applied ignore",
+            click_next_after_ignore: "Auto-advance after ignore",
             ignore_mode: "Ignore Mode:",
             mode_bad_reviews: "Bad Reviews",
             mode_every_game: "Every Game",
@@ -93,7 +93,7 @@
 
             your_discovery_queue: "Entdeckungsliste",
             section_manual_ignore: "Manuelles Ignorieren",
-            click_next_after_ignore: "Nach Ignorieren weiter",
+            click_next_after_ignore: "Automatisch weiter nach Ignorieren",
             ignore_mode: "Ignorier-Modus:",
             mode_bad_reviews: "Schlechte Bewertungen",
             mode_every_game: "Alle Spiele",
@@ -146,7 +146,7 @@
 
             your_discovery_queue: "File de découvertes",
             section_manual_ignore: "Ignorer manuel",
-            click_next_after_ignore: "Suivant après ignorer",
+            click_next_after_ignore: "Avance auto après ignorer",
             ignore_mode: "Mode d'exclusion :",
             mode_bad_reviews: "Avis négatifs",
             mode_every_game: "Tous les jeux",
@@ -199,7 +199,7 @@
 
             your_discovery_queue: "Cola de descubrimiento",
             section_manual_ignore: "Ignorar manual",
-            click_next_after_ignore: "Siguiente tras ignorar",
+            click_next_after_ignore: "Avance auto tras ignorar",
             ignore_mode: "Modo de ignorar:",
             mode_bad_reviews: "Reseñas negativas",
             mode_every_game: "Todos los juegos",
@@ -252,7 +252,7 @@
 
             your_discovery_queue: "Ουρά ανακαλύψεων",
             section_manual_ignore: "Χειροκίνητη αγνόηση",
-            click_next_after_ignore: "Επόμενο μετά την αγνόηση",
+            click_next_after_ignore: "Αυτόματη μετάβαση μετά την αγνόηση",
             ignore_mode: "Λειτουργία αγνόησης:",
             mode_bad_reviews: "Κακές κριτικές",
             mode_every_game: "Όλα τα παιχνίδια",
@@ -305,7 +305,7 @@
 
             your_discovery_queue: "Coda di scoperta",
             section_manual_ignore: "Ignora manuale",
-            click_next_after_ignore: "Avanti dopo aver ignorato",
+            click_next_after_ignore: "Avanzamento auto dopo aver ignorato",
             ignore_mode: "Modalità ignora:",
             mode_bad_reviews: "Recensioni negative",
             mode_every_game: "Tutti i giochi",
@@ -358,7 +358,7 @@
 
             your_discovery_queue: "Fila de descobertas",
             section_manual_ignore: "Ignorar manual",
-            click_next_after_ignore: "Próximo após ignorar",
+            click_next_after_ignore: "Avanço auto após ignorar",
             ignore_mode: "Modo de ignorar:",
             mode_bad_reviews: "Análises ruins",
             mode_every_game: "Todos os jogos",
@@ -411,7 +411,7 @@
 
             your_discovery_queue: "Keşif Sıranız",
             section_manual_ignore: "Manuel Yoksayma",
-            click_next_after_ignore: "Yoksaydıktan sonra İleri",
+            click_next_after_ignore: "Yok saydıktan sonra otomatik ilerle",
             ignore_mode: "Yoksayma modu:",
             mode_bad_reviews: "Kötü incelemeler",
             mode_every_game: "Tüm oyunlar",
@@ -464,7 +464,7 @@
 
             your_discovery_queue: "Очередь рекомендаций",
             section_manual_ignore: "Ручное скрытие",
-            click_next_after_ignore: "Далее после скрытия",
+            click_next_after_ignore: "Авто-переход после игнора",
             ignore_mode: "Режим скрытия:",
             mode_bad_reviews: "Плохие отзывы",
             mode_every_game: "Все игры",
@@ -517,7 +517,7 @@
 
             your_discovery_queue: "Черга рекомендацій",
             section_manual_ignore: "Ручне приховування",
-            click_next_after_ignore: "Далі після приховування",
+            click_next_after_ignore: "Авто-перехід після ігнору",
             ignore_mode: "Режим приховування:",
             mode_bad_reviews: "Погані відгуки",
             mode_every_game: "Усі ігри",
@@ -570,7 +570,7 @@
 
             your_discovery_queue: "Kolejka odkryć",
             section_manual_ignore: "Ukrywanie ręczne",
-            click_next_after_ignore: "Dalej po ukryciu",
+            click_next_after_ignore: "Auto-przejście po zignorowaniu",
             ignore_mode: "Tryb ukrywania:",
             mode_bad_reviews: "Złe recenzje",
             mode_every_game: "Wszystkie gry",
@@ -623,7 +623,7 @@
 
             your_discovery_queue: "Fronta objevů",
             section_manual_ignore: "Ruční skrytí",
-            click_next_after_ignore: "Další po skrytí",
+            click_next_after_ignore: "Auto-přechod po ignorování",
             ignore_mode: "Režim skrývání:",
             mode_bad_reviews: "Špatné recenze",
             mode_every_game: "Všechny hry",
@@ -676,7 +676,7 @@
 
             your_discovery_queue: "Felfedező lista",
             section_manual_ignore: "Kézi mellőzés",
-            click_next_after_ignore: "Tovább a mellőzés után",
+            click_next_after_ignore: "Automatikus továbblépés mellőzés után",
             ignore_mode: "Mellőzési mód:",
             mode_bad_reviews: "Rossz értékelések",
             mode_every_game: "Minden játék",
@@ -729,7 +729,7 @@
 
             your_discovery_queue: "Red otkrića",
             section_manual_ignore: "Ručno ignorisanje",
-            click_next_after_ignore: "Dalje nakon ignorisanja",
+            click_next_after_ignore: "Auto-prelazak nakon ignorisanja",
             ignore_mode: "Režim ignorisanja:",
             mode_bad_reviews: "Loše recenzije",
             mode_every_game: "Sve igre",
@@ -782,7 +782,7 @@
 
             your_discovery_queue: "Coada de descoperiri",
             section_manual_ignore: "Ignorare manuală",
-            click_next_after_ignore: "Următorul după ignorare",
+            click_next_after_ignore: "Avansare auto după ignorare",
             ignore_mode: "Mod de ignorare:",
             mode_bad_reviews: "Recenzii proaste",
             mode_every_game: "Toate jocurile",
@@ -835,7 +835,7 @@
 
             your_discovery_queue: "発見キュー",
             section_manual_ignore: "手動で無視",
-            click_next_after_ignore: "無視した後に次へ",
+            click_next_after_ignore: "無視後に自動で次へ",
             ignore_mode: "無視モード:",
             mode_bad_reviews: "低評価のみ",
             mode_every_game: "すべてのゲーム",
@@ -888,7 +888,7 @@
 
             your_discovery_queue: "탐색 큐",
             section_manual_ignore: "수동 숨김",
-            click_next_after_ignore: "숨김 후 자동 다음",
+            click_next_after_ignore: "숨김 후 자동 이동",
             ignore_mode: "숨김 모드:",
             mode_bad_reviews: "낮은 평가",
             mode_every_game: "모든 게임",
@@ -941,7 +941,7 @@
 
             your_discovery_queue: "探索佇列",
             section_manual_ignore: "手動忽略",
-            click_next_after_ignore: "忽略後自動下一款",
+            click_next_after_ignore: "忽略後自動前進",
             ignore_mode: "忽略模式:",
             mode_bad_reviews: "負評遊戲",
             mode_every_game: "所有遊戲",
@@ -994,7 +994,7 @@
 
             your_discovery_queue: "คิวค้นพบ",
             section_manual_ignore: "ซ่อนด้วยมือ",
-            click_next_after_ignore: "ถัดไปหลังซ่อน",
+            click_next_after_ignore: "เลื่อนอัตโนมัติหลังซ่อน",
             ignore_mode: "โหมดซ่อน:",
             mode_bad_reviews: "รีวิวแย่",
             mode_every_game: "ทุกเกม",

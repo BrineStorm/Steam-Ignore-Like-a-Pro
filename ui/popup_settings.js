@@ -109,7 +109,7 @@
 
                 <div id="q-sub-settings">
                     <div class="stat-row" data-i18n-title="tooltip_dq_next" title="Enable automatic transition ONLY when a game is successfully ignored.">
-                        <span data-i18n="click_next_after_ignore">Click Next after applied ignore</span>
+                        <span data-i18n="click_next_after_ignore">Auto-advance after ignore</span>
                         <label class="switch">
                             <input type="checkbox" id="q-next">
                             <span class="slider"></span>
