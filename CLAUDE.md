@@ -147,19 +147,22 @@ Steam-Ignore-Like-a-Pro/
 ### Script Load Order (manifest content_scripts)
 
 ```
-1. src/utils.js                → window.ILAP global + shared services
-2. src/manual-ignore/utils.js  → window.ILAP.ManualIgnore.*
-3. src/manual-ignore/ui.js
-4. src/manual-ignore/main.js
-5. src/discovery-queue/logic.js → window.ILAP.Discovery.*
-6. src/discovery-queue/ui.js
-7. src/discovery-queue/main.js
-8. src/explore-queue/utils.js   → window.ILAP.Explore.*
-9. src/explore-queue/ui.js
-10. src/explore-queue/automator.js
-11. src/explore-queue/main.js
-12. styles/styles.css
+1.  src/utils.js                → window.ILAP global + shared services
+2.  src/i18n.js                 → window.ILAP.t / window.ILAP.i18n (popup + on-page UI strings)
+3.  src/manual-ignore/utils.js  → window.ILAP.ManualIgnore.*
+4.  src/manual-ignore/ui.js
+5.  src/manual-ignore/main.js
+6.  src/discovery-queue/ui.js
+7.  src/discovery-queue/logic.js → window.ILAP.Discovery.*
+8.  src/discovery-queue/main.js
+9.  src/explore-queue/utils.js   → window.ILAP.Explore.*
+10. src/explore-queue/ui.js
+11. src/explore-queue/automator.js
+12. src/explore-queue/main.js
+13. styles/styles.css
 ```
+
+> The Discovery Queue `ui.js` loads before `logic.js`; this works because the classes are only referenced after the window `load` event.
 
 ---
 

@@ -19,6 +19,16 @@ A browser extension that allows you to ignore Steam games directly from the stor
   <img src="assets/demo.gif" alt="Extension Demo" width="600">
 </p>
 
+## What's New
+
+**v1.1**
+
+- **Multi-language interface** - the popup and on-page UI are now localized, with a language selector in the popup (17 languages).
+- **Opt-in blur for ignored covers** - optionally blur the cover art of ignored games so they read as visually "crossed out"; toggle it in the popup settings (off by default).
+- **Better coverage across Steam pages** - fixed the IGNORED badge placement on tag/sale pages and hardened the Discovery Queue automation so it keeps working when Steam's UI is in a non-English language.
+- **Bug fixes** - corrected the wrong game name being saved from the popup, fixed a popup frame glitch, and fixed a page-reload issue in the Your Discovery Queue helper.
+- **Hardened test suite** - full Playwright E2E suites stabilized with automatic cleanup of test-ignored games, and pure-logic checks moved to fast Node unit tests.
+
 ## What it does
 
 - **One-Click Ignore** - Hold `Right-Click` + `Swipe Right` over any game capsule to ignore the game. This adds a red badge ![IGNORED](https://img.shields.io/badge/IGNORED-red) on each appearance of the game on the page and requests Steam to **ignore** these titles.

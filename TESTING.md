@@ -48,6 +48,7 @@ Safety (`tests/_cleanup.js`): removes strictly the diff — never the user's pre
 | `shortcut-key.spec.js` | Switch default binding to `ctrlKey`: Ctrl+Click fires, right swipe no longer does. Two click-based shortcuts coexist with distinct reasons. |
 | `popup-history.spec.js` | After ignore: `ilap_ignored_count`, `ilap_last_ignored_name`, `ilap_ignored_history` land in storage. Popup shows the game name under *Last Ignored*; hover on the trigger reveals the history dropdown with the correct entry and source label. |
 | `persistence.spec.js` | Ignore a game → reload the page → badge re-renders from `ilap_session_map_v2` (session storage) with no second API call. |
+| `tag-page.spec.js` | On a `/tags/<lang>/<Tag>` sale page, the content script resolves a container and badges each distinct capsule block (hover-capsule strip, bottom sale grid) by seeding the session map. |
 
 ### Discovery Queue (`tests/discovery-queue/`)
 
