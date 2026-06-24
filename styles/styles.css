@@ -41,6 +41,18 @@
     position: relative !important;
 }
 
+/* Opt-in gaussian blur on an ignored capsule's cover art (key: ilap_mask_enabled).
+   Applied DIRECTLY to the media element (not an overlay) so it matches the art's
+   exact rendered box — including when Steam's layout lets a capsule image overflow
+   onto a neighbouring trailer video. The IGNORED badge is a sibling, so it stays
+   sharp. */
+.ilap-ignored-blur {
+    /* !important: some capsules (e.g. the top carousel's _8JfsVa2qql image) carry
+       Steam's own filter: brightness(1) at equal specificity but later source order,
+       which would otherwise cancel our blur. */
+    filter: blur(5px) !important;
+}
+
 /* =========================================
    2. Tooltip Styling - REFACTORED
    ========================================= */

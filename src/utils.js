@@ -104,6 +104,11 @@
         }
     }
 
+    // Steam's hover-preview applet (Labs) renders action buttons — "Ignore game",
+    // "Add to wishlist", "Add to cart" — as plain text inside the same popover as
+    // the capsule. These labels must never be mistaken for a game's name.
+    const ACTION_LABEL = /^(ignore( game)?|ignored|add to wishlist|on wishlist|wishlist|add to cart|in cart|follow(ing)?|play( now)?|install|buy now|buy)$/i;
+
     class PageTitleStrategy {
         extract(appid, contextElement, root) {
             if (root === document.body || root.id === 'page_root') {
@@ -127,7 +132,7 @@
             for (let s of titleSelectors) {
                 const el = root.querySelector(s);
                 const text = el && NameCleaner.cleanText(el.textContent);
-                if (text && text.length > 1 && text.length < 80 && !/^\d/.test(text)) {
+                if (text && text.length > 1 && text.length < 80 && !/^\d/.test(text) && !ACTION_LABEL.test(text)) {
                     return text;
                 }
             }
@@ -141,7 +146,7 @@
             const imgs = root.querySelectorAll('img[alt]');
             for (const img of imgs) {
                 const alt = NameCleaner.cleanText(img.alt);
-                if (alt && alt.length > 2 && !JUNK_PATTERNS.test(alt) && !alt.toLowerCase().includes('screenshot')) {
+                if (alt && alt.length > 2 && !JUNK_PATTERNS.test(alt) && !alt.toLowerCase().includes('screenshot') && !ACTION_LABEL.test(alt)) {
                     return alt;
                 }
             }
@@ -172,7 +177,8 @@
 
                 const text = NameCleaner.cleanText(el.textContent);
                 if (!text || text.length <= 1 || text.length >= 80) continue;
-                if (text.includes('%')) continue; 
+                if (text.includes('%')) continue;
+                if (ACTION_LABEL.test(text)) continue;
 
                 return text;
             }
@@ -242,8 +248,12 @@
         new PageTitleStrategy(),
         new CssClassesStrategy(),
         new AltTagsStrategy(),
-        new GenericTextStrategy(),
-        new UrlPathStrategy()
+        // UrlPath before GenericText: the href slug is a canonical, language-
+        // independent name source, so it must win over scanning arbitrary text
+        // (which otherwise picks up localized hover-applet button labels like
+        // "Ignore game" / "Spiel ignorieren"). GenericText stays as last resort.
+        new UrlPathStrategy(),
+        new GenericTextStrategy()
     ]);
 
     // === Public Facade ===

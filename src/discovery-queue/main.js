@@ -6,19 +6,22 @@
      */
     class InsertionStrategy {
         static find(modal) {
-            // Look for the "Close" button (X) usually in the top right
-            let closeBtnInner = modal.querySelector('div[aria-label="Close"]');
-            
-            // Fallback for SVG detection
-            if (!closeBtnInner) {
-                const polygons = modal.querySelectorAll('polygon');
-                for(const poly of polygons) {
-                    const points = poly.getAttribute('points');
-                    if (points && points.startsWith("-74.9,117.2")) {
-                        closeBtnInner = poly.closest('div[role="button"]');
-                        break;
-                    }
+            // The X-icon vector shape is language-independent, so match it FIRST.
+            // aria-label="Close" is localized by Steam's UI language, so it serves
+            // only as a fallback (and is matched case-insensitively).
+            let closeBtnInner = null;
+            const polygons = modal.querySelectorAll('polygon');
+            for(const poly of polygons) {
+                const points = poly.getAttribute('points');
+                if (points && points.startsWith("-74.9,117.2")) {
+                    closeBtnInner = poly.closest('div[role="button"]');
+                    break;
                 }
+            }
+
+            // Fallback: localized close button by aria-label.
+            if (!closeBtnInner) {
+                closeBtnInner = modal.querySelector('div[aria-label="Close" i]');
             }
 
             if (closeBtnInner) {

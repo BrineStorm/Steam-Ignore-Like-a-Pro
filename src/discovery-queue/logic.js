@@ -55,12 +55,15 @@
         }
 
         static getIgnoreButton(slide) {
+            // PRIMARY — the prohibition-icon SVG path is language-independent.
             const paths = slide.querySelectorAll('path');
             for (const p of paths) {
-                if (p.getAttribute('d')?.startsWith(SVG_PATHS.IGNORE_ICON)) 
+                if (p.getAttribute('d')?.startsWith(SVG_PATHS.IGNORE_ICON))
                     return p.closest('div[class*="Focusable"]');
             }
-            return slide.querySelector('div[aria-label="Ignore"]');
+            // FALLBACK — localized aria-label (case-insensitive); only reached if
+            // Steam changes the icon path, and English-only by nature.
+            return slide.querySelector('div[aria-label="Ignore" i]');
         }
 
         static getContinueButton(slide) {

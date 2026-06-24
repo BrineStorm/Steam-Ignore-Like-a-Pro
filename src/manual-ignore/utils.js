@@ -20,7 +20,8 @@
     const CONFIG_KEYS = {
         SHORTCUT: 'ilap_shortcut_key',
         PLATFORM: 'ilap_platform_key',
-        MASTER: 'ilap_master_enabled'
+        MASTER: 'ilap_master_enabled',
+        MASK: 'ilap_mask_enabled'
     };
     const CONFIG_STORAGE_KEYS = Object.values(CONFIG_KEYS);
 
@@ -51,6 +52,7 @@
             if (res[CONFIG_KEYS.SHORTCUT] !== undefined) this.config.defaultKey = normalize(res[CONFIG_KEYS.SHORTCUT]);
             if (res[CONFIG_KEYS.PLATFORM] !== undefined) this.config.platformKey = normalize(res[CONFIG_KEYS.PLATFORM]);
             if (res[CONFIG_KEYS.MASTER] !== undefined) this.config.enabled = res[CONFIG_KEYS.MASTER];
+            if (res[CONFIG_KEYS.MASK] !== undefined) this.config.maskEnabled = res[CONFIG_KEYS.MASK];
         }
     }
 
@@ -97,9 +99,19 @@
         }
 
         findContainer(linkElement) {
+            // Steam's hover-preview popover holds its own media link next to the
+            // grid capsules. A strategy's closest()/querySelector() can otherwise
+            // climb out of the popover and resolve to a NEIGHBOURING capsule's
+            // (already-processed) image — so the preview never gets its own badge.
+            // Keep resolution inside the popover when the link lives in one.
+            const popover = ContextScanner._hoverPopoverOf(linkElement);
             for (const strat of this.strategies) {
                 if (strat.match(linkElement)) {
-                    return strat.resolve(linkElement);
+                    const result = strat.resolve(linkElement);
+                    if (popover && result && result.element && !popover.contains(result.element)) {
+                        continue;
+                    }
+                    return result;
                 }
             }
             return null;
@@ -168,9 +180,27 @@
                 if (current.dataset.ilapIgnoreId === appid) return true;
 
                 const existing = current.querySelector(`.ilap-ignored-overlay[data-ilap-appid="${appid}"]`);
-                if (existing && existing.parentElement !== startElement) return true;
+                if (existing && existing.parentElement !== startElement) {
+                    // A badge inside a hover-preview popover is a transient surface:
+                    // it must only dedup elements within the SAME popover, never the
+                    // persistent list/grid capsule outside it — otherwise the capsule
+                    // is deduped against the preview and loses its badge the moment
+                    // the cursor leaves and Steam destroys the popover.
+                    const existingPopover = ContextScanner._hoverPopoverOf(existing);
+                    if (!existingPopover || existingPopover === ContextScanner._hoverPopoverOf(startElement)) {
+                        return true;
+                    }
+                }
 
                 if (ContextScanner._isMultiGameSection(current)) break;
+
+                // Steam's hover-preview popover is a separate visual surface that
+                // shares an ancestor with the grid capsule (same single appid, so
+                // _isMultiGameSection never breaks). Stop at its boundary so the
+                // popover earns its own badge instead of being deduped against the
+                // capsule's. Per-level badge checks above still dedup links INSIDE
+                // the popover (the media badge sits below this root).
+                if (ContextScanner._isHoverPopover(current)) break;
 
                 if (
                     current.id?.includes('tab_content') ||
@@ -180,6 +210,22 @@
                 current = current.parentElement;
             }
             return false;
+        }
+
+        static _isHoverPopover(element) {
+            const style = element.getAttribute && element.getAttribute('style');
+            if (!style) return false;
+            return style.includes('z-index') && style.includes('left') && style.includes('top');
+        }
+
+        // Nearest hover-popover ancestor of an element, or null if it is not inside one.
+        static _hoverPopoverOf(element) {
+            let current = element;
+            for (let i = 0; i < 12 && current && current !== document.body; i++) {
+                if (ContextScanner._isHoverPopover(current)) return current;
+                current = current.parentElement;
+            }
+            return null;
         }
 
         static _isMultiGameSection(element) {

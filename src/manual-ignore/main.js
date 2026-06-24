@@ -69,6 +69,10 @@
                 this.refreshBadgesForGame(appid);
             }
         }
+
+        syncMasks() {
+            this.renderer.syncMasks(Array.from(this.sessionMap.keys()));
+        }
     }
 
     class App {
@@ -83,8 +87,9 @@
 
             // UI Dependencies
             const strategies = new MI.ContainerStrategyProvider();
-            const detector = new MI.DuplicateDetector(MI.ContextScanner); 
-            const badgeRenderer = new MI.BadgeRenderer(strategies, detector, MI.BADGE_CLASSES, resourceService); 
+            const detector = new MI.DuplicateDetector(MI.ContextScanner);
+            const maskConfig = { isEnabled: () => this.configService.get().maskEnabled === true };
+            const badgeRenderer = new MI.BadgeRenderer(strategies, detector, MI.BADGE_CLASSES, resourceService, maskConfig);
             
             // Adapters
             const apiAdapter = { ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) };
@@ -107,7 +112,10 @@
         async init() {
             await this.configService.init();
             this.configService.listen();
-            this.configService.onChange(() => this.ignoreManager.refreshAll());
+            this.configService.onChange(() => {
+                this.ignoreManager.refreshAll();
+                this.ignoreManager.syncMasks();
+            });
 
             this.setupInteractions();
             this.setupObserver();
@@ -148,7 +156,7 @@
     }
 
     window.addEventListener('load', () => {
-        const defaultConfig = { defaultKey: 'swipeRight', platformKey: 'swipeLeft', enabled: true };
+        const defaultConfig = { defaultKey: 'swipeRight', platformKey: 'swipeLeft', enabled: true, maskEnabled: false };
         const configService = new window.ILAP.ManualIgnore.ConfigService(defaultConfig);
         new App(configService).init();
     });

@@ -191,9 +191,13 @@
             updateBasicUI(res);
 
             const accordion = document.getElementById('settings-accordion');
-            accordion.open = false;
+            accordion.open = !!res.ilap_settings_open;
+            if (accordion.open && window.ILAP_Settings) {
+                window.ILAP_Settings.init();
+            }
 
             accordion.addEventListener('toggle', () => {
+                chrome.storage.local.set({ ilap_settings_open: accordion.open });
                 if (accordion.open && window.ILAP_Settings) {
                     window.ILAP_Settings.init();
                 }

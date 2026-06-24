@@ -117,3 +117,50 @@ test.describe('Popup — settings accordion', () => {
         await expect(shiftOpt).toBeDisabled();
     });
 });
+
+test.describe('Popup — settings open-state persistence', () => {
+
+    test('Accordion starts closed when no state is stored', async ({ page, context }) => {
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+
+        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', false);
+    });
+
+    test('Opening the accordion persists ilap_settings_open=true', async ({ page, context }) => {
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+
+        await page.locator('#settings-accordion summary').click();
+        await page.locator('#default-key').waitFor({ timeout: 5000 });
+
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, 'ilap_settings_open')).ilap_settings_open
+        ).toBe(true);
+    });
+
+    test('Closing the accordion persists ilap_settings_open=false', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_settings_open: true });
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+
+        // Restored open from storage.
+        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', true);
+
+        await page.locator('#settings-accordion summary').click();
+
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, 'ilap_settings_open')).ilap_settings_open
+        ).toBe(false);
+    });
+
+    test('Stored open state reopens the accordion (and renders settings) on next open', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_settings_open: true });
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+
+        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', true);
+        // Settings panel was initialised eagerly (not only on a toggle click).
+        await expect(page.locator('#default-key')).toBeVisible();
+    });
+});

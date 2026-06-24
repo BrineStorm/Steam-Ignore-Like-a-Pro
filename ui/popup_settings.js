@@ -134,6 +134,14 @@
                 </div>
 
                 <div class="stat-row">
+                    <span data-i18n="blur_ignored_covers">Blur ignored covers</span>
+                    <label class="switch">
+                        <input type="checkbox" id="mask-toggle">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="stat-row">
                     <span style="flex: 1;" data-i18n="default_ignore">Default Ignore:</span>
                     <div class="select-shell">
                         <span class="select-display" id="default-key-display"></span>
@@ -174,12 +182,14 @@
                 qSub: document.getElementById('q-sub-settings'),
                 dSel: document.getElementById('default-key'),
                 pSel: document.getElementById('platform-key'),
-                pLabel: document.getElementById('p-label')
+                pLabel: document.getElementById('p-label'),
+                mask: document.getElementById('mask-toggle')
             };
 
             els.qMaster.checked = data.ilap_q_master !== false;
             els.qNext.checked = !!data.ilap_q_next;
             els.qMode.checked = (data.ilap_q_mode === 'all');
+            els.mask.checked = !!data.ilap_mask_enabled;
 
             els.dSel.value = normalizeShortcut(data.ilap_shortcut_key) || 'swipeRight';
             els.pSel.value = normalizeShortcut(data.ilap_platform_key) || 'swipeLeft';
@@ -206,6 +216,7 @@
                 updateVisuals();
             });
             els.qNext.addEventListener('change', () => chrome.storage.local.set({ ilap_q_next: els.qNext.checked }));
+            els.mask.addEventListener('change', () => chrome.storage.local.set({ ilap_mask_enabled: els.mask.checked }));
 
             els.qMode.addEventListener('change', () => {
                 const val = els.qMode.checked ? 'all' : 'bad';
