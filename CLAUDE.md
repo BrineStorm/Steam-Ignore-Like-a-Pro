@@ -103,15 +103,22 @@ Steam-Ignore-Like-a-Pro/
 │   │   ├── logic.js             # SlideScanner, DiscoveryQueueAutomator
 │   │   ├── ui.js                # Queue UI controls
 │   │   └── main.js              # DiscoveryQueueController bootstrap
-│   └── explore-queue/
-│       ├── utils.js             # QueueContext, ReviewAnalyzer, DecisionEngine, NavigationGuard
-│       ├── ui.js                # ActionUI (toast, visuals, badges)
-│       ├── automator.js         # ExploreAutomator (state machine)
-│       └── main.js              # DI wiring + MutationObserver bootstrap
+│   ├── explore-queue/
+│   │   ├── utils.js             # QueueContext, ReviewAnalyzer, DecisionEngine, NavigationGuard
+│   │   ├── ui.js                # ActionUI (toast, visuals, badges)
+│   │   ├── automator.js         # ExploreAutomator (state machine)
+│   │   └── main.js              # DI wiring + MutationObserver bootstrap
+│   ├── curator/
+│   │   └── main.js              # Phase 2: curator-page "Add to ignore queue" button + droplist
+│   └── widget/
+│       └── main.js              # On-page shadow-DOM widget host (popup surface)
 ├── ui/
 │   ├── popup.html
+│   ├── popup_markup.js          # Shared popup body markup (window.ILAP_PopupMarkup)
 │   ├── popup_main.js            # Stats + history display
-│   └── popup_settings.js        # Settings UI
+│   ├── popup_settings.js        # Settings UI
+│   ├── popup_queue.js           # Curator ignore-queue applet (window.ILAP_Queue)
+│   └── popup.css                # Popup styles (shadow widget + popup window)
 ├── styles/styles.css
 ├── build.js
 └── tests/
@@ -139,9 +146,12 @@ Steam-Ignore-Like-a-Pro/
     │   ├── containers.spec.js        # ContainerStrategyProvider: search/storefront/React/tag/app detail
     │   ├── persistence.spec.js       # Reload restores badge from ilap_session_map_v2
     │   └── popup-history.spec.js     # Stats reach popup; source label per reason
-    └── popup/
-        ├── popup-main.spec.js        # Master toggle, counters, history, XSS, live update
-        └── settings.spec.js          # Queue toggles, mode, shortcut selects, mutual exclusion
+    ├── popup/
+    │   ├── popup-main.spec.js        # Master toggle, counters, history, XSS, live update
+    │   ├── settings.spec.js          # Queue toggles, mode, shortcut selects, mutual exclusion
+    │   └── queue.spec.js             # Curator queue applet: hidden-when-empty, chip count, pause/remove, running indicator, colours, mutual exclusion
+    └── curator/
+        └── enqueue.spec.js           # Curator-page button (live): injection+logo, dropdown, stage job, Added state, switch-in-place, 3-job cap
 ```
 
 ### Script Load Order (manifest content_scripts)
@@ -159,7 +169,13 @@ Steam-Ignore-Like-a-Pro/
 10. src/explore-queue/ui.js
 11. src/explore-queue/automator.js
 12. src/explore-queue/main.js
-13. styles/styles.css
+13. src/curator/main.js          → curator-page "Add to ignore queue" button (Phase 2)
+14. ui/popup_markup.js           → window.ILAP_PopupMarkup
+15. ui/popup_settings.js         → window.ILAP_Settings
+16. ui/popup_queue.js            → window.ILAP_Queue (curator queue applet)
+17. ui/popup_main.js             → window.ILAP_Popup.init
+18. src/widget/main.js           → on-page shadow-DOM widget host
+19. styles/styles.css
 ```
 
 > The Discovery Queue `ui.js` loads before `logic.js`; this works because the classes are only referenced after the window `load` event.

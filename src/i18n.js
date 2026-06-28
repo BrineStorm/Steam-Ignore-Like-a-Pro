@@ -78,7 +78,29 @@
             no_reviews_explanation: "Ignore isn't applied for games without or with insufficient reviews.",
 
             ignore_applied_by: "Ignore applied",
-            ignored_already_played_applied_by: "Ignore (Already Played) applied"
+            ignored_already_played_applied_by: "Ignore (Already Played) applied",
+
+            ignore_queue: "Ignore Job Queue",
+            queue_status_pending: "Pending",
+            queue_status_running: "Running",
+            queue_status_paused: "Paused",
+            queue_status_done: "Done",
+            queue_pause: "Pause",
+            queue_resume: "Resume",
+            queue_remove: "Remove",
+            curator_add_to_queue: "Add to ignore queue",
+            curator_added: "Added ✓",
+            curator_added_state: "Added to ignore queue",
+            curator_toast_added: "Added to queue: {type}",
+            curator_toast_switched: "Switched to: {type}",
+            curator_active: "Active",
+            curator_switch: "Switch",
+            curator_toast_full: "Not added — the queue is full. Remove jobs from the queue or wait for the current ones to finish.",
+            curator_already_queued: "Already queued",
+            curator_queue_full: "Queue full",
+            filter_not_recommended: "Not Recommended only",
+            filter_informational: "Informational only",
+            filter_all_but_recommended: "All except Recommended"
         },
 
         de: {

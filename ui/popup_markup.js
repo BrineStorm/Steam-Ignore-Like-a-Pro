@@ -36,6 +36,13 @@
 
           <div id="dynamic-hint" class="hint"></div>
 
+          <!-- Curator ignore queue applet — sits ABOVE the SETTINGS applet. Stays
+               [hidden] whenever the queue is empty, so it never shows even when locked. -->
+          <details id="queue-accordion" hidden>
+            <summary><span data-i18n="ignore_queue">IGNORE QUEUE</span><span class="queue-summary-right"><span class="queue-running-bar" aria-hidden="true"></span><span class="queue-jobs-chip" id="queue-jobs-chip">0</span></span></summary>
+            <div class="settings-content" id="queue-list"></div>
+          </details>
+
           <details id="settings-accordion">
             <summary><span style="display: flex; align-items: center; gap: 8px;">⚙ <span data-i18n="settings">SETTINGS</span></span><span class="lang-chip" data-i18n-title="language" title="Language:"><span class="lang-chip-code" id="lang-quick-code">EN</span><select id="lang-quick" aria-label="Language"></select></span></summary>
             <div class="settings-content" id="settings-placeholder"></div>

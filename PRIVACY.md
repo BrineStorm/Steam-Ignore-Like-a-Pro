@@ -15,7 +15,7 @@ Specifically:
 * **No data** is sent to us or to any third-party server. The extension communicates only with Steam's own endpoints on `store.steampowered.com`, and only to carry out the ignore actions you initiate in the extension and to read the account state those actions need (which of your games are already ignored).
 
 ### Permissions & Local Storage
-The extension requires the `storage` browser permission to function. This permission is used **solely** to save your personal preferences and ignore history locally on your device. This data never leaves your browser and is never transmitted to us or any third parties.
+The extension requires the `storage` browser permission to function. This permission is used **solely** to save your personal preferences, ignore history, and pending ignore queue locally on your device. This data never leaves your browser and is never transmitted to us or any third parties.
 
 ### Third Parties
 This extension does not integrate with any third-party services, analytics platforms, or advertising networks.

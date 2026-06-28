@@ -12,7 +12,8 @@
     "test_dq": "npm run build:test && npx playwright test tests/discovery-queue",
     "test_eq": "npm run build:test && npx playwright test tests/explore-queue",
     "test_mi": "npm run build:test && npx playwright test tests/manual-ignore",
-    "test_popup": "npm run build:test && npx playwright test tests/popup"
+    "test_popup": "npm run build:test && npx playwright test tests/popup",
+    "test_curator": "npm run build:test && npx playwright test tests/curator"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0"

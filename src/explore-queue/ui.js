@@ -37,7 +37,7 @@
         DEFAULT: ({ safeIconUrl, safeBadgeLabel }) => `
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
                 <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
-                <span style="color: #66c0f4;">${Sanitizer.escapeHTML(t('not_auto_ignored_by'))}</span>
+                <span style="color: #45A1FA;">${Sanitizer.escapeHTML(t('not_auto_ignored_by'))}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
                 <span style="color: #8f98a0;">${Sanitizer.escapeHTML(t('ignore_criteria'))} -</span>
@@ -76,7 +76,7 @@
             toast.id = 'ilap-toast';
             toast.style.cssText = `
                 position: fixed; bottom: 20px; right: 20px; background: #1b2838; color: #c7d5e0;
-                padding: 12px 15px; border-radius: 4px; border: 1px solid #66c0f4; z-index: 99999;
+                padding: 12px 15px; border-radius: 4px; border: 1px solid #45A1FA; z-index: 99999;
                 box-shadow: 0 5px 20px rgba(0,0,0,0.8); font-family: sans-serif; min-width: 280px;
                 display: flex; flex-direction: column; gap: 12px;
             `;
@@ -152,7 +152,7 @@
             toast.id = 'ilap-toast';
             toast.style.cssText = `
                 position: fixed; bottom: 20px; right: 20px; background: #1b2838; color: #fff;
-                padding: 15px; border-radius: 4px; border: 1px solid #66c0f4; z-index: 99999;
+                padding: 15px; border-radius: 4px; border: 1px solid #45A1FA; z-index: 99999;
                 box-shadow: 0 5px 20px rgba(0,0,0,0.8); font-family: sans-serif; min-width: 250px;
                 display: flex; flex-direction: column; gap: 10px;
             `;

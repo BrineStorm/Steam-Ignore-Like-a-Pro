@@ -13,8 +13,8 @@
     const ICON = 34;
     const TOP = Math.round(ICON * 1.5); // sit ~1.5 icon-heights below the top, clear of Steam's header
 
-    const SPARED = '#66c0f4'; // EQ "Spared" outline colour
-    const SPARED_DIM = 'rgba(102, 192, 244, .4)'; // paler idle outline for the launcher
+    const SPARED = '#45A1FA'; // EQ "Spared" outline colour
+    const SPARED_DIM = 'rgba(69, 161, 250, .4)'; // paler idle outline for the launcher
     const FONT = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif';
 
     const LAUNCHER_CSS = `
@@ -30,7 +30,7 @@
             cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.5);
             transition: border-color .15s ease, box-shadow .15s ease;
         }
-        .ilap-launcher:hover { border-color: ${SPARED}; box-shadow: 0 2px 12px rgba(0,0,0,.6); }
+        .ilap-launcher:hover, .ilap-launcher.active { border-color: ${SPARED}; box-shadow: 0 2px 12px rgba(0,0,0,.6); }
         .ilap-launcher img { width: 26px; height: 26px; border-radius: 5px; display: block; pointer-events: none; }
         .ilap-panel { display: none; position: absolute; top: ${ICON + 8}px; right: 0; }
         .ilap-panel.open { display: block; }
@@ -78,6 +78,7 @@
         let inited = false;
         const setOpen = (open) => {
             panel.classList.toggle('open', open);
+            launcher.classList.toggle('active', open); // keep the hover-style highlight while open
             if (open && !inited) {
                 inited = true;
                 window.ILAP_Popup.init(shadow);
@@ -91,9 +92,11 @@
 
         // Collapse when clicking elsewhere on the page. Clicks inside the shadow
         // are retargeted to the host, so host.contains(target) stays true for them.
+        // Capture phase so it still fires when another extension control (e.g. the
+        // curator "Add to ignore queue" button) calls stopPropagation in the bubble phase.
         document.addEventListener('click', (e) => {
             if (panel.classList.contains('open') && !host.contains(e.target)) setOpen(false);
-        });
+        }, true);
     }
 
     if (document.body) {

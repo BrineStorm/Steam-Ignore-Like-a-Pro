@@ -8,7 +8,7 @@
     --border: #2a3848;
     --text: #c7d5e0;
     --muted: #8f98a0;
-    --accent: #66c0f4;
+    --accent: #45A1FA;
     --toggle: #2f6fd0;
     --danger: #ff6b6b;
     --chip: #0a0f16;
@@ -258,3 +258,52 @@ select option { background: #16202d; color: #fff; }
 .select-opt.selected { background: #1d3a59; color: #fff; }
 .select-opt.disabled { opacity: .35; cursor: default; }
 .select-opt.disabled:hover { background: transparent; color: var(--text); }
+
+/* === CURATOR IGNORE QUEUE APPLET === */
+/* This applet's title is white (the SETTINGS summary is blue). */
+#queue-accordion > summary { color: #fff; }
+.queue-summary-right { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; }
+
+/* Running indicator: a small (~15px) barber-pole tile left of the job counter,
+   shown only while a job is actively ignoring (visible even when collapsed). */
+.queue-running-bar {
+    display: none; width: 30px; height: 5px; border-radius: 3px; flex-shrink: 0;
+    background-image: linear-gradient(45deg,
+        var(--accent) 25%, transparent 25%, transparent 50%,
+        var(--accent) 50%, var(--accent) 75%, transparent 75%, transparent);
+    background-size: 8px 8px;
+    animation: ilap-queue-barber .5s linear infinite;
+}
+#queue-accordion.has-running .queue-running-bar { display: block; }
+@keyframes ilap-queue-barber { from { background-position: 0 0; } to { background-position: 8px 0; } }
+
+.queue-jobs-chip {
+    min-width: 22px; height: 20px; padding: 0 7px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--inset); border: 1px solid var(--border); border-radius: 10px;
+    font-size: 13px; font-weight: 700; color: #fff;
+}
+#queue-list { padding: 6px 0 0 0; display: flex; flex-direction: column; gap: 8px; }
+.queue-job { background: var(--inset); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; }
+/* The job for the curator page we're currently on gets a highlight outline. */
+.queue-job.current { border-color: #45A1FA; box-shadow: 0 0 0 1px #45A1FA, 0 0 10px rgba(69,161,250,.3); }
+.queue-job-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.queue-job-name { font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-job-status { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); flex-shrink: 0; }
+.queue-job-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.queue-bar { margin-top: 7px; height: 6px; background: #0a1119; border-radius: 3px; overflow: hidden; }
+.queue-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width .3s ease; }
+.queue-job-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 8px; }
+.queue-job-count { font-size: 10px; color: var(--muted); }
+.queue-job-actions { display: inline-flex; gap: 18px; }
+.queue-act {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 28px; padding: 0; cursor: pointer;
+    background: var(--panel); color: var(--muted); border: 1px solid var(--border); border-radius: 6px;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.queue-act svg { display: block; width: 15px; height: 15px; }
+/* Hover = filled colour: pause→yellow, play→bright green, delete→IGNORED-badge red. */
+.queue-act.is-pause:hover { background: #ffd21a; color: #1a1300; border-color: #ffd21a; }
+.queue-act.is-play:hover  { background: #7ad13f; color: #0c1a07; border-color: #7ad13f; }
+.queue-act-del:hover { background: #D32F2F; color: #fff; border-color: #D32F2F; }

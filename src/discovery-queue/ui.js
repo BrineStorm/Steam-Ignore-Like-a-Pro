@@ -47,7 +47,7 @@
                         0px 2px 4px rgba(0,0,0,0.8);
                     transition: color 0.2s;
                 }
-                .ilap-checkbox-label:hover { color: #66c0f4; }
+                .ilap-checkbox-label:hover { color: #45A1FA; }
                 
                 .ilap-checkbox { margin-right: 6px; margin-top: 0; cursor: pointer; }
                 

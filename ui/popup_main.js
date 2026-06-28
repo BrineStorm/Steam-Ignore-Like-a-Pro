@@ -26,7 +26,7 @@
     const mouseRightSvg = () => `
         <svg class="mouse-ico" viewBox="0 0 28 40" width="15" height="21" aria-hidden="true">
           <rect x="2" y="2" width="24" height="36" rx="12" fill="#0d141c" stroke="#3d4a5d" stroke-width="1.6"/>
-          <path d="M14.8 2.8 H16 C21 2.8 25.2 7 25.2 12 V18.5 H14.8 Z" fill="#66c0f4"/>
+          <path d="M14.8 2.8 H16 C21 2.8 25.2 7 25.2 12 V18.5 H14.8 Z" fill="#45A1FA"/>
           <line x1="14" y1="3" x2="14" y2="18.5" stroke="#3d4a5d" stroke-width="1.4"/>
           <rect x="11.6" y="7" width="4.8" height="9" rx="2.4" fill="#cfe9fb"/>
         </svg>`;
@@ -63,9 +63,9 @@
         const mouseIcon = (isRight) => `
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 14 48 54" width="16" height="18" fill="none" class="mouse-icon">
               <rect x="4" y="18" width="40" height="46" rx="20" ry="20" fill="#1b2838" stroke="#3d4a5d" stroke-width="2"/>
-              <path d="M4 28 C4 22 8 18 14 18 L23 18 L23 38 L4 38 Z" fill="${!isRight ? '#66c0f4' : '#171a21'}"/>
+              <path d="M4 28 C4 22 8 18 14 18 L23 18 L23 38 L4 38 Z" fill="${!isRight ? '#45A1FA' : '#171a21'}"/>
               <line x1="24" y1="18" x2="24" y2="38" stroke="#3d4a5d" stroke-width="2"/>
-              <path d="M25 18 L34 18 C40 18 44 22 44 28 L44 38 L25 38 Z" fill="${isRight ? '#66c0f4' : '#171a21'}"/>
+              <path d="M25 18 L34 18 C40 18 44 22 44 28 L44 38 L25 38 Z" fill="${isRight ? '#45A1FA' : '#171a21'}"/>
               <rect x="21" y="22" width="6" height="12" rx="3" fill="#ffffff" opacity="0.85"/>
               <path d="M4 42 L4 46 C4 57 14 64 24 64 C34 64 44 57 44 46 L44 42 Z" fill="#171a21"/>
             </svg>
@@ -189,6 +189,7 @@
     // same chrome.storage.local — the single source of truth.
     function initPopup(root) {
         const settings = window.ILAP_Settings.create(root);
+        const queue = window.ILAP_Queue ? window.ILAP_Queue.create(root) : null;
 
         chrome.storage.local.get(null, (res) => {
             if (window.ILAP && window.ILAP.i18n && res.ilap_lang) {
@@ -200,15 +201,28 @@
 
             setupLangChip(root);
             updateBasicUI(root, res);
+            if (queue) queue.render(res.ilap_curator_queue);
 
             const accordion = root.getElementById('settings-accordion');
+            const queueAcc = root.getElementById('queue-accordion');
             accordion.open = !!res.ilap_settings_open;
             if (accordion.open) settings.init();
 
+            // The two applets are mutually exclusive: opening one collapses the other.
+            // We only act on the open transition, so closing the other can't loop back.
             accordion.addEventListener('toggle', () => {
                 chrome.storage.local.set({ ilap_settings_open: accordion.open });
-                if (accordion.open) settings.init();
+                if (accordion.open) {
+                    settings.init();
+                    if (queueAcc) queueAcc.open = false;
+                }
             });
+
+            if (queueAcc) {
+                queueAcc.addEventListener('toggle', () => {
+                    if (queueAcc.open) accordion.open = false;
+                });
+            }
 
             root.getElementById('master-toggle').addEventListener('change', (e) => {
                 chrome.storage.local.set({ ilap_master_enabled: e.target.checked });
@@ -225,6 +239,7 @@
                     window.ILAP.i18n.setLang(current.ilap_lang);
                 }
                 updateBasicUI(root, current);
+                if (queue) queue.render(current.ilap_curator_queue);
                 // Reflect external setting changes (e.g. EQ "Disable" → q_master=false)
                 // onto the open settings panel. Value-only, preserves CSS transitions.
                 settings.syncValues(current);

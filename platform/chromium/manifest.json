@@ -40,8 +40,11 @@
         "src/explore-queue/automator.js",
         "src/explore-queue/main.js",
 
+        "src/curator/main.js",
+
         "ui/popup_markup.js",
         "ui/popup_settings.js",
+        "ui/popup_queue.js",
         "ui/popup_main.js",
         "src/widget/main.js"
       ],
