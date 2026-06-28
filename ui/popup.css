@@ -1,0 +1,260 @@
+/* === BASE LAYOUT === */
+/* Variables live on both :host (shadow-DOM on-page widget) and :root (popup window). */
+:host, :root {
+    color-scheme: light dark;
+    --bg: #101b27;
+    --panel: #1a2735;
+    --inset: #101a26;
+    --border: #2a3848;
+    --text: #c7d5e0;
+    --muted: #8f98a0;
+    --accent: #66c0f4;
+    --toggle: #2f6fd0;
+    --danger: #ff6b6b;
+    --chip: #0a0f16;
+}
+
+/* Shadow-host baseline so the on-page widget matches the popup window's typography
+   instead of inheriting Steam's page font / default smoothing (no-op in the popup). */
+:host {
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Popup-window chrome only (no-op inside the shadow root). */
+html, body {
+    background-color: var(--bg);
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+body {
+    width: 320px;
+    color: var(--text);
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+}
+
+*, *:before, *:after {
+    box-sizing: border-box;
+}
+
+#popup-root {
+    /* width + text styles repeated here so the shadow-DOM widget (no <body>) styles correctly */
+    width: 320px;
+    min-height: 230px;
+    padding: 16px;
+    color: var(--text);
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    /* subtle inner glow from the top-centre so the panel reads lit, not flat-dark */
+    background:
+        radial-gradient(135% 90% at 50% -15%, #233a52 0%, #18283a 42%, #101b27 100%);
+    /* outline + negative offset keeps the border outside the layout flow: expanding
+       the settings-accordion no longer shifts it or creates subpixel gaps. */
+    outline: 1px solid var(--border);
+    outline-offset: -1px;
+}
+
+.no-transition * { transition: none !important; }
+
+/* === SCROLLBAR STYLING === */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #3d4a5d; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* === HEADER === */
+h3 {
+    margin: 0 0 10px 0; color: #fff; font-size: 15px; font-weight: 700;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.header-title-wrapper { display: flex; align-items: center; gap: 10px; }
+.header-title-wrapper img { width: 30px; height: 30px; border-radius: 6px; }
+
+/* === PILL TOGGLE === */
+.switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #3a4656; transition: .25s; border-radius: 999px; }
+.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: #fff; transition: .25s; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,.4); }
+input:checked + .slider { background-color: var(--toggle); }
+input:checked + .slider:before { transform: translateX(18px); }
+
+/* === SEGMENTED MODE SWITCH === */
+.wide-switch { position: relative; display: block; width: 100%; height: 34px; background: var(--inset); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; user-select: none; overflow: hidden; margin-top: 6px; }
+.wide-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.wide-track { display: flex; width: 100%; height: 100%; position: relative; }
+.wide-label { flex: 1; text-align: center; line-height: 34px; font-size: 12px; font-weight: 700; z-index: 2; color: var(--muted); transition: color 0.35s ease; }
+.wide-bg { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 4px); background: #34465f; border-radius: 6px; transition: left 0.38s cubic-bezier(0.32, 1.4, 0.5, 1); z-index: 1; }
+input:checked ~ .wide-track .wide-bg { left: calc(50% + 1px); }
+input:not(:checked) ~ .wide-track .wide-label:nth-child(2) { color: #fff; }
+input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
+
+/* === GENERAL UI === */
+.dimmed { opacity: 0.35; pointer-events: none; transition: opacity 0.3s; }
+#ui-wrapper.disabled { filter: grayscale(100%); opacity: 0.5; pointer-events: none; }
+#count-link { color: var(--accent); text-decoration: underline; cursor: pointer; font-weight: 700; }
+
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 7px;
+    align-items: center;
+}
+
+.stat-row > span:first-child {
+    flex: 1;
+    padding-right: 10px;
+}
+
+.stat-label { color: #fff; }
+
+#last-game {
+    background: var(--inset); border: 1px solid var(--border);
+    padding: 9px 10px; border-radius: 8px; font-size: 14px;
+    display: block; width: 100%; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; color: var(--text);
+}
+
+/* === HISTORY TOOLTIP === */
+.history-trigger { position: relative; display: block; width: 100%; cursor: help; }
+
+.history-tooltip {
+    visibility: hidden; position: absolute; top: 100%; margin-top: 4px; left: 0; right: 0;
+    background: var(--inset); border: 1px solid var(--accent);
+    padding: 8px 8px 16px 8px;
+    font-size: 11px;
+    z-index: 999; box-shadow: 0 4px 15px rgba(0,0,0,0.8); color: var(--text); border-radius: 8px; opacity: 0;
+
+    max-height: 120px; overflow-y: auto; overflow-x: hidden;
+    transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
+}
+
+.history-trigger:hover .history-tooltip { visibility: visible; opacity: 1; transition-delay: 0.4s; }
+
+#popup-root:has(#settings-accordion[open]) .history-tooltip {
+    max-height: none;
+    overflow-y: visible;
+    padding-bottom: 8px; /* Remove extra padding when fully visible */
+}
+
+.history-entry { padding: 6px 4px; border-bottom: 1px solid #2a3f5a; line-height: 1.3; }
+.history-entry:last-child { border-bottom: none; margin-bottom: 6px; }
+
+/* Remove the extra margin when settings are open */
+#popup-root:has(#settings-accordion[open]) .history-entry:last-child {
+    margin-bottom: 0;
+}
+
+/* === GESTURE CARD (DYNAMIC HINT) === */
+.hint {
+    margin-top: 10px; font-size: 12px; background: var(--panel);
+    border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    padding: 10px; border-radius: 0 8px 8px 0;
+    display: flex; flex-direction: column; gap: 8px;
+}
+.hint-line { display: flex; align-items: center; }
+
+/* first row ("Ignore:") is red; the "Already played:" row gets an inline blue override from JS */
+.hint-label { flex: 1; font-weight: 700; color: var(--danger); font-size: 13px; }
+
+.kbd-key {
+    display: inline-flex; align-items: center; gap: 5px;
+    background-color: var(--chip); color: #fff; border: 1px solid #000;
+    border-radius: 7px;
+    padding: 6px 11px; margin: 0 4px; font-size: 12px;
+    font-weight: 700; box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+    white-space: nowrap;
+}
+.kbd-key .mouse-ico, .kbd-key .sw-arrow { display: inline-block; vertical-align: middle; flex-shrink: 0; }
+
+.mouse-icon { margin-left: 6px; vertical-align: middle; position: relative; top: -1px; }
+
+/* === ACCORDION SETTINGS === */
+details { margin-top: 10px; border: none; border-top: 1px solid var(--border); background: transparent; }
+summary { padding: 7px 10px 3px 0; cursor: pointer; font-size: 12px; color: #3ca8fc; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary::after {
+    content: ''; display: inline-block; width: 0; height: 0;
+    border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid var(--muted);
+    transition: transform 0.2s ease-in-out; margin-left: 10px;
+}
+details[open] summary::after { transform: rotate(90deg); }
+
+/* Quick language picker living inside the SETTINGS bar (left of the caret).
+   Compact code shown as a span; the native-name <select> sits on top, transparent. */
+.lang-chip {
+    position: relative; margin-left: auto;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--inset); border: 1px solid var(--border);
+    border-radius: 6px; min-width: 34px; height: 22px; padding: 0 7px;
+    cursor: pointer;
+    transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+.lang-chip:hover { border-color: #3f5169; background: #15212e; }
+.lang-chip-code { font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--text); pointer-events: none; }
+.lang-chip:hover .lang-chip-code { color: #fff; }
+/* Idle: sized to the chip (so it doesn't overlap / steal clicks on the settings bar).
+   On focus it widens (anchored to the chip's right edge, extending left) so the native
+   dropdown list renders wider — without changing the visible chip. */
+.lang-chip select {
+    position: absolute; top: 0; bottom: 0; right: 0; left: auto;
+    width: 100%; height: 100%;
+    opacity: 0; border: 0; outline: none; margin: 0; padding: 0;
+    cursor: pointer; font-family: inherit; font-weight: 700;
+}
+.lang-chip select:focus { width: 140px; }
+.lang-chip select option { font-weight: 700; }
+
+.settings-content { padding: 6px 0 0 0; display: flex; flex-direction: column; gap: 8px; }
+.section-title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+.section-title { font-size: 11px; color: var(--text); text-transform: uppercase; font-weight: 700; letter-spacing: .5px; }
+
+.click-badge { background: #4a5e73; color: white; padding: 2px 5px; font-size: 10px; border-radius: 3px; font-weight: bold; }
+select {
+    appearance: none; -webkit-appearance: none;
+    background-color: var(--panel);
+    color: #fff; border: none; font-size: 12px; font-weight: 600;
+    border-radius: 6px; padding: 7px 11px; outline: none;
+    cursor: pointer; font-family: inherit; text-align: center;
+    transition: background-color .15s ease, box-shadow .15s ease;
+}
+select:hover { background-color: #22303f; }
+select:focus { box-shadow: 0 0 0 2px rgba(47,111,208,.3); }
+select:disabled { opacity: .5; cursor: default; }
+select option { background: #16202d; color: #fff; }
+
+/* Shortcut selects: visible label layer (renders the swipe arrow as a mini swoosh),
+   with the native <select> transparent on top so it still opens as a dropdown. */
+.select-shell { position: relative; display: inline-flex; }
+.select-shell select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
+.select-display {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--panel); color: #fff; font-size: 12px; font-weight: 600;
+    border-radius: 6px; padding: 7px 11px; white-space: nowrap; cursor: pointer;
+    transition: background-color .15s ease, box-shadow .15s ease;
+}
+.select-shell:hover .select-display { background: #22303f; }
+.mini-arrow { display: inline-block; vertical-align: middle; flex-shrink: 0; }
+
+/* Custom dropdown menu (replaces the OS-rendered <select> list) */
+.select-menu {
+    display: none; position: absolute; right: 0; bottom: calc(100% + 4px);
+    min-width: 100%; background: #16202d; border: 1px solid var(--border);
+    border-radius: 8px; padding: 4px; z-index: 1000;
+    box-shadow: 0 8px 20px rgba(0,0,0,.55); white-space: nowrap;
+}
+.select-menu.open { display: block; }
+.select-opt {
+    display: flex; align-items: center; gap: 5px;
+    padding: 7px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;
+    color: var(--text); cursor: pointer;
+}
+.select-opt:hover { background: #22303f; color: #fff; }
+.select-opt.selected { background: #1d3a59; color: #fff; }
+.select-opt.disabled { opacity: .35; cursor: default; }
+.select-opt.disabled:hover { background: transparent; color: var(--text); }

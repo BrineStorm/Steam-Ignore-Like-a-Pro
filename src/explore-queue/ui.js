@@ -62,6 +62,12 @@
             }
         }
 
+        // Remove any Queue-Helper toast (start prompt OR running/FF toast). Used when
+        // the master switch is turned off live and automation is being torn down.
+        removeToast() {
+            document.querySelectorAll('#ilap-toast').forEach(el => el.remove());
+        }
+
         showStartPrompt(initialMode, handlers) {
             const existingToasts = document.querySelectorAll('#ilap-toast');
             existingToasts.forEach(t => t.remove());

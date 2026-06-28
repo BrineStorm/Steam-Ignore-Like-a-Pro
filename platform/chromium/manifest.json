@@ -12,7 +12,6 @@
     "storage"
   ],
   "action": {
-    "default_popup": "ui/popup.html",
     "default_icon": {
       "16": "assets/icons/icon16.png",
       "48": "assets/icons/icon48.png",
@@ -39,14 +38,19 @@
         "src/explore-queue/utils.js",
         "src/explore-queue/ui.js",
         "src/explore-queue/automator.js",
-        "src/explore-queue/main.js"
+        "src/explore-queue/main.js",
+
+        "ui/popup_markup.js",
+        "ui/popup_settings.js",
+        "ui/popup_main.js",
+        "src/widget/main.js"
       ],
       "css": ["styles/styles.css"]
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["assets/icons/icon16.png"],
+      "resources": ["assets/icons/icon16.png", "assets/icons/icon48.png", "ui/popup.css"],
       "matches": ["https://store.steampowered.com/*"]
     }
   ]

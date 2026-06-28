@@ -93,8 +93,29 @@
                 if (changes.ilap_q_next) {
                     this.currentSettings.ilap_q_next = changes.ilap_q_next.newValue;
                 }
+                if (changes.ilap_q_master || changes.ilap_master_enabled) {
+                    this._handleMasterChange(changes);
+                }
             };
             this.settings.subscribeToChanges(this.settingsListener);
+        }
+
+        // React live when the queue/global master is toggled elsewhere (widget or
+        // popup): turning it off must tear down any Queue-Helper toast and stop
+        // automation; turning it back on re-shows the start prompt.
+        _handleMasterChange(changes) {
+            if (changes.ilap_q_master) this.currentSettings.ilap_q_master = changes.ilap_q_master.newValue;
+            if (changes.ilap_master_enabled) this.currentSettings.ilap_master_enabled = changes.ilap_master_enabled.newValue;
+
+            const disabled = this.currentSettings.ilap_q_master === false
+                || this.currentSettings.ilap_master_enabled === false;
+
+            if (disabled) {
+                this._stopAutomation();
+                this.ui.removeToast();
+            } else {
+                this.run();
+            }
         }
 
         _stopAutomation() {

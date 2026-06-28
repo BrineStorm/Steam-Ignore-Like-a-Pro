@@ -81,18 +81,18 @@
         return `<span class="kbd-key" style="margin-left:0;">${safeKeyName}</span> <span style="margin: 0 4px;">+</span> <span class="kbd-key">${safeLeftClick}</span> ${mouseIcon(false)}`;
     }
 
-    function updateBasicUI(data) {
+    function updateBasicUI(root, data) {
         const isEnabled = data.ilap_master_enabled !== false;
-        
-        const master = document.getElementById('master-toggle');
+
+        const master = root.getElementById('master-toggle');
         if (master) master.checked = isEnabled;
 
-        const wrapper = document.getElementById('ui-wrapper');
+        const wrapper = root.getElementById('ui-wrapper');
         if (isEnabled) wrapper.classList.remove('disabled');
         else wrapper.classList.add('disabled');
 
-        document.getElementById('count-link').textContent = data.ilap_ignored_count || 0;
-        document.getElementById('last-game').textContent = data.ilap_last_ignored_name || t('none');
+        root.getElementById('count-link').textContent = data.ilap_ignored_count || 0;
+        root.getElementById('last-game').textContent = data.ilap_last_ignored_name || t('none');
 
         const defKey = normalizeShortcut(data.ilap_shortcut_key) || 'swipeRight';
         const platKey = normalizeShortcut(data.ilap_platform_key) || 'swipeLeft';
@@ -116,13 +116,13 @@
             `;
         }
 
-        const hintContainer = document.getElementById('dynamic-hint');
+        const hintContainer = root.getElementById('dynamic-hint');
         if (hintContainer) {
             hintContainer.innerHTML = hintHtml;
         }
 
         const history = data.ilap_ignored_history || [];
-        const historyDiv = document.getElementById('history-list');
+        const historyDiv = root.getElementById('history-list');
         if (historyDiv) {
             if (history.length > 0) {
                 // innerHTML needs sanitization
@@ -136,23 +136,23 @@
             }
         }
 
-        if (window.ILAP && window.ILAP.i18n) window.ILAP.i18n.applyDom(document);
+        if (window.ILAP && window.ILAP.i18n) window.ILAP.i18n.applyDom(root);
 
         // Keep the quick language chip in sync with external changes.
-        const chip = document.getElementById('lang-quick');
+        const chip = root.getElementById('lang-quick');
         if (chip && window.ILAP && window.ILAP.i18n) {
             const cur = window.ILAP.i18n.getLang();
             if (chip.value !== cur) chip.value = cur;
-            const code = document.getElementById('lang-quick-code');
+            const code = root.getElementById('lang-quick-code');
             if (code) code.textContent = langCode(cur);
         }
     }
 
     // Populate + wire the language chip sitting inside the SETTINGS summary bar.
     // Clicking it opens the native language list without toggling the accordion.
-    function setupLangChip() {
-        const chip = document.getElementById('lang-quick');
-        const code = document.getElementById('lang-quick-code');
+    function setupLangChip(root) {
+        const chip = root.getElementById('lang-quick');
+        const code = root.getElementById('lang-quick-code');
         if (!chip || !window.ILAP || !window.ILAP.i18n) return;
 
         // List shows full native names; the chip itself only ever shows the short code.
@@ -178,54 +178,83 @@
 
         // Clicking anywhere outside the chip drops focus, so the widened select can't
         // keep intercepting clicks meant for the settings toggle.
-        document.addEventListener('mousedown', (e) => {
-            if (document.activeElement === chip && !chip.parentElement.contains(e.target)) chip.blur();
+        root.addEventListener('mousedown', (e) => {
+            const active = (root.activeElement || document.activeElement);
+            if (active === chip && !chip.parentElement.contains(e.target)) chip.blur();
         });
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
+    // Wire the popup UI against a query root: `document` for the browser popup
+    // window, or a shadowRoot for the on-page widget. Both are views over the
+    // same chrome.storage.local — the single source of truth.
+    function initPopup(root) {
+        const settings = window.ILAP_Settings.create(root);
+
         chrome.storage.local.get(null, (res) => {
             if (window.ILAP && window.ILAP.i18n && res.ilap_lang) {
                 window.ILAP.i18n.setLang(res.ilap_lang);
             }
-            setupLangChip();
-            updateBasicUI(res);
 
-            const accordion = document.getElementById('settings-accordion');
+            const icon = root.getElementById('ilap-header-icon');
+            if (icon) icon.src = chrome.runtime.getURL('assets/icons/icon48.png');
+
+            setupLangChip(root);
+            updateBasicUI(root, res);
+
+            const accordion = root.getElementById('settings-accordion');
             accordion.open = !!res.ilap_settings_open;
-            if (accordion.open && window.ILAP_Settings) {
-                window.ILAP_Settings.init();
-            }
+            if (accordion.open) settings.init();
 
             accordion.addEventListener('toggle', () => {
                 chrome.storage.local.set({ ilap_settings_open: accordion.open });
-                if (accordion.open && window.ILAP_Settings) {
-                    window.ILAP_Settings.init();
-                }
+                if (accordion.open) settings.init();
             });
 
-            document.getElementById('master-toggle').addEventListener('change', (e) => {
+            root.getElementById('master-toggle').addEventListener('change', (e) => {
                 chrome.storage.local.set({ ilap_master_enabled: e.target.checked });
             });
 
-            setTimeout(() => document.body.classList.remove('no-transition'), 100);
+            const rootEl = root.getElementById('popup-root');
+            setTimeout(() => rootEl && rootEl.classList.remove('no-transition'), 100);
         });
-    });
 
-    chrome.storage.onChanged.addListener((changes, area) => {
-        if (area && area !== 'local') return;
-        chrome.storage.local.get(null, (current) => {
-            if (window.ILAP && window.ILAP.i18n && current.ilap_lang) {
-                window.ILAP.i18n.setLang(current.ilap_lang);
-            }
-            updateBasicUI(current);
-            // Only rebuild the settings panel when the language actually changed.
-            // Rebuilding on every storage write (e.g. the mode toggle) recreates the
-            // DOM mid-interaction and kills CSS transitions like the segmented slider.
-            if (changes && changes.ilap_lang && window.ILAP_Settings && window.ILAP_Settings.relabel) {
-                window.ILAP_Settings.relabel(current);
-            }
+        chrome.storage.onChanged.addListener((changes, area) => {
+            if (area && area !== 'local') return;
+            chrome.storage.local.get(null, (current) => {
+                if (window.ILAP && window.ILAP.i18n && current.ilap_lang) {
+                    window.ILAP.i18n.setLang(current.ilap_lang);
+                }
+                updateBasicUI(root, current);
+                // Reflect external setting changes (e.g. EQ "Disable" → q_master=false)
+                // onto the open settings panel. Value-only, preserves CSS transitions.
+                settings.syncValues(current);
+                // Only rebuild the settings panel when the language actually changed.
+                // Rebuilding on every storage write (e.g. the mode toggle) recreates the
+                // DOM mid-interaction and kills CSS transitions like the segmented slider.
+                if (changes && changes.ilap_lang && settings.relabel) {
+                    settings.relabel(current);
+                }
+            });
         });
-    });
+    }
+
+    window.ILAP_Popup = { init: initPopup };
+
+    // Browser-popup bootstrap: mount the shared markup into the popup window and
+    // wire it against `document`. On a Steam page there is no mount point, so this
+    // is a no-op there — the widget mounts and inits its own shadow root instead.
+    function bootstrapPopupWindow() {
+        const mount = document.getElementById('ilap-popup-mount');
+        if (!mount || mount.dataset.ilapMounted) return;
+        mount.dataset.ilapMounted = '1';
+        mount.innerHTML = window.ILAP_PopupMarkup;
+        initPopup(document);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bootstrapPopupWindow);
+    } else {
+        bootstrapPopupWindow();
+    }
 
 })();

@@ -101,6 +101,32 @@ test.describe('Popup — settings accordion', () => {
         await expect(page.locator('#dynamic-hint')).not.toContainText(/already played/i);
     });
 
+    test('External ilap_q_master=false reflects live on the open settings panel (EQ "Disable" sync)', async ({ page, context }) => {
+        await openPopupAndExpandSettings(page, context);
+
+        const qMaster = page.locator('#q-master');
+        await expect(qMaster).toBeChecked();
+        await expect(page.locator('#q-sub-settings')).not.toHaveClass(/dimmed/);
+
+        // The Explore-Queue "Disable" button writes this flag from the content-script
+        // context; the open panel must reflect it without a reopen.
+        await setExtensionStorage(context, { ilap_q_master: false });
+
+        await expect(qMaster).not.toBeChecked();
+        await expect(page.locator('#q-sub-settings')).toHaveClass(/dimmed/);
+    });
+
+    test('External ilap_q_mode change reflects live on the segmented mode toggle', async ({ page, context }) => {
+        await openPopupAndExpandSettings(page, context);
+
+        const qMode = page.locator('#q-mode-toggle');
+        await expect(qMode).not.toBeChecked(); // default: bad
+
+        await setExtensionStorage(context, { ilap_q_mode: 'all' });
+
+        await expect(qMode).toBeChecked();
+    });
+
     test('Default and Already-Played selectors mutually exclude their chosen values', async ({ page, context }) => {
         await setExtensionStorage(context, {
             ilap_shortcut_key: 'ctrlKey',

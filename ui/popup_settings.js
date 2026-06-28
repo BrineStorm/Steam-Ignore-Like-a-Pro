@@ -34,15 +34,11 @@
         return `${esc(stripped)} ${miniSwoosh(entry[1], 'sw-' + slot)}`;
     }
 
-    function closeAllMenus() {
-        document.querySelectorAll('.select-menu.open').forEach(m => m.classList.remove('open'));
-    }
-    document.addEventListener('click', closeAllMenus);
-
     // Replace the OS-rendered <select> list with a styled menu, while keeping the
     // real <select> as the value store (and the element Playwright drives in tests).
-    function enhanceSelect(shell, select, slot) {
+    function enhanceSelect(shell, select, slot, root) {
         if (!shell || !select) return;
+        const closeAll = () => root.querySelectorAll('.select-menu.open').forEach(m => m.classList.remove('open'));
         const display = shell.querySelector('.select-display');
         const menu = document.createElement('div');
         menu.className = 'select-menu';
@@ -51,7 +47,7 @@
         display.addEventListener('click', (e) => {
             e.stopPropagation();
             const wasOpen = menu.classList.contains('open');
-            closeAllMenus();
+            closeAll();
             if (wasOpen) return;
             menu.innerHTML = Array.from(select.options).map((opt, i) => {
                 const cls = (opt.value === select.value ? ' selected' : '') + (opt.disabled ? ' disabled' : '');
@@ -74,8 +70,15 @@
     }
 
     class SettingsManager {
-        constructor() {
-            this.container = document.getElementById('settings-placeholder');
+        constructor(root) {
+            this.root = root;
+            this.container = root.getElementById('settings-placeholder');
+            // Close any open custom dropdown when clicking elsewhere within this root.
+            root.addEventListener('click', () => this.closeAllMenus());
+        }
+
+        closeAllMenus() {
+            this.root.querySelectorAll('.select-menu.open').forEach(m => m.classList.remove('open'));
         }
 
         init() {
@@ -176,45 +179,25 @@
         }
 
         bindEvents(data) {
-            const els = {
-                qMaster: document.getElementById('q-master'),
-                qNext: document.getElementById('q-next'),
-                qMode: document.getElementById('q-mode-toggle'),
-                qSub: document.getElementById('q-sub-settings'),
-                dSel: document.getElementById('default-key'),
-                pSel: document.getElementById('platform-key'),
-                pLabel: document.getElementById('p-label'),
-                mask: document.getElementById('mask-toggle')
+            const els = this.els = {
+                qMaster: this.root.getElementById('q-master'),
+                qNext: this.root.getElementById('q-next'),
+                qMode: this.root.getElementById('q-mode-toggle'),
+                qSub: this.root.getElementById('q-sub-settings'),
+                dSel: this.root.getElementById('default-key'),
+                pSel: this.root.getElementById('platform-key'),
+                pLabel: this.root.getElementById('p-label'),
+                mask: this.root.getElementById('mask-toggle')
             };
 
-            els.qMaster.checked = data.ilap_q_master !== false;
-            els.qNext.checked = !!data.ilap_q_next;
-            els.qMode.checked = (data.ilap_q_mode === 'all');
-            els.mask.checked = !!data.ilap_mask_enabled;
+            this._applyValues(data);
 
-            els.dSel.value = normalizeShortcut(data.ilap_shortcut_key) || 'swipeRight';
-            els.pSel.value = normalizeShortcut(data.ilap_platform_key) || 'swipeLeft';
-
-            const dDisp = document.getElementById('default-key-display');
-            const pDisp = document.getElementById('platform-key-display');
-
-            const updateVisuals = () => {
-                els.qSub.classList.toggle('dimmed', !els.qMaster.checked);
-                const isPlatformOff = els.pSel.value === 'off';
-                els.pLabel.classList.toggle('dimmed', isPlatformOff);
-                this.syncSelectors(els.dSel, els.pSel);
-                if (dDisp) dDisp.innerHTML = shortcutDisplay(els.dSel.value, 'def');
-                if (pDisp) pDisp.innerHTML = shortcutDisplay(els.pSel.value, 'plat');
-            };
-
-            updateVisuals();
-
-            enhanceSelect(els.dSel.closest('.select-shell'), els.dSel, 'def');
-            enhanceSelect(els.pSel.closest('.select-shell'), els.pSel, 'plat');
+            enhanceSelect(els.dSel.closest('.select-shell'), els.dSel, 'def', this.root);
+            enhanceSelect(els.pSel.closest('.select-shell'), els.pSel, 'plat', this.root);
 
             els.qMaster.addEventListener('change', () => {
                 chrome.storage.local.set({ ilap_q_master: els.qMaster.checked });
-                updateVisuals();
+                this._updateVisuals();
             });
             els.qNext.addEventListener('change', () => chrome.storage.local.set({ ilap_q_next: els.qNext.checked }));
             els.mask.addEventListener('change', () => chrome.storage.local.set({ ilap_mask_enabled: els.mask.checked }));
@@ -226,12 +209,47 @@
 
             els.dSel.addEventListener('change', (e) => {
                 chrome.storage.local.set({ ilap_shortcut_key: e.target.value });
-                updateVisuals();
+                this._updateVisuals();
             });
             els.pSel.addEventListener('change', (e) => {
                 chrome.storage.local.set({ ilap_platform_key: e.target.value });
-                updateVisuals();
+                this._updateVisuals();
             });
+        }
+
+        _applyValues(data) {
+            const els = this.els;
+            if (!els) return;
+            els.qMaster.checked = data.ilap_q_master !== false;
+            els.qNext.checked = !!data.ilap_q_next;
+            els.qMode.checked = (data.ilap_q_mode === 'all');
+            els.mask.checked = !!data.ilap_mask_enabled;
+            els.dSel.value = normalizeShortcut(data.ilap_shortcut_key) || 'swipeRight';
+            els.pSel.value = normalizeShortcut(data.ilap_platform_key) || 'swipeLeft';
+            this._updateVisuals();
+        }
+
+        _updateVisuals() {
+            const els = this.els;
+            if (!els) return;
+            els.qSub.classList.toggle('dimmed', !els.qMaster.checked);
+            els.pLabel.classList.toggle('dimmed', els.pSel.value === 'off');
+            this.syncSelectors(els.dSel, els.pSel);
+            const dDisp = this.root.getElementById('default-key-display');
+            const pDisp = this.root.getElementById('platform-key-display');
+            if (dDisp) dDisp.innerHTML = shortcutDisplay(els.dSel.value, 'def');
+            if (pDisp) pDisp.innerHTML = shortcutDisplay(els.pSel.value, 'plat');
+        }
+
+        /**
+         * Reflect external storage changes (e.g. the Explore-Queue "Disable" button
+         * writes ilap_q_master=false) onto the already-rendered controls. Value-only,
+         * so it never re-creates the DOM and never kills the segmented-toggle CSS
+         * transition. No-op when the settings panel isn't rendered yet.
+         */
+        syncValues(data) {
+            if (!this.container || this.container.children.length === 0) return;
+            this._applyValues(data);
         }
 
         syncSelectors(dSel, pSel) {
@@ -242,6 +260,6 @@
         }
     }
 
-    window.ILAP_Settings = new SettingsManager();
+    window.ILAP_Settings = { create: (root) => new SettingsManager(root) };
 
 })();
