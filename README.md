@@ -133,4 +133,10 @@ See [TESTING.md](./TESTING.md) for the full test suite overview, setup instructi
 
 ## License
 
-Mozilla Public License 2.0 - see [LICENSE](./LICENSE).
+GNU General Public License v3.0 or later (`GPL-3.0-or-later`) - see [LICENSE](./LICENSE).
+
+Releases up to and including v1.1 were distributed under the Mozilla Public License 2.0; that text is kept at [LICENSE.MPL](./LICENSE.MPL) for reference. Version 1.2 onward is GPL-3.0-or-later.
+
+## Disclaimer
+
+This extension is provided "as is", without warranty of any kind. Use it at your own risk. Automated and bulk actions (for example the curator ignore queue) interact with Steam on your behalf — you are responsible for your own account and for respecting Steam's Terms of Service. The authors are not liable for any consequences arising from its use.

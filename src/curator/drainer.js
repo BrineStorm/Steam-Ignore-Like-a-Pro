@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//
+// DISCLAIMER: This drainer issues bulk ignore actions to Steam on the user's
+// behalf. Provided "as is", without warranty. Use at your own risk; you are
+// responsible for your own account and for respecting Steam's Terms of Service.
 (function() {
     'use strict';
 

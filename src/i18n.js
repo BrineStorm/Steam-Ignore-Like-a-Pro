@@ -80,7 +80,7 @@
             ignore_applied_by: "Ignore applied",
             ignored_already_played_applied_by: "Ignore (Already Played) applied",
 
-            ignore_queue: "Ignore Job Queue",
+            ignore_queue: "Ignore Tasks Queue",
             queue_status_enumerating: "Collecting ignore list…",
             queue_status_pending: "Pending",
             queue_status_running: "Running",
@@ -155,7 +155,30 @@
             no_reviews_explanation: "Wird nicht auf Spiele ohne oder mit zu wenigen Reviews angewendet.",
 
             ignore_applied_by: "Ignoriert",
-            ignored_already_played_applied_by: "Ignoriert (Gespielt)"
+            ignored_already_played_applied_by: "Ignoriert (Gespielt)",
+
+            ignore_queue: "Ignorier-Warteschlange",
+            queue_status_enumerating: "Ignorierliste wird erfasst…",
+            queue_status_pending: "Ausstehend",
+            queue_status_running: "Läuft",
+            queue_status_paused: "Pausiert",
+            queue_pause: "Pause",
+            queue_resume: "Fortsetzen",
+            queue_remove: "Entfernen",
+            curator_confirm: "Dadurch werden {n} Spiele ignoriert. Fortfahren?",
+            curator_add_to_queue: "Zur Ignorier-Warteschlange hinzufügen",
+            curator_added: "Hinzugefügt ✓",
+            curator_added_state: "Zur Ignorier-Warteschlange hinzugefügt",
+            curator_toast_added: "Zur Warteschlange hinzugefügt: {type}",
+            curator_toast_switched: "Gewechselt zu: {type}",
+            curator_active: "Aktiv",
+            curator_switch: "Wechseln",
+            curator_toast_full: "Nicht hinzugefügt — die Warteschlange ist voll. Entferne Aufträge oder warte, bis die aktuellen fertig sind.",
+            curator_already_queued: "Bereits in der Warteschlange",
+            curator_queue_full: "Warteschlange voll",
+            filter_not_recommended: "Nur „Nicht empfohlen“",
+            filter_informational: "Nur „Informativ“",
+            filter_all_but_recommended: "Alle außer „Empfohlen“"
         },
 
         fr: {
@@ -209,7 +232,30 @@
             no_reviews_explanation: "L'exclusion ne s'applique pas aux jeux sans avis ou avec trop peu d'avis.",
 
             ignore_applied_by: "Ignoré",
-            ignored_already_played_applied_by: "Ignoré (Déjà joué)"
+            ignored_already_played_applied_by: "Ignoré (Déjà joué)",
+
+            ignore_queue: "File des jeux à ignorer",
+            queue_status_enumerating: "Collecte de la liste à ignorer…",
+            queue_status_pending: "En attente",
+            queue_status_running: "En cours",
+            queue_status_paused: "En pause",
+            queue_pause: "Pause",
+            queue_resume: "Reprendre",
+            queue_remove: "Retirer",
+            curator_confirm: "Cela ignorera {n} jeux. Continuer ?",
+            curator_add_to_queue: "Ajouter à la file à ignorer",
+            curator_added: "Ajouté ✓",
+            curator_added_state: "Ajouté à la file à ignorer",
+            curator_toast_added: "Ajouté à la file : {type}",
+            curator_toast_switched: "Basculé vers : {type}",
+            curator_active: "Actif",
+            curator_switch: "Changer",
+            curator_toast_full: "Non ajouté — la file est pleine. Retirez des tâches ou attendez la fin des tâches en cours.",
+            curator_already_queued: "Déjà dans la file",
+            curator_queue_full: "File pleine",
+            filter_not_recommended: "Non recommandés uniquement",
+            filter_informational: "Informatifs uniquement",
+            filter_all_but_recommended: "Tous sauf recommandés"
         },
 
         es: {
@@ -263,7 +309,30 @@
             no_reviews_explanation: "No se ignoran los juegos sin reseñas o con insuficientes reseñas.",
 
             ignore_applied_by: "Ignorado",
-            ignored_already_played_applied_by: "Ignorado (Ya jugado)"
+            ignored_already_played_applied_by: "Ignorado (Ya jugado)",
+
+            ignore_queue: "Cola de ignorados",
+            queue_status_enumerating: "Recopilando lista a ignorar…",
+            queue_status_pending: "Pendiente",
+            queue_status_running: "En ejecución",
+            queue_status_paused: "En pausa",
+            queue_pause: "Pausar",
+            queue_resume: "Reanudar",
+            queue_remove: "Quitar",
+            curator_confirm: "Esto ignorará {n} juegos. ¿Continuar?",
+            curator_add_to_queue: "Añadir a la cola de ignorados",
+            curator_added: "Añadido ✓",
+            curator_added_state: "Añadido a la cola de ignorados",
+            curator_toast_added: "Añadido a la cola: {type}",
+            curator_toast_switched: "Cambiado a: {type}",
+            curator_active: "Activo",
+            curator_switch: "Cambiar",
+            curator_toast_full: "No añadido — la cola está llena. Quita tareas de la cola o espera a que terminen las actuales.",
+            curator_already_queued: "Ya en la cola",
+            curator_queue_full: "Cola llena",
+            filter_not_recommended: "Solo No recomendados",
+            filter_informational: "Solo Informativos",
+            filter_all_but_recommended: "Todos excepto Recomendados"
         },
 
         el: {
@@ -317,7 +386,30 @@
             no_reviews_explanation: "Η αγνόηση δεν εφαρμόζεται σε παιχνίδια χωρίς ή με ανεπαρκείς κριτικές.",
 
             ignore_applied_by: "Αγνοήθηκε",
-            ignored_already_played_applied_by: "Αγνοήθηκε (Έχω παίξει)"
+            ignored_already_played_applied_by: "Αγνοήθηκε (Έχω παίξει)",
+
+            ignore_queue: "Ουρά αγνόησης",
+            queue_status_enumerating: "Συλλογή λίστας αγνόησης…",
+            queue_status_pending: "Σε αναμονή",
+            queue_status_running: "Σε εξέλιξη",
+            queue_status_paused: "Σε παύση",
+            queue_pause: "Παύση",
+            queue_resume: "Συνέχιση",
+            queue_remove: "Αφαίρεση",
+            curator_confirm: "Αυτό θα αγνοήσει {n} παιχνίδια. Συνέχεια;",
+            curator_add_to_queue: "Προσθήκη στην ουρά αγνόησης",
+            curator_added: "Προστέθηκε ✓",
+            curator_added_state: "Προστέθηκε στην ουρά αγνόησης",
+            curator_toast_added: "Προστέθηκε στην ουρά: {type}",
+            curator_toast_switched: "Άλλαξε σε: {type}",
+            curator_active: "Ενεργό",
+            curator_switch: "Αλλαγή",
+            curator_toast_full: "Δεν προστέθηκε — η ουρά είναι γεμάτη. Αφαιρέστε εργασίες ή περιμένετε να ολοκληρωθούν οι τρέχουσες.",
+            curator_already_queued: "Ήδη στην ουρά",
+            curator_queue_full: "Η ουρά είναι γεμάτη",
+            filter_not_recommended: "Μόνο «Δεν προτείνεται»",
+            filter_informational: "Μόνο «Ενημερωτικά»",
+            filter_all_but_recommended: "Όλα εκτός «Προτείνεται»"
         },
 
         it: {
@@ -371,7 +463,30 @@
             no_reviews_explanation: "L'ignora non si applica ai giochi senza o con poche recensioni.",
 
             ignore_applied_by: "Ignorato",
-            ignored_already_played_applied_by: "Ignorato (Già giocato)"
+            ignored_already_played_applied_by: "Ignorato (Già giocato)",
+
+            ignore_queue: "Coda di ignorati",
+            queue_status_enumerating: "Raccolta della lista da ignorare…",
+            queue_status_pending: "In attesa",
+            queue_status_running: "In corso",
+            queue_status_paused: "In pausa",
+            queue_pause: "Pausa",
+            queue_resume: "Riprendi",
+            queue_remove: "Rimuovi",
+            curator_confirm: "Verranno ignorati {n} giochi. Continuare?",
+            curator_add_to_queue: "Aggiungi alla coda di ignorati",
+            curator_added: "Aggiunto ✓",
+            curator_added_state: "Aggiunto alla coda di ignorati",
+            curator_toast_added: "Aggiunto alla coda: {type}",
+            curator_toast_switched: "Passato a: {type}",
+            curator_active: "Attivo",
+            curator_switch: "Cambia",
+            curator_toast_full: "Non aggiunto — la coda è piena. Rimuovi attività dalla coda o attendi il completamento di quelle in corso.",
+            curator_already_queued: "Già in coda",
+            curator_queue_full: "Coda piena",
+            filter_not_recommended: "Solo Non consigliati",
+            filter_informational: "Solo Informativi",
+            filter_all_but_recommended: "Tutti tranne i Consigliati"
         },
 
         'pt-BR': {
@@ -425,7 +540,30 @@
             no_reviews_explanation: "Ignorar não se aplica a jogos sem análises ou com poucas análises.",
 
             ignore_applied_by: "Ignorado",
-            ignored_already_played_applied_by: "Ignorado (Já joguei)"
+            ignored_already_played_applied_by: "Ignorado (Já joguei)",
+
+            ignore_queue: "Fila de ignorados",
+            queue_status_enumerating: "Coletando lista para ignorar…",
+            queue_status_pending: "Pendente",
+            queue_status_running: "Em execução",
+            queue_status_paused: "Pausado",
+            queue_pause: "Pausar",
+            queue_resume: "Retomar",
+            queue_remove: "Remover",
+            curator_confirm: "Isso vai ignorar {n} jogos. Continuar?",
+            curator_add_to_queue: "Adicionar à fila de ignorados",
+            curator_added: "Adicionado ✓",
+            curator_added_state: "Adicionado à fila de ignorados",
+            curator_toast_added: "Adicionado à fila: {type}",
+            curator_toast_switched: "Alterado para: {type}",
+            curator_active: "Ativo",
+            curator_switch: "Trocar",
+            curator_toast_full: "Não adicionado — a fila está cheia. Remova tarefas da fila ou aguarde as atuais terminarem.",
+            curator_already_queued: "Já na fila",
+            curator_queue_full: "Fila cheia",
+            filter_not_recommended: "Apenas Não recomendados",
+            filter_informational: "Apenas Informativos",
+            filter_all_but_recommended: "Todos exceto Recomendados"
         },
 
         tr: {
@@ -479,7 +617,30 @@
             no_reviews_explanation: "İncelemesi olmayan veya yetersiz olan oyunlar yoksayılmaz.",
 
             ignore_applied_by: "Yoksayıldı",
-            ignored_already_played_applied_by: "Yoksayıldı (Oynadım)"
+            ignored_already_played_applied_by: "Yoksayıldı (Oynadım)",
+
+            ignore_queue: "Yoksayma kuyruğu",
+            queue_status_enumerating: "Yoksayma listesi toplanıyor…",
+            queue_status_pending: "Bekliyor",
+            queue_status_running: "Çalışıyor",
+            queue_status_paused: "Duraklatıldı",
+            queue_pause: "Duraklat",
+            queue_resume: "Sürdür",
+            queue_remove: "Kaldır",
+            curator_confirm: "Bu {n} oyunu yoksayacak. Devam edilsin mi?",
+            curator_add_to_queue: "Yoksayma kuyruğuna ekle",
+            curator_added: "Eklendi ✓",
+            curator_added_state: "Yoksayma kuyruğuna eklendi",
+            curator_toast_added: "Kuyruğa eklendi: {type}",
+            curator_toast_switched: "Şuna geçildi: {type}",
+            curator_active: "Etkin",
+            curator_switch: "Değiştir",
+            curator_toast_full: "Eklenmedi — kuyruk dolu. Kuyruktan görev kaldırın veya mevcutların bitmesini bekleyin.",
+            curator_already_queued: "Zaten kuyrukta",
+            curator_queue_full: "Kuyruk dolu",
+            filter_not_recommended: "Yalnızca Tavsiye edilmeyen",
+            filter_informational: "Yalnızca Bilgilendirici",
+            filter_all_but_recommended: "Tavsiye edilenler hariç tümü"
         },
 
         ru: {
@@ -533,7 +694,30 @@
             no_reviews_explanation: "Скрытие не работает для игр без/с малым числом отзывов.",
 
             ignore_applied_by: "Скрыто",
-            ignored_already_played_applied_by: "Скрыто (Уже играли)"
+            ignored_already_played_applied_by: "Скрыто (Уже играли)",
+
+            ignore_queue: "Очередь скрытия",
+            queue_status_enumerating: "Сбор списка для скрытия…",
+            queue_status_pending: "В ожидании",
+            queue_status_running: "Выполняется",
+            queue_status_paused: "Приостановлено",
+            queue_pause: "Пауза",
+            queue_resume: "Продолжить",
+            queue_remove: "Удалить",
+            curator_confirm: "Будет скрыто игр: {n}. Продолжить?",
+            curator_add_to_queue: "Добавить в очередь скрытия",
+            curator_added: "Добавлено ✓",
+            curator_added_state: "Добавлено в очередь скрытия",
+            curator_toast_added: "Добавлено в очередь: {type}",
+            curator_toast_switched: "Переключено на: {type}",
+            curator_active: "Активно",
+            curator_switch: "Сменить",
+            curator_toast_full: "Не добавлено — очередь заполнена. Удалите задания из очереди или дождитесь завершения текущих.",
+            curator_already_queued: "Уже в очереди",
+            curator_queue_full: "Очередь заполнена",
+            filter_not_recommended: "Только «Не рекомендую»",
+            filter_informational: "Только «Информация»",
+            filter_all_but_recommended: "Все, кроме «Рекомендую»"
         },
 
         uk: {
@@ -587,7 +771,30 @@
             no_reviews_explanation: "Приховування не діє для ігор без/з малою кількістю відгуків.",
 
             ignore_applied_by: "Приховано",
-            ignored_already_played_applied_by: "Приховано (Вже грали)"
+            ignored_already_played_applied_by: "Приховано (Вже грали)",
+
+            ignore_queue: "Черга приховування",
+            queue_status_enumerating: "Збір списку для приховування…",
+            queue_status_pending: "В очікуванні",
+            queue_status_running: "Виконується",
+            queue_status_paused: "Призупинено",
+            queue_pause: "Пауза",
+            queue_resume: "Продовжити",
+            queue_remove: "Видалити",
+            curator_confirm: "Буде приховано ігор: {n}. Продовжити?",
+            curator_add_to_queue: "Додати в чергу приховування",
+            curator_added: "Додано ✓",
+            curator_added_state: "Додано в чергу приховування",
+            curator_toast_added: "Додано в чергу: {type}",
+            curator_toast_switched: "Перемкнено на: {type}",
+            curator_active: "Активно",
+            curator_switch: "Змінити",
+            curator_toast_full: "Не додано — черга заповнена. Видаліть завдання з черги або дочекайтеся завершення поточних.",
+            curator_already_queued: "Уже в черзі",
+            curator_queue_full: "Черга заповнена",
+            filter_not_recommended: "Лише «Не раджу»",
+            filter_informational: "Лише «Інформація»",
+            filter_all_but_recommended: "Усі, крім «Раджу»"
         },
 
         pl: {
@@ -641,7 +848,30 @@
             no_reviews_explanation: "Ukrywanie nie działa dla gier bez lub z małą liczbą recenzji.",
 
             ignore_applied_by: "Ukryto",
-            ignored_already_played_applied_by: "Ukryto (Ograne)"
+            ignored_already_played_applied_by: "Ukryto (Ograne)",
+
+            ignore_queue: "Kolejka ukrywania",
+            queue_status_enumerating: "Zbieranie listy do ukrycia…",
+            queue_status_pending: "Oczekuje",
+            queue_status_running: "W toku",
+            queue_status_paused: "Wstrzymano",
+            queue_pause: "Wstrzymaj",
+            queue_resume: "Wznów",
+            queue_remove: "Usuń",
+            curator_confirm: "Spowoduje to ukrycie {n} gier. Kontynuować?",
+            curator_add_to_queue: "Dodaj do kolejki ukrywania",
+            curator_added: "Dodano ✓",
+            curator_added_state: "Dodano do kolejki ukrywania",
+            curator_toast_added: "Dodano do kolejki: {type}",
+            curator_toast_switched: "Przełączono na: {type}",
+            curator_active: "Aktywne",
+            curator_switch: "Przełącz",
+            curator_toast_full: "Nie dodano — kolejka jest pełna. Usuń zadania z kolejki lub poczekaj, aż bieżące się zakończą.",
+            curator_already_queued: "Już w kolejce",
+            curator_queue_full: "Kolejka pełna",
+            filter_not_recommended: "Tylko Nie polecane",
+            filter_informational: "Tylko Informacyjne",
+            filter_all_but_recommended: "Wszystkie oprócz Polecanych"
         },
 
         cs: {
@@ -695,7 +925,30 @@
             no_reviews_explanation: "Skrývání se nevztahuje na hry bez recenzí nebo s nedostatkem recenzí.",
 
             ignore_applied_by: "Skryto",
-            ignored_already_played_applied_by: "Skryto (Už jste hráli)"
+            ignored_already_played_applied_by: "Skryto (Už jste hráli)",
+
+            ignore_queue: "Fronta skrývání",
+            queue_status_enumerating: "Sběr seznamu ke skrytí…",
+            queue_status_pending: "Čeká",
+            queue_status_running: "Probíhá",
+            queue_status_paused: "Pozastaveno",
+            queue_pause: "Pozastavit",
+            queue_resume: "Pokračovat",
+            queue_remove: "Odebrat",
+            curator_confirm: "Tímto skryjete {n} her. Pokračovat?",
+            curator_add_to_queue: "Přidat do fronty skrývání",
+            curator_added: "Přidáno ✓",
+            curator_added_state: "Přidáno do fronty skrývání",
+            curator_toast_added: "Přidáno do fronty: {type}",
+            curator_toast_switched: "Přepnuto na: {type}",
+            curator_active: "Aktivní",
+            curator_switch: "Přepnout",
+            curator_toast_full: "Nepřidáno — fronta je plná. Odeberte úlohy z fronty nebo počkejte na dokončení stávajících.",
+            curator_already_queued: "Již ve frontě",
+            curator_queue_full: "Fronta plná",
+            filter_not_recommended: "Pouze Nedoporučené",
+            filter_informational: "Pouze Informativní",
+            filter_all_but_recommended: "Vše kromě Doporučených"
         },
 
         hu: {
@@ -749,7 +1002,30 @@
             no_reviews_explanation: "A mellőzés nem vonatkozik értékelés nélküli vagy kevés értékelésű játékokra.",
 
             ignore_applied_by: "Mellőzve",
-            ignored_already_played_applied_by: "Mellőzve (Már játszottam)"
+            ignored_already_played_applied_by: "Mellőzve (Már játszottam)",
+
+            ignore_queue: "Mellőzési sor",
+            queue_status_enumerating: "Mellőzési lista gyűjtése…",
+            queue_status_pending: "Függőben",
+            queue_status_running: "Fut",
+            queue_status_paused: "Szüneteltetve",
+            queue_pause: "Szünet",
+            queue_resume: "Folytatás",
+            queue_remove: "Eltávolítás",
+            curator_confirm: "Ez {n} játékot fog mellőzni. Folytatja?",
+            curator_add_to_queue: "Hozzáadás a mellőzési sorhoz",
+            curator_added: "Hozzáadva ✓",
+            curator_added_state: "Hozzáadva a mellőzési sorhoz",
+            curator_toast_added: "Sorhoz adva: {type}",
+            curator_toast_switched: "Átváltva erre: {type}",
+            curator_active: "Aktív",
+            curator_switch: "Váltás",
+            curator_toast_full: "Nincs hozzáadva — a sor megtelt. Távolíts el feladatokat, vagy várd meg a jelenlegiek befejezését.",
+            curator_already_queued: "Már a sorban",
+            curator_queue_full: "A sor megtelt",
+            filter_not_recommended: "Csak a Nem ajánlott",
+            filter_informational: "Csak az Informatív",
+            filter_all_but_recommended: "Minden az Ajánlott kivételével"
         },
 
         sr: {
@@ -803,7 +1079,30 @@
             no_reviews_explanation: "Ignorisanje se ne primenjuje na igre bez ili sa nedovoljno recenzija.",
 
             ignore_applied_by: "Ignorisano",
-            ignored_already_played_applied_by: "Ignorisano (Već igrano)"
+            ignored_already_played_applied_by: "Ignorisano (Već igrano)",
+
+            ignore_queue: "Red ignorisanja",
+            queue_status_enumerating: "Prikupljanje liste za ignorisanje…",
+            queue_status_pending: "Na čekanju",
+            queue_status_running: "U toku",
+            queue_status_paused: "Pauzirano",
+            queue_pause: "Pauziraj",
+            queue_resume: "Nastavi",
+            queue_remove: "Ukloni",
+            curator_confirm: "Ovo će ignorisati {n} igara. Nastaviti?",
+            curator_add_to_queue: "Dodaj u red ignorisanja",
+            curator_added: "Dodato ✓",
+            curator_added_state: "Dodato u red ignorisanja",
+            curator_toast_added: "Dodato u red: {type}",
+            curator_toast_switched: "Prebačeno na: {type}",
+            curator_active: "Aktivno",
+            curator_switch: "Promeni",
+            curator_toast_full: "Nije dodato — red je pun. Uklonite zadatke iz reda ili sačekajte da se trenutni završe.",
+            curator_already_queued: "Već u redu",
+            curator_queue_full: "Red je pun",
+            filter_not_recommended: "Samo Nepreporučeno",
+            filter_informational: "Samo Informativno",
+            filter_all_but_recommended: "Sve osim Preporučeno"
         },
 
         ro: {
@@ -857,7 +1156,30 @@
             no_reviews_explanation: "Ignorarea nu se aplică jocurilor fără recenzii sau cu recenzii insuficiente.",
 
             ignore_applied_by: "Ignorat",
-            ignored_already_played_applied_by: "Ignorat (Deja jucat)"
+            ignored_already_played_applied_by: "Ignorat (Deja jucat)",
+
+            ignore_queue: "Coadă de ignorare",
+            queue_status_enumerating: "Se colectează lista de ignorat…",
+            queue_status_pending: "În așteptare",
+            queue_status_running: "În curs",
+            queue_status_paused: "În pauză",
+            queue_pause: "Pauză",
+            queue_resume: "Reia",
+            queue_remove: "Elimină",
+            curator_confirm: "Aceasta va ignora {n} jocuri. Continuați?",
+            curator_add_to_queue: "Adaugă în coada de ignorare",
+            curator_added: "Adăugat ✓",
+            curator_added_state: "Adăugat în coada de ignorare",
+            curator_toast_added: "Adăugat în coadă: {type}",
+            curator_toast_switched: "Comutat la: {type}",
+            curator_active: "Activ",
+            curator_switch: "Comută",
+            curator_toast_full: "Neadăugat — coada este plină. Eliminați sarcini din coadă sau așteptați finalizarea celor curente.",
+            curator_already_queued: "Deja în coadă",
+            curator_queue_full: "Coadă plină",
+            filter_not_recommended: "Doar Nerecomandate",
+            filter_informational: "Doar Informative",
+            filter_all_but_recommended: "Toate cu excepția celor Recomandate"
         },
 
         ja: {
@@ -911,7 +1233,30 @@
             no_reviews_explanation: "レビューがない、または少ないゲームには適用されません。",
 
             ignore_applied_by: "無視を適用",
-            ignored_already_played_applied_by: "無視 (プレイ済み) を適用"
+            ignored_already_played_applied_by: "無視 (プレイ済み) を適用",
+
+            ignore_queue: "無視キュー",
+            queue_status_enumerating: "無視リストを収集中…",
+            queue_status_pending: "待機中",
+            queue_status_running: "実行中",
+            queue_status_paused: "一時停止中",
+            queue_pause: "一時停止",
+            queue_resume: "再開",
+            queue_remove: "削除",
+            curator_confirm: "{n} 件のゲームを無視します。続けますか？",
+            curator_add_to_queue: "無視キューに追加",
+            curator_added: "追加済み ✓",
+            curator_added_state: "無視キューに追加しました",
+            curator_toast_added: "キューに追加: {type}",
+            curator_toast_switched: "切り替え: {type}",
+            curator_active: "実行中",
+            curator_switch: "切り替え",
+            curator_toast_full: "追加されませんでした — キューが満杯です。キューからジョブを削除するか、現在のジョブの完了を待ってください。",
+            curator_already_queued: "すでにキューにあります",
+            curator_queue_full: "キューが満杯",
+            filter_not_recommended: "非推奨のみ",
+            filter_informational: "情報提供のみ",
+            filter_all_but_recommended: "おすすめ以外すべて"
         },
 
         ko: {
@@ -965,7 +1310,30 @@
             no_reviews_explanation: "평가가 없거나 부족한 게임에는 숨김이 적용되지 않습니다.",
 
             ignore_applied_by: "숨김 적용",
-            ignored_already_played_applied_by: "숨김 (이미 플레이함) 적용"
+            ignored_already_played_applied_by: "숨김 (이미 플레이함) 적용",
+
+            ignore_queue: "숨김 대기열",
+            queue_status_enumerating: "숨김 목록 수집 중…",
+            queue_status_pending: "대기 중",
+            queue_status_running: "실행 중",
+            queue_status_paused: "일시정지됨",
+            queue_pause: "일시정지",
+            queue_resume: "재개",
+            queue_remove: "제거",
+            curator_confirm: "게임 {n}개를 숨깁니다. 계속할까요?",
+            curator_add_to_queue: "숨김 대기열에 추가",
+            curator_added: "추가됨 ✓",
+            curator_added_state: "숨김 대기열에 추가됨",
+            curator_toast_added: "대기열에 추가: {type}",
+            curator_toast_switched: "전환됨: {type}",
+            curator_active: "활성",
+            curator_switch: "전환",
+            curator_toast_full: "추가되지 않음 — 대기열이 가득 찼습니다. 대기열에서 작업을 제거하거나 현재 작업이 끝날 때까지 기다리세요.",
+            curator_already_queued: "이미 대기열에 있음",
+            curator_queue_full: "대기열 가득 참",
+            filter_not_recommended: "비추천만",
+            filter_informational: "정보성만",
+            filter_all_but_recommended: "추천 제외 전체"
         },
 
         'zh-TW': {
@@ -1019,7 +1387,30 @@
             no_reviews_explanation: "對沒有或評價不足的遊戲不套用忽略。",
 
             ignore_applied_by: "套用忽略",
-            ignored_already_played_applied_by: "套用忽略 (已玩過)"
+            ignored_already_played_applied_by: "套用忽略 (已玩過)",
+
+            ignore_queue: "忽略佇列",
+            queue_status_enumerating: "正在收集忽略清單…",
+            queue_status_pending: "等待中",
+            queue_status_running: "執行中",
+            queue_status_paused: "已暫停",
+            queue_pause: "暫停",
+            queue_resume: "繼續",
+            queue_remove: "移除",
+            curator_confirm: "這將忽略 {n} 款遊戲。是否繼續？",
+            curator_add_to_queue: "加入忽略佇列",
+            curator_added: "已加入 ✓",
+            curator_added_state: "已加入忽略佇列",
+            curator_toast_added: "已加入佇列：{type}",
+            curator_toast_switched: "已切換為：{type}",
+            curator_active: "進行中",
+            curator_switch: "切換",
+            curator_toast_full: "未加入 — 佇列已滿。請從佇列移除工作，或等待目前的工作完成。",
+            curator_already_queued: "已在佇列中",
+            curator_queue_full: "佇列已滿",
+            filter_not_recommended: "僅限不推薦",
+            filter_informational: "僅限資訊性",
+            filter_all_but_recommended: "推薦以外全部"
         },
 
         th: {
@@ -1073,7 +1464,30 @@
             no_reviews_explanation: "จะไม่ซ่อนเกมที่รีวิวไม่เพียงพอ",
 
             ignore_applied_by: "ซ่อนแล้ว",
-            ignored_already_played_applied_by: "ซ่อนแล้ว (เคยเล่นแล้ว)"
+            ignored_already_played_applied_by: "ซ่อนแล้ว (เคยเล่นแล้ว)",
+
+            ignore_queue: "คิวการซ่อน",
+            queue_status_enumerating: "กำลังรวบรวมรายการที่จะซ่อน…",
+            queue_status_pending: "รอดำเนินการ",
+            queue_status_running: "กำลังทำงาน",
+            queue_status_paused: "หยุดชั่วคราว",
+            queue_pause: "หยุดชั่วคราว",
+            queue_resume: "ทำต่อ",
+            queue_remove: "นำออก",
+            curator_confirm: "การกระทำนี้จะซ่อน {n} เกม ดำเนินการต่อหรือไม่?",
+            curator_add_to_queue: "เพิ่มในคิวการซ่อน",
+            curator_added: "เพิ่มแล้ว ✓",
+            curator_added_state: "เพิ่มในคิวการซ่อนแล้ว",
+            curator_toast_added: "เพิ่มในคิว: {type}",
+            curator_toast_switched: "สลับเป็น: {type}",
+            curator_active: "กำลังทำงาน",
+            curator_switch: "สลับ",
+            curator_toast_full: "ไม่ได้เพิ่ม — คิวเต็ม นำงานออกจากคิวหรือรอให้งานปัจจุบันเสร็จ",
+            curator_already_queued: "อยู่ในคิวแล้ว",
+            curator_queue_full: "คิวเต็ม",
+            filter_not_recommended: "เฉพาะไม่แนะนำ",
+            filter_informational: "เฉพาะให้ข้อมูล",
+            filter_all_but_recommended: "ทั้งหมดยกเว้นที่แนะนำ"
         }
     };
 

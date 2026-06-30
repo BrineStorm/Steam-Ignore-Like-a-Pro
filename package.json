@@ -1,9 +1,9 @@
 {
   "name": "steam-ignore-like-a-pro",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Helper tool for ignoring games in the Steam Store.",
   "author": "",
-  "license": "MPL-2.0",
+  "license": "GPL-3.0-or-later",
   "scripts": {
     "build": "node build.js",
     "build:test": "node build.js --test",

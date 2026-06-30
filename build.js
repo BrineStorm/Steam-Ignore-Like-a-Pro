@@ -9,7 +9,9 @@ var COMMON_ASSETS = [
     'ui',
     'src',
     'assets',
-    'styles'
+    'styles',
+    'LICENSE',
+    'LICENSE.MPL'
 ];
 
 // `--test` produces a parallel test-flavor build into dist/<platform>-test/
