@@ -109,7 +109,10 @@ Steam-Ignore-Like-a-Pro/
 │   │   ├── automator.js         # ExploreAutomator (state machine)
 │   │   └── main.js              # DI wiring + MutationObserver bootstrap
 │   ├── curator/
-│   │   └── main.js              # Phase 2: curator-page "Add to ignore queue" button + droplist
+│   │   ├── enumerate.js         # Phase 2: results_html parser + paged ajax enumerator (pure + fetch)
+│   │   ├── store.js             # Phase 2: retention cache (TTL/LRU), queue CRUD, per-job lease lock
+│   │   ├── main.js              # Phase 2: curator-page "Add to ignore queue" button + droplist; cache-aware enumeration
+│   │   └── drainer.js           # Phase 2: CuratorQueueDrainer — opportunistic content-script ignore drainer (no SW)
 │   └── widget/
 │       └── main.js              # On-page shadow-DOM widget host (popup surface)
 ├── ui/
@@ -135,7 +138,8 @@ Steam-Ignore-Like-a-Pro/
     │   ├── disable.spec.js           # Disable button → ilap_q_master=false
     │   ├── fast-forward.spec.js      # FF intent set, no ignore API call
     │   ├── decision-matrix.spec.js   # DecisionEngine bad/all × SPARE/IGNORE/NO_REVIEWS
-    │   └── mode-live.spec.js         # Mode badge live-updates on ilap_q_mode change
+    │   ├── mode-live.spec.js         # Mode badge live-updates on ilap_q_mode change
+    │   └── badge-position.spec.js    # DOM: IGNORED/SPARED label + upper-right 2/3 plate + tooltip no-wrap (about:blank, no login)
     ├── discovery-queue/
     │   ├── ui.spec.js                # Panel injection, Start/Stop cycle, checkbox, modal close
     │   └── master-off.spec.js        # ilap_q_master=false → panel not mounted / retracted
@@ -149,9 +153,14 @@ Steam-Ignore-Like-a-Pro/
     ├── popup/
     │   ├── popup-main.spec.js        # Master toggle, counters, history, XSS, live update
     │   ├── settings.spec.js          # Queue toggles, mode, shortcut selects, mutual exclusion
-    │   └── queue.spec.js             # Curator queue applet: hidden-when-empty, chip count, pause/remove, running indicator, colours, mutual exclusion
+    │   ├── queue.spec.js             # Curator queue applet: hidden-when-empty, chip count, pause/remove, running indicator, colours, mutual exclusion
+    │   └── lang-chip.spec.js         # Language-chip focus-trap: click left of focused chip toggles Settings (not the language list)
     └── curator/
-        └── enqueue.spec.js           # Curator-page button (live): injection+logo, dropdown, stage job, Added state, switch-in-place, 3-job cap
+        ├── _helpers.js               # interceptIgnoreApi + routeUserdata stubs (no real ignores)
+        ├── enumerate.unit.spec.js    # Node unit: parseResults / categorize / filterAppids / buildUrl / paged enumerate
+        ├── store.unit.spec.js        # Node unit: evictCache (TTL+LRU), lockFree, isFresh
+        ├── enqueue.spec.js           # Curator-page button (live): injection+logo, dropdown, stage job, Added state, switch-in-place, 3-job cap
+        └── drain.spec.js             # Drainer E2E (stubbed): ignores un-ignored appids, dedupe-skips already-ignored, respects paused
 ```
 
 ### Script Load Order (manifest content_scripts)
@@ -169,13 +178,16 @@ Steam-Ignore-Like-a-Pro/
 10. src/explore-queue/ui.js
 11. src/explore-queue/automator.js
 12. src/explore-queue/main.js
-13. src/curator/main.js          → curator-page "Add to ignore queue" button (Phase 2)
-14. ui/popup_markup.js           → window.ILAP_PopupMarkup
-15. ui/popup_settings.js         → window.ILAP_Settings
-16. ui/popup_queue.js            → window.ILAP_Queue (curator queue applet)
-17. ui/popup_main.js             → window.ILAP_Popup.init
-18. src/widget/main.js           → on-page shadow-DOM widget host
-19. styles/styles.css
+13. src/curator/enumerate.js     → window.ILAP.Curator.Enumerator (parser + paged ajax client)
+14. src/curator/store.js         → window.ILAP.Curator.Store (cache + queue + lease lock)
+15. src/curator/main.js          → curator-page "Add to ignore queue" button (Phase 2)
+16. src/curator/drainer.js       → window.ILAP.Curator.CuratorQueueDrainer + boot
+17. ui/popup_markup.js           → window.ILAP_PopupMarkup
+18. ui/popup_settings.js         → window.ILAP_Settings
+19. ui/popup_queue.js            → window.ILAP_Queue (curator queue applet)
+20. ui/popup_main.js             → window.ILAP_Popup.init
+21. src/widget/main.js           → on-page shadow-DOM widget host
+22. styles/styles.css
 ```
 
 > The Discovery Queue `ui.js` loads before `logic.js`; this works because the classes are only referenced after the window `load` event.
@@ -228,6 +240,10 @@ Each module has a dedicated `main.js` that builds the object graph (adapter obje
 | `ilap_queue_active` | session | Explore queue ACTIVE intent |
 | `ilap_queue_ff` | session | Explore queue fast-forward intent |
 | `ilap_queue_nav_token` | session | 15 s navigation authorization token |
+| `ilap_curator_queue` | local | Curator ignore jobs (≤3), each with appids + cursor + status |
+| `ilap_curator_cache` | local | Per-curator enumerated apps cache (TTL 7 d, LRU ≤10) |
+| `ilap_curator_lock_<id>` | local | Per-job drain lease `{ owner, expiresAt }` (single-drainer handoff) |
+| `ilap_curator_pulse` | local | Timestamp written when a job finishes; widget watches it to blink once (finished jobs are removed, not kept) |
 
 ---
 

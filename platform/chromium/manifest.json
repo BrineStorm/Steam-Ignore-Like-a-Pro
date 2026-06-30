@@ -40,7 +40,10 @@
         "src/explore-queue/automator.js",
         "src/explore-queue/main.js",
 
+        "src/curator/enumerate.js",
+        "src/curator/store.js",
         "src/curator/main.js",
+        "src/curator/drainer.js",
 
         "ui/popup_markup.js",
         "ui/popup_settings.js",

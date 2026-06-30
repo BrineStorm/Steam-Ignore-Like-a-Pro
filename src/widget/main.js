@@ -31,6 +31,13 @@
             transition: border-color .15s ease, box-shadow .15s ease;
         }
         .ilap-launcher:hover, .ilap-launcher.active { border-color: ${SPARED}; box-shadow: 0 2px 12px rgba(0,0,0,.6); }
+        /* One-shot highlight blink, fired when a curator ignore-queue job finishes. */
+        @keyframes ilap-launcher-pulse {
+            0%   { border-color: ${SPARED_DIM}; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+            35%  { border-color: ${SPARED}; box-shadow: 0 0 0 3px rgba(69,161,250,.55), 0 2px 12px rgba(0,0,0,.6); }
+            100% { border-color: ${SPARED_DIM}; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+        }
+        .ilap-launcher.pulse { animation: ilap-launcher-pulse .9s ease-in-out 1; }
         .ilap-launcher img { width: 26px; height: 26px; border-radius: 5px; display: block; pointer-events: none; }
         .ilap-panel { display: none; position: absolute; top: ${ICON + 8}px; right: 0; }
         .ilap-panel.open { display: block; }
@@ -97,6 +104,18 @@
         document.addEventListener('click', (e) => {
             if (panel.classList.contains('open') && !host.contains(e.target)) setOpen(false);
         }, true);
+
+        // Blink the launcher once whenever a curator queue job finishes. The drainer
+        // writes ilap_curator_pulse on completion; onChanged fires in every tab.
+        launcher.addEventListener('animationend', () => launcher.classList.remove('pulse'));
+        const blink = () => {
+            launcher.classList.remove('pulse');
+            void launcher.offsetWidth; // reflow so re-adding restarts the animation
+            launcher.classList.add('pulse');
+        };
+        chrome.storage.onChanged.addListener((changes, area) => {
+            if ((!area || area === 'local') && changes.ilap_curator_pulse) blink();
+        });
     }
 
     if (document.body) {

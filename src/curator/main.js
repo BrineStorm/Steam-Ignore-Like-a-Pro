@@ -12,6 +12,7 @@
     const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
 
     const MAX_JOBS = 3;          // cap the queue at 3 jobs
+    const CONFIRM_THRESHOLD = 25; // ask before queueing more than this many games
     const BTN_ID = 'ilap-curator-enqueue';
     const STYLE_ID = 'ilap-curator-style';
 
@@ -151,8 +152,10 @@
         }, duration || 3100);
     }
 
-    // Pick a filter from the dropdown: add a new job, or — if this curator is already
-    // queued — switch the existing job's filter in place (no restart, progress kept).
+    // Pick a filter from the dropdown: add a new job, or — if this curator is
+    // already queued — switch the existing job's filter in place. Either way the
+    // job is staged as `enumerating`, then `resolveJob` resolves its appids (from
+    // the retention cache, or the ~4 batched reads) and flips it to `pending`.
     function pick(value, btn) {
         const id = curatorId();
         if (!id) return;
@@ -162,31 +165,80 @@
 
             if (idx >= 0) {
                 if (queue[idx].filter === value) return; // already this type — no-op
-                queue[idx] = Object.assign({}, queue[idx], { filter: value });
+                const jobId = queue[idx].id;
+                const name = queue[idx].curatorName;
+                // Switching filter changes the appid set, so re-resolve from
+                // scratch; already-ignored games are skipped instantly by the
+                // drainer's userdata dedupe, so progress isn't really lost.
+                queue[idx] = Object.assign({}, queue[idx], {
+                    filter: value, status: 'enumerating', appids: [], cursor: 0, total: 0
+                });
                 chrome.storage.local.set({ ilap_curator_queue: queue }, () => {
                     showToast('curator_toast_switched', value);
+                    resolveJob(id, jobId, name, value);
                 });
                 return;
             }
 
             if (queue.length >= MAX_JOBS) { showToast('curator_toast_full', null, 4500); return; }
+            const name = curatorName(id);
+            const jobId = 'job_' + id + '_' + Date.now();
             queue.push({
-                id: 'job_' + id + '_' + Date.now(),
+                id: jobId,
                 curatorId: id,
-                curatorName: curatorName(id),
+                curatorName: name,
                 curatorUrl: location.origin + location.pathname,
                 filter: value,
-                appids: [],   // resolved later, at enumeration
+                appids: [],   // resolved by resolveJob
                 cursor: 0,
                 total: 0,
-                status: 'pending',
+                status: 'enumerating',
                 addedAt: Date.now()
             });
             chrome.storage.local.set({ ilap_curator_queue: queue }, () => {
                 flash(btn, t('curator_added'));
                 showToast('curator_toast_added', value);
+                resolveJob(id, jobId, name, value);
             });
         });
+    }
+
+    // Resolve a staged job's appids and flip it to `pending` so the drainer can
+    // start. Uses the 7-day retention cache when fresh (0 network), otherwise
+    // enumerates the curator and caches the result. Confirms before queueing a
+    // large batch; honours removal mid-enumeration.
+    async function resolveJob(id, jobId, name, filter) {
+        const C = window.ILAP && window.ILAP.Curator;
+        if (!C || !C.Enumerator || !C.Store) return;
+        const Enum = C.Enumerator, Store = C.Store;
+        try {
+            let apps;
+            const cache = await Store.getCache(id);
+            if (cache && Store.isFresh(cache, Date.now())) {
+                apps = cache.apps;
+            } else {
+                const result = await Enum.enumerate(id);
+                await Store.putCache(id, { total: result.total, name, apps: result.apps });
+                apps = result.apps;
+            }
+
+            // Bail if the user removed the job while we were enumerating.
+            if (!(await Store.getQueue()).some(j => j.id === jobId)) return;
+
+            const appids = Enum.filterAppids(apps, filter);
+            if (appids.length > CONFIRM_THRESHOLD
+                && !window.confirm(t('curator_confirm', { n: appids.length }))) {
+                await Store.removeJob(jobId);
+                return;
+            }
+            await Store.updateJob(jobId, {
+                appids, total: appids.length, cursor: 0, status: 'pending'
+            });
+        } catch (e) {
+            // Enumeration failed — leave the job idle (0/0) so the user can remove
+            // or re-add it; never auto-ignore on a half-resolved list.
+            await Store.updateJob(jobId, { status: 'pending', appids: [], total: 0 });
+        }
     }
 
     function inject(report) {

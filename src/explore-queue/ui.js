@@ -16,7 +16,7 @@
                 <span>${Sanitizer.escapeHTML(t('no_reviews_explanation'))}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px; margin-top: 8px;">
-                <span style="color: #8f98a0;">${Sanitizer.escapeHTML(t('ignore_criteria'))} -</span>
+                <span style="color: #8f98a0; white-space: nowrap;">${Sanitizer.escapeHTML(t('ignore_criteria'))} -</span>
                 <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
                     ${safeBadgeLabel}
                 </span>
@@ -28,7 +28,7 @@
                 <span>${Sanitizer.escapeHTML(t('ignored_by'))}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="color: #8f98a0;">${Sanitizer.escapeHTML(t('ignore_criteria'))} -</span>
+                <span style="color: #8f98a0; white-space: nowrap;">${Sanitizer.escapeHTML(t('ignore_criteria'))} -</span>
                 <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
                     ${safeBadgeLabel}
                 </span>
@@ -40,7 +40,7 @@
                 <span style="color: #45A1FA;">${Sanitizer.escapeHTML(t('not_auto_ignored_by'))}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="color: #8f98a0;">${Sanitizer.escapeHTML(t('ignore_criteria'))} -</span>
+                <span style="color: #8f98a0; white-space: nowrap;">${Sanitizer.escapeHTML(t('ignore_criteria'))} -</span>
                 <span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">
                     ${safeBadgeLabel}
                 </span>
@@ -198,7 +198,7 @@
             };
             const color = theme[type] || this.colors.BLUE_BG;
 
-            container.style.boxShadow = `0 0 0 2px ${color}`;
+            container.style.boxShadow = `0 0 0 1px ${color}`;
             container.style.position = 'relative';
 
             if (type === 'IGNORE') {
@@ -217,13 +217,16 @@
             const badge = document.createElement('div');
             badge.className = 'ilap-micro-badge';
             const badgeBg = type === 'IGNORE' ? color : (this.colors.BADGE_BLUE_BG || color);
-            badge.style.cssText = `position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: ${badgeBg}; color: white; font-size: 11px; font-weight: 800; padding: 2px 9px; border-radius: 4px; z-index: 100; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; cursor: help;`;
-            const BADGE_LABELS = { 'NO_REVIEWS': 'NO REVIEWS', 'SPARE': 'SPARED' };
+            // Anchored to the upper-right ~2/3 of the button (not centred), so the
+            // plate reads as a corner tag rather than a banner across the middle.
+            badge.style.cssText = `position: absolute; top: -8px; left: 66%; transform: translateX(-50%); background: ${badgeBg}; color: white; font-size: 8px; font-weight: 800; padding: 1px 6px; border-radius: 3px; z-index: 100; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; cursor: help;`;
+            // Past-tense labels: the action has already happened on this card.
+            const BADGE_LABELS = { 'NO_REVIEWS': 'NO REVIEWS', 'SPARE': 'SPARED', 'IGNORE': 'IGNORED' };
             badge.textContent = BADGE_LABELS[type] || type;
 
             const tooltip = document.createElement('div');
             tooltip.className = 'ilap-tooltip';
-            tooltip.style.cssText = `position: absolute; bottom: 140%; right: -10px; background: #171a21; color: #c7d5e0; padding: 8px 12px; border-radius: 4px; border: 1px solid ${color}; min-width: 200px; font-size: 11px; z-index: 1000; pointer-events: none; visibility: hidden; opacity: 0; transition: 0.15s; text-align: left; line-height: 1.4;`;
+            tooltip.style.cssText = `position: absolute; bottom: 140%; right: -10px; background: #171a21; color: #c7d5e0; padding: 8px 12px; border-radius: 4px; border: 1px solid ${color}; min-width: 220px; font-size: 11px; z-index: 1000; pointer-events: none; visibility: hidden; opacity: 0; transition: 0.15s; text-align: left; line-height: 1.4;`;
             
             const safeIconUrl = Sanitizer.escapeHTML(this.resources.getIconUrl('icon16.png'));
             const safeBadgeLabel = Sanitizer.escapeHTML(getModeLabel(reasonMode));

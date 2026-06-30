@@ -176,12 +176,38 @@
             chip.blur(); // shrink back so it stops overlapping the settings bar
         });
 
-        // Clicking anywhere outside the chip drops focus, so the widened select can't
-        // keep intercepting clicks meant for the settings toggle.
+        // The select widens on :focus (anchored right, extending LEFT) so its native
+        // dropdown renders wider — but that transparent overflow then covers the
+        // SETTINGS bar to its left and swallows clicks meant for the accordion,
+        // re-opening the language list instead (focus-trap bug). Capture mousedown
+        // BEFORE the chip's own stopPropagation and route off-chip clicks back to the
+        // settings bar: shrink the select, and if the click landed on the overflow
+        // (still the select element, but outside the visible chip), toggle the
+        // accordion ourselves instead of re-opening the dropdown.
         root.addEventListener('mousedown', (e) => {
             const active = (root.activeElement || document.activeElement);
-            if (active === chip && !chip.parentElement.contains(e.target)) chip.blur();
-        });
+            if (active !== chip) return; // not focused/widened → behave normally
+
+            const box = chip.parentElement.getBoundingClientRect();
+            const onChip = e.clientX >= box.left && e.clientX <= box.right
+                        && e.clientY >= box.top && e.clientY <= box.bottom;
+            if (onChip) return; // genuine click on the visible chip → open/close as usual
+
+            if (e.target === chip) {
+                // The click hit the focus-widened overflow sitting over the SETTINGS
+                // bar — treat it as a bar click: suppress the dropdown and toggle the
+                // accordion ourselves. The blur is DEFERRED on purpose: shrinking the
+                // select now would move it off the cursor before the click hit-tests,
+                // so that click would land on the summary and natively toggle right
+                // back. Keeping it widened lets the chip's click handler swallow the
+                // native toggle, leaving only our single toggle here.
+                e.preventDefault();
+                e.stopPropagation();
+                const acc = root.getElementById('settings-accordion');
+                if (acc) acc.open = !acc.open;
+            }
+            setTimeout(() => chip.blur(), 0); // shrink the select back, after the click
+        }, true);
     }
 
     // Wire the popup UI against a query root: `document` for the browser popup

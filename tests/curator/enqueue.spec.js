@@ -4,12 +4,14 @@ const {
     getExtensionStorage,
     clearExtensionStorage,
 } = require('../_extension.js');
+const { interceptIgnoreApi } = require('./_helpers.js');
 
 // Phase-2 curator "Add to ignore queue" button (src/curator/main.js), driven on
-// a LIVE curator page. Curator pages are public, and picking a filter only WRITES
-// to chrome.storage.local — enumeration/draining isn't wired yet, so no test here
-// ignores a real game (nothing hits the ignore API). Covers the scaffolding the
-// user asked about: injection + logo, the drop-out filter menu, staging a job,
+// a LIVE curator page. Curator pages are public; picking a filter stages a job
+// into chrome.storage.local and kicks off enumeration (read-only ajax). The
+// drainer then runs — so we intercept the ignore endpoint (interceptIgnoreApi)
+// and auto-accept the over-threshold confirm dialog: no real game is ever
+// ignored. Covers injection + logo, the drop-out filter menu, staging a job,
 // the already-added state, switch-in-place, and the 3-job cap restriction.
 
 // Known public anti-AI curators. Steam redirects the
@@ -45,8 +47,12 @@ async function openCurator(page) {
     await page.locator(BTN).waitFor({ timeout: 20000 });
 }
 
-test.beforeEach(async ({ context }) => {
+test.beforeEach(async ({ context, page }) => {
     await clearExtensionStorage(context);
+    // The staged job auto-enumerates and the drainer starts — keep every ignore
+    // faked, and accept the "ignore N games?" confirm so staging completes.
+    await interceptIgnoreApi(context);
+    page.on('dialog', (d) => d.accept().catch(() => {}));
 });
 
 test.afterEach(async ({ context }) => {
@@ -97,7 +103,9 @@ test.describe('Curator — enqueue button', () => {
         const [job] = await readQueue(context);
         expect(job.curatorId).toBe(CURATOR_ID);
         expect(job.filter).toBe('not_recommended');
-        expect(job.status).toBe('pending');
+        // Staged as 'enumerating', then resolved → leaves the transient state.
+        await expect.poll(async () => (await readQueue(context))[0].status)
+            .not.toBe('enumerating');
 
         await expect(page.locator('.ilap-curator-toast')).toContainText(/added to queue/i);
     });

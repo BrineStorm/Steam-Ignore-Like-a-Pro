@@ -36,15 +36,19 @@
         return `font-weight:700; color:${FILTER_COLORS[value] || 'var(--muted)'};`;
     }
 
+    // No 'done' state: finished jobs are removed from the queue (the drainer emits
+    // a completion pulse for the widget blink instead of leaving a record behind).
     const STATUS_LABELS = {
+        enumerating: 'queue_status_enumerating',
         pending: 'queue_status_pending',
         running: 'queue_status_running',
-        paused: 'queue_status_paused',
-        done: 'queue_status_done'
+        paused: 'queue_status_paused'
     };
 
     // Match the pause/play button hover colours: running → green, paused → yellow.
+    // Enumerating is a transient "fetching the list" state → Spared blue.
     const STATUS_COLORS = {
+        enumerating: '#66c0f4',
         running: '#7ad13f',
         paused: '#ffd21a'
     };
