@@ -62,11 +62,12 @@ test.describe('Cross-cutting — StatsManager survives an invalidated extension 
         expect(store.ilap_ignored_count).toBeUndefined();
     });
 
-    test('saveStats writes normally once the context is valid again (post-recovery)', () => {
+    test('saveStats writes normally once the context is valid again (post-recovery)', async () => {
         const store = {};
         const ILAP = loadIlapWithChrome(makeChrome(store, { withId: true }));
 
-        ILAP.saveStats('Recovered Game', 'Manual');
+        // saveStats serializes through a promise chain → await the returned tail.
+        await ILAP.saveStats('Recovered Game', 'Manual');
 
         expect(store.ilap_ignored_count).toBe(1);
         expect(store.ilap_last_ignored_name).toBe('Recovered Game');

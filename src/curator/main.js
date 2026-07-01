@@ -20,29 +20,14 @@
     const BTN_BG_HOVER = '#3a7cd6';
     const ICON_URL = chrome.runtime.getURL('assets/icons/icon48.png');
 
-    const FILTERS = [
-        { value: 'not_recommended', key: 'filter_not_recommended' },
-        { value: 'informational', key: 'filter_informational' },
-        { value: 'all_but_recommended', key: 'filter_all_but_recommended' }
-    ];
+    // Filter vocabulary + label colours are shared with the popup applet (see
+    // src/curator/filters.js, loaded before this script).
+    const Filters = window.ILAP_Filters;
+    const FILTERS = Filters.FILTERS;
+    const typeStyle = (value) => Filters.colorStyle(value);
 
-    // Per-category accent — Steam's own label colours (shared with the popup applet).
-    const FILTER_COLORS = {
-        not_recommended: '#ec976c',
-        informational: '#f1de74'
-    };
-    // "All except Recommended" = both categories, shown as an orange→yellow gradient.
-    const TYPE_GRADIENT = 'linear-gradient(90deg, #ec976c, #f1de74)';
-    function typeStyle(value) {
-        if (value === 'all_but_recommended') {
-            return `background:${TYPE_GRADIENT}; -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; color:transparent;`;
-        }
-        return `color:${FILTER_COLORS[value] || '#45A1FA'};`;
-    }
-
-    const esc = (s) => String(s)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    // Shared HTML-escaper (src/escape.js, loaded before this script).
+    const esc = window.ILAP.Sanitizer.escapeHTML;
 
     // /curator/<id>-<slug>/ → numeric id, or null on any other store page.
     function curatorId() {
@@ -50,13 +35,24 @@
         return m ? m[1] : null;
     }
 
+    // Boundary normalizer: the curator name comes from a third-party page (or a
+    // crafted URL slug) and is persisted, so reduce it to bounded plain text
+    // before it reaches storage. Falls back to a minimal local strip if utils.js
+    // somehow isn't present.
+    const clean = (s) => (window.ILAP && window.ILAP.sanitizeName)
+        ? window.ILAP.sanitizeName(s)
+        : String(s == null ? '' : s).replace(/[<>]/g, '').trim().slice(0, 120);
+
     function curatorName(id) {
         const el = document.querySelector('.curator_name');
         const name = el && el.textContent ? el.textContent.trim() : '';
-        if (name) return name;
+        if (name) return clean(name);
         // Fall back to the URL slug so the job always has a readable label.
         const m = location.pathname.match(/^\/curator\/\d+-(.+?)\/?$/);
-        return m ? decodeURIComponent(m[1]).replace(/-/g, ' ') : ('Curator ' + id);
+        if (!m) return clean('Curator ' + id);
+        let slug;
+        try { slug = decodeURIComponent(m[1]); } catch (e) { slug = m[1]; }
+        return clean(slug.replace(/-/g, ' '));
     }
 
     function injectStyle() {
@@ -123,10 +119,7 @@
         setTimeout(() => { lbl.textContent = btn.dataset.label; btn.disabled = false; }, 1600);
     }
 
-    function filterKey(value) {
-        const f = FILTERS.find(x => x.value === value);
-        return f ? f.key : FILTERS[0].key;
-    }
+    const filterKey = (value) => Filters.labelKey(value);
 
     // Bottom-right push notification that slides in, then fades out. When the message
     // has a "{type}" placeholder, the category name is highlighted bold in its colour.
@@ -241,10 +234,9 @@
         }
     }
 
-    function inject(report) {
-        if (report.querySelector('#' + BTN_ID)) return;
-        injectStyle();
-
+    // Build the split control (logo + label + caret) and place it just before the
+    // Options gear (the first <a> in the report). Returns the wrapper + button.
+    function buildButton(report) {
         const label = t('curator_add_to_queue');
         const wrap = document.createElement('span');
         wrap.className = 'ilap-curator-ctl';
@@ -255,23 +247,24 @@
                 <span class="ilap-cur-caret">▼</span>
             </button>`;
 
-        // Place the control just before the Options gear (the first <a> in the report).
         const gear = report.querySelector('a');
         if (gear) report.insertBefore(wrap, gear);
         else report.appendChild(wrap);
 
         const btn = wrap.querySelector('#' + BTN_ID);
         btn.dataset.label = label;
+        return { wrap, btn };
+    }
 
-        // The menu is parented to <body>, not to the control, so it escapes the
-        // navigation-bar stacking context (otherwise the sibling .page_desc paints
-        // over it and you can only see it by scrolling).
+    // Create the filter dropdown on <body> (position:fixed, so no Steam ancestor
+    // stacking context / overflow can clip it). Returns the menu + its renderer.
+    // renderMenu marks the queued filter Active and offers the others a "Switch"
+    // hint on hover once this curator is queued.
+    function buildMenu() {
         const menu = document.createElement('div');
         menu.className = 'ilap-curator-menu';
         document.body.appendChild(menu);
 
-        // Rebuild the option list. Once this curator is queued, the queued filter is
-        // marked Active and the others offer a "Switch" hint on hover.
         const renderMenu = (activeFilter) => {
             menu.innerHTML = FILTERS.map(f => {
                 const isActive = activeFilter === f.value;
@@ -285,7 +278,12 @@
             }).join('');
         };
         renderMenu(null);
+        return { menu, renderMenu };
+    }
 
+    // Wire open/close, option picking, and dismissal (outside click + scroll/resize
+    // reposition guard — the fixed menu would otherwise detach from the button).
+    function wireMenu(wrap, btn, menu) {
         const close = () => { menu.classList.remove('open'); wrap.classList.remove('open'); };
         const open = () => {
             const r = btn.getBoundingClientRect();
@@ -309,16 +307,16 @@
             pick(opt.getAttribute('data-value'), btn);
         });
 
-        // Close on outside click, and on scroll/resize (the fixed menu would
-        // otherwise detach from the button).
         document.addEventListener('click', (e) => {
             if (!menu.contains(e.target) && !wrap.contains(e.target)) close();
         });
         window.addEventListener('scroll', close, true);
         window.addEventListener('resize', close);
+    }
 
-        // Reflect already-queued state (button label + dropdown Active/Switch) now and
-        // whenever the queue changes (here, in the popup applet, or in another tab).
+    // Reflect already-queued state (button label + dropdown Active/Switch) now and
+    // whenever the queue changes (here, in the popup applet, or in another tab).
+    function wireStorageSync(btn, renderMenu) {
         const sync = () => chrome.storage.local.get('ilap_curator_queue', (res) => {
             const q = Array.isArray(res.ilap_curator_queue) ? res.ilap_curator_queue : [];
             const job = q.find(j => j.curatorId === curatorId());
@@ -334,6 +332,15 @@
         chrome.storage.onChanged.addListener((changes, area) => {
             if (area === 'local' && changes.ilap_curator_queue) sync();
         });
+    }
+
+    function inject(report) {
+        if (report.querySelector('#' + BTN_ID)) return;
+        injectStyle();
+        const { wrap, btn } = buildButton(report);
+        const { menu, renderMenu } = buildMenu();
+        wireMenu(wrap, btn, menu);
+        wireStorageSync(btn, renderMenu);
     }
 
     function tryInject() {

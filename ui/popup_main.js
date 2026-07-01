@@ -2,18 +2,8 @@
 (function() {
     'use strict';
 
-    // === SECURITY FIX: XSS Sanitizer ===
-    const Sanitizer = {
-        escapeHTML(str) {
-            if (!str) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-        }
-    };
+    // Shared HTML-escaper (src/escape.js, loaded first in popup.html + content_scripts).
+    const Sanitizer = window.ILAP.Sanitizer;
 
     const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
 

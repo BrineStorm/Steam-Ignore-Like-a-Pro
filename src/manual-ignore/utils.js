@@ -283,10 +283,14 @@
             const dy = e.clientY - this.startY;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
+            // INTENTIONAL: direction is decided by dx alone (no |dx|>|dy| dominance
+            // check). This is an ergonomics choice — a loose/diagonal flick should
+            // still register as a left/right swipe so the gesture is easy to perform.
+            // Do NOT "fix" this to require horizontal dominance.
             if (distance >= this.threshold) {
                 const directionName = dx > 0 ? 'Right' : 'Left';
                 const swipeKey = `swipe${directionName}`;
-                
+
                 const config = this.configService.get();
                 if (!config.enabled) return;
 
@@ -295,7 +299,7 @@
                 else if (config.platformKey === swipeKey) reason = 2;
 
                 if (reason !== -1) {
-                    this.blockNextMenu = true; 
+                    this.blockNextMenu = true;
                     if (this.onGestureCallback) {
                         this.onGestureCallback({ startEl: this.startEl, reason: reason });
                     }

@@ -6,7 +6,8 @@
 
     const normalizeShortcut = (v) => (window.ILAP && window.ILAP.normalizeShortcut) ? window.ILAP.normalizeShortcut(v) : v;
 
-    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Shared HTML-escaper (src/escape.js, loaded first in popup.html + content_scripts).
+    const esc = window.ILAP.Sanitizer.escapeHTML;
 
     // Mini gradient swoosh (same look as the popup hint, smaller); flipped for a left swipe.
     const miniSwoosh = (isRight, id) => {

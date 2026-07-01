@@ -3,6 +3,7 @@ const { test, expect } = require('../_fixtures.js');
 const SEL = {
     // The "Explore Your Discovery Queue" widget on a tag page; clicking it opens
     // the modal. role="button" is the focusable opener inside the widget.
+    queueSection: '.SaleSectionCtn.discoveryqueue',
     queueWidget: '.SaleSectionCtn.discoveryqueue div[role="button"]',
     modal: '.FullModalOverlay div[role="dialog"]',
     panel: '#ilap-queue-controls',
@@ -15,13 +16,21 @@ const SEL = {
 // DQ module injects #ilap-queue-controls into — is NOT the /explore/next/ page
 // (that's the Explore Queue / "Queue Helper" toast surface). The modal opens
 // from the "Explore Your Discovery Queue" widget that Steam renders below the
-// fold on tag pages. Navigate to a tag, scroll the widget in, click it.
+// fold on tag pages. Navigate to a tag, scroll the widget in, click it. The
+// section is lazy-rendered, so scroll until it attaches before waiting.
 async function openQueueModal(page) {
-    await page.goto('/tags/en/Collectathon');
+    await page.goto('/tags/en/Collectathon', { waitUntil: 'domcontentloaded' });
+
+    const section = page.locator(SEL.queueSection).first();
+    for (let i = 0; i < 10 && !(await section.count()); i++) {
+        await page.mouse.wheel(0, 1200);
+        await page.waitForTimeout(500);
+    }
+    await section.waitFor({ state: 'attached', timeout: 20000 });
+    await section.scrollIntoViewIfNeeded();
 
     const widget = page.locator(SEL.queueWidget).first();
-    await widget.waitFor({ state: 'attached', timeout: 15000 });
-    await widget.scrollIntoViewIfNeeded();
+    await widget.waitFor({ state: 'visible', timeout: 20000 });
     await widget.click();
 
     const modal = page.locator(SEL.modal).first();

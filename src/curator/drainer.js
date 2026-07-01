@@ -38,7 +38,6 @@
     const HEARTBEAT_MS = 3000;     // renew the lease well within its 8 s TTL
     const MAX_FAILS = 3;           // give up on a single appid after N failed POSTs
     const RETRY_TICK_MS = 9000;    // standby poll: steal an expired lease / pick up work
-    const USERDATA_URL = 'https://store.steampowered.com/dynamicstore/userdata/';
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const jitter = () => {
@@ -47,22 +46,6 @@
         return lo + Math.floor(Math.random() * (hi - lo));
     };
     const uuid = () => 'd_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-
-    // Read the account's ignored appids once per drain session (READ, not an
-    // ignore call). Same source the DQ confirmation uses.
-    async function fetchUserdataIgnored() {
-        try {
-            const res = await fetch(`${USERDATA_URL}?_=${Date.now()}`, {
-                credentials: 'include', cache: 'no-store'
-            });
-            if (!res.ok) return new Set();
-            const data = await res.json();
-            const ignored = data && data.rgIgnoredApps;
-            return new Set(ignored ? Object.keys(ignored).map(String) : []);
-        } catch (e) {
-            return new Set();
-        }
-    }
 
     class CuratorQueueDrainer {
         constructor(deps) {
@@ -172,14 +155,13 @@
     }
 
     window.ILAP.Curator.CuratorQueueDrainer = CuratorQueueDrainer;
-    window.ILAP.Curator.fetchUserdataIgnored = fetchUserdataIgnored;
 
     // Boot only when the storage model is present (it loads before this script).
     if (window.ILAP.Curator.Store && window.ILAP.apiIgnoreGame) {
         const drainer = new CuratorQueueDrainer({
             store: window.ILAP.Curator.Store,
             api: { ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) },
-            fetchUserdata: fetchUserdataIgnored
+            fetchUserdata: () => window.ILAP.fetchIgnoredApps()
         });
         window.ILAP.Curator.drainer = drainer;
         if (document.readyState === 'loading') {

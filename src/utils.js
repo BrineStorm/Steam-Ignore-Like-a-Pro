@@ -25,17 +25,40 @@
         getIconUrl(fileName) { return chrome.runtime.getURL(`./assets/icons/${fileName}`); }
     }
 
-    const Sanitizer = {
-        escapeHTML(str) {
-            if (!str) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
+    // Plain-text boundary normalizer for names captured from Steam's DOM (game
+    // titles, curator names) before they are persisted to storage. Render paths
+    // already escape, but stripping tag delimiters + control chars and clamping
+    // length HERE means a future render path that forgets to escape can't become
+    // a stored-XSS sink, and a pathological name can't bloat storage.
+    const NAME_MAX_LEN = 120;
+    function sanitizeName(str, maxLen) {
+        return String(str == null ? '' : str)
+            .replace(/[<>]/g, '')                    // no tag delimiters survive
+            .replace(/\p{Cc}/gu, ' ')                 // drop control chars
+            .replace(/\s+/g, ' ')                    // collapse runs of whitespace
+            .trim()
+            .slice(0, maxLen || NAME_MAX_LEN);
+    }
+
+    // Authoritative ignore-state source: Steam's own dynamic store. Same-origin
+    // GET (read-only — NOT an ignore API call); rgIgnoredApps is the map of every
+    // ignored appid. Shared by the DQ ignore-confirmation and the curator drainer's
+    // drain-time dedupe. Any failure (network/parse/non-ok) resolves to an empty
+    // Set so callers treat it as "nothing confirmed ignored yet" and carry on.
+    const USERDATA_URL = 'https://store.steampowered.com/dynamicstore/userdata/';
+    async function fetchIgnoredApps() {
+        try {
+            const res = await fetch(`${USERDATA_URL}?_=${Date.now()}`, {
+                credentials: 'include', cache: 'no-store'
+            });
+            if (!res.ok) return new Set();
+            const data = await res.json();
+            const ignored = data && data.rgIgnoredApps;
+            return new Set(ignored ? Object.keys(ignored).map(String) : []);
+        } catch (e) {
+            return new Set();
         }
-    };
+    }
 
     const SteamAPI = {
         async ignore(appid, reason) {
@@ -54,7 +77,7 @@
         }
     };
 
-    // === Stats Domain (SRP Fix) ===
+    // === Stats Domain ===
 
     const HISTORY_LIMIT = 20; // max entries kept in ilap_ignored_history
 
@@ -69,28 +92,47 @@
     };
 
     const StatsManager = {
+        // Serializes the read-modify-write so concurrent ignores can't lose an
+        // increment: storage get/set are async, so two overlapping saves could
+        // both read the same count and both write count+1. Each save waits for the
+        // previous one's set() to complete before its own get() runs.
+        _chain: Promise.resolve(),
+
         save(gameName, source) {
             if (!chrome?.storage?.local || !chrome?.runtime?.id) {
                 console.warn("[ILAP] Extension context is inactive. Stats not saved.");
-                return;
+                return Promise.resolve();
             }
-            
-            try {
-                chrome.storage.local.get(['ilap_ignored_history', 'ilap_ignored_count'], (result) => {
-                    if (chrome.runtime.lastError) return;
 
-                    const newCount = StatsLogic.increment(result.ilap_ignored_count);
-                    const newHistory = StatsLogic.pushHistory(result.ilap_ignored_history, gameName, source);
+            // Names come from Steam's DOM — normalize to bounded plain text before
+            // it ever reaches storage (see sanitizeName).
+            const safeName = sanitizeName(gameName);
 
-                    chrome.storage.local.set({
-                        'ilap_ignored_count': newCount,
-                        'ilap_ignored_history': newHistory,
-                        'ilap_last_ignored_name': gameName
+            // .catch keeps a single failed commit from wedging the whole chain.
+            this._chain = this._chain.then(() => this._commit(safeName, source)).catch(() => {});
+            return this._chain;
+        },
+
+        _commit(safeName, source) {
+            return new Promise(resolve => {
+                try {
+                    chrome.storage.local.get(['ilap_ignored_history', 'ilap_ignored_count'], (result) => {
+                        if (chrome.runtime.lastError) return resolve();
+
+                        const newCount = StatsLogic.increment(result.ilap_ignored_count);
+                        const newHistory = StatsLogic.pushHistory(result.ilap_ignored_history, safeName, source);
+
+                        chrome.storage.local.set({
+                            'ilap_ignored_count': newCount,
+                            'ilap_ignored_history': newHistory,
+                            'ilap_last_ignored_name': safeName
+                        }, resolve);
                     });
-                });
-            } catch (e) {
-                console.warn("[ILAP] Failed to access storage:", e);
-            }
+                } catch (e) {
+                    console.warn("[ILAP] Failed to access storage:", e);
+                    resolve();
+                }
+            });
         }
     };
 
@@ -263,10 +305,11 @@
     
     window.ILAP.getSessionID = SessionService.getID;
     window.ILAP.apiIgnoreGame = SteamAPI.ignore;
+    window.ILAP.fetchIgnoredApps = fetchIgnoredApps;
     window.ILAP.saveStats = (name, source) => StatsManager.save(name, source);
     window.ILAP.getGameName = (appid, el) => extractorProvider.get(appid, el);
     window.ILAP.SessionStateService = SessionStateService;
     window.ILAP.ResourceService = ResourceService;
-    window.ILAP.Sanitizer = Sanitizer;
+    window.ILAP.sanitizeName = sanitizeName;
 
 })();

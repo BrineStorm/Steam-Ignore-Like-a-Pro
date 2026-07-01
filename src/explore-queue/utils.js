@@ -8,6 +8,14 @@
     const COLORS = {
         BLUE: 'rgb(102, 192, 244)',
         GRAY: 'rgb(136, 136, 136)',
+        // Known "bad" review-summary text colours on the APP page (.game_review_summary
+        // .mixed / negative). NOTE these differ from the darker shades Steam uses on the
+        // Discovery Queue cards (STEAM_COLORS in discovery-queue/logic.js) — verified
+        // live against Overwatch 2 / eFootball. Classification fails SAFE: a game is
+        // only IGNORE-worthy when a row colour matches one of these; any unrecognised
+        // colour is treated as SPARE.
+        MIXED: 'rgb(185, 160, 116)',
+        NEGATIVE: 'rgb(200, 94, 45)',
         RED_BG: '#d32f2f',
         BLUE_BG: '#45A1FA',
         BADGE_BLUE_BG: '#2a6cc6',
@@ -44,8 +52,8 @@
                    document.querySelector('.expand_to_fill')?.previousElementSibling || null;
         }
 
-        // NEW: Fetch the primary game container on the Explore page
-        // This isolates the name extraction from any "Recommended" or "Similar" blocks on the page.
+        // The primary game container on the Explore page, isolating name extraction
+        // from any "Recommended" / "Similar" blocks elsewhere on the page.
         static getGameContainer() {
             return document.querySelector('.page_content_ctn') || document.body;
         }
@@ -78,21 +86,23 @@
             return summaries;
         }
 
-        // Colour interpretation (DOM-bound but isolated from row collection).
-        static isNonBlueStatus(statusSpan, blueColor) {
-            return window.getComputedStyle(statusSpan).color !== blueColor;
-        }
-
-        // Pure classification: rows + colour predicate → state enum.
-        static classify(summaries, blueColor) {
-            if (!summaries || summaries.length === 0) return 'NO_REVIEWS';
-            const hasNonBlue = summaries.some(s => ReviewAnalyzer.isNonBlueStatus(s.statusSpan, blueColor));
-            return hasNonBlue ? 'IGNORE' : 'SPARE';
+        // Pure classification: resolved row colour strings + colour config → state.
+        // FAIL-SAFE: IGNORE only when a row colour POSITIVELY matches a known bad
+        // (Mixed/Negative) colour. Any unrecognised colour — e.g. a Steam theme
+        // change that shifts the blue shade — is treated as SPARE, so a redesign
+        // can never silently turn the queue into a mass-ignore. Mirrors the DQ
+        // fail-safe (SlideScanner.getGameInfo defaults isPositive=true).
+        static classify(colors, colorsConfig) {
+            if (!colors || colors.length === 0) return 'NO_REVIEWS';
+            const badColors = [colorsConfig.MIXED, colorsConfig.NEGATIVE];
+            const hasBad = colors.some(c => badColors.includes(c));
+            return hasBad ? 'IGNORE' : 'SPARE';
         }
 
         static getState(colorsConfig) {
-            const summaries = ReviewAnalyzer.getRowSummaries();
-            return ReviewAnalyzer.classify(summaries, colorsConfig.BLUE);
+            const summaries = ReviewAnalyzer.getRowSummaries() || [];
+            const colors = summaries.map(s => window.getComputedStyle(s.statusSpan).color);
+            return ReviewAnalyzer.classify(colors, colorsConfig);
         }
     }
 

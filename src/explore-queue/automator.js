@@ -132,13 +132,13 @@
                     onRun: () => {
                         const currentAppid = this.context.getAppID();
                         this.nav.setIntent('ACTIVE', currentAppid);
-                        this.ui.clearStartPrompt(); // DIP: Delegated to UI
+                        this.ui.clearStartPrompt();
                         this._executeLogic(currentAppid);
                     },
                     onFastForward: () => {
                         const currentAppid = this.context.getAppID();
                         this.nav.setIntent('FF', currentAppid);
-                        this.ui.clearStartPrompt(); // DIP: Delegated to UI
+                        this.ui.clearStartPrompt();
                         this._executeFastForward();
                     },
                     onDisable: () => {

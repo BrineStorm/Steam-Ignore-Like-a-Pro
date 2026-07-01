@@ -10,31 +10,14 @@
 
     const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
 
-    const esc = (s) => String(s)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    // Shared HTML-escaper (src/escape.js, loaded first in popup.html + content_scripts).
+    const esc = window.ILAP.Sanitizer.escapeHTML;
 
-    const FILTER_LABELS = {
-        not_recommended: 'filter_not_recommended',
-        informational: 'filter_informational',
-        all_but_recommended: 'filter_all_but_recommended'
-    };
-
-    // Per-category accent — Steam's own label colours (shared with the curator-page toast).
-    const FILTER_COLORS = {
-        not_recommended: '#ec976c',
-        informational: '#f1de74'
-    };
-
-    // Inline style for a filter label: a solid Steam colour for the single categories,
-    // an orange→yellow gradient for "all except Recommended" (= both categories ignored).
-    const FILTER_GRADIENT = 'linear-gradient(90deg, #ec976c, #f1de74)';
-    function filterStyle(value) {
-        if (value === 'all_but_recommended') {
-            return `font-weight:700; background:${FILTER_GRADIENT}; -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; color:transparent;`;
-        }
-        return `font-weight:700; color:${FILTER_COLORS[value] || 'var(--muted)'};`;
-    }
+    // Filter vocabulary + label colours are shared with the curator-page control
+    // (see src/curator/filters.js, loaded before this script in both content_scripts
+    // and popup.html). Bold + a muted fallback match this applet's own styling.
+    const Filters = window.ILAP_Filters;
+    const filterStyle = (value) => Filters.colorStyle(value, { bold: true, fallback: 'var(--muted)' });
 
     // No 'done' state: finished jobs are removed from the queue (the drainer emits
     // a completion pulse for the widget blink instead of leaving a record behind).
@@ -124,7 +107,7 @@
             const status = esc(t(STATUS_LABELS[job.status] || 'queue_status_pending'));
             const statusColor = STATUS_COLORS[job.status];
             const isCurrent = !!cur && job.curatorId === cur;
-            const filter = esc(t(FILTER_LABELS[job.filter] || 'filter_not_recommended'));
+            const filter = esc(t(Filters.labelKey(job.filter)));
             const pct = total > 0 ? Math.round(done / total * 100) : 0;
             const count = total > 0 ? `${done} / ${total}` : '—';
             const jobId = esc(job.id || '');

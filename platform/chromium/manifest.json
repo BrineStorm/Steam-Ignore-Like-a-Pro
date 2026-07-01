@@ -24,6 +24,7 @@
         "https://store.steampowered.com/*"
       ],
       "js": [
+        "src/escape.js",
         "src/utils.js",
         "src/i18n.js",
 
@@ -40,6 +41,7 @@
         "src/explore-queue/automator.js",
         "src/explore-queue/main.js",
 
+        "src/curator/filters.js",
         "src/curator/enumerate.js",
         "src/curator/store.js",
         "src/curator/main.js",

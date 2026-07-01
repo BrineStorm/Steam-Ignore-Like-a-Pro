@@ -2,6 +2,7 @@ const { test, expect } = require('../_fixtures.js');
 const { setExtensionStorage, clearExtensionStorage } = require('../_extension.js');
 
 const SEL = {
+    queueSection: '.SaleSectionCtn.discoveryqueue',
     queueWidget: '.SaleSectionCtn.discoveryqueue div[role="button"]',
     modal: '.FullModalOverlay div[role="dialog"]',
     panel: '#ilap-queue-controls',
@@ -11,11 +12,19 @@ const SEL = {
 // Copy of the helper from ui.spec.js — kept inline so this regression spec is
 // self-contained (the rest of the DQ specs assume master=ON). The DQ modal opens
 // from the "Explore Your Discovery Queue" widget below the fold on a tag page.
+// The section is lazy-rendered, so scroll until it attaches before waiting.
 async function openQueueModal(page) {
-    await page.goto('/tags/en/Collectathon');
+    await page.goto('/tags/en/Collectathon', { waitUntil: 'domcontentloaded' });
+    const section = page.locator(SEL.queueSection).first();
+    for (let i = 0; i < 10 && !(await section.count()); i++) {
+        await page.mouse.wheel(0, 1200);
+        await page.waitForTimeout(500);
+    }
+    await section.waitFor({ state: 'attached', timeout: 20000 });
+    await section.scrollIntoViewIfNeeded();
+
     const widget = page.locator(SEL.queueWidget).first();
-    await widget.waitFor({ state: 'attached', timeout: 15000 });
-    await widget.scrollIntoViewIfNeeded();
+    await widget.waitFor({ state: 'visible', timeout: 20000 });
     await widget.click();
 
     const modal = page.locator(SEL.modal).first();

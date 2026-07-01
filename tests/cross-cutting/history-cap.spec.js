@@ -21,8 +21,8 @@ function loadIlap() {
         runtime: { id: 'test-ctx', lastError: undefined },
         storage: {
             local: {
-                // Synchronous in-memory get/set → saveStats resolves inline,
-                // keeping the 25 sequential calls ordered without races.
+                // Synchronous in-memory get/set; ordering across the 25 calls is
+                // guaranteed by saveStats's own serialization chain.
                 get(keys, cb) {
                     const out = {};
                     const list = Array.isArray(keys)
@@ -44,12 +44,16 @@ function loadIlap() {
 
 test.describe('Cross-cutting — ilap_ignored_history is capped at 20 (unit)', () => {
 
-    test('25 saveStats calls → history holds exactly 20, newest-first; count tracks all 25', () => {
+    test('25 saveStats calls → history holds exactly 20, newest-first; count tracks all 25', async () => {
         const { ILAP, store } = loadIlap();
 
+        // saveStats serializes its read-modify-write through a promise chain, so it
+        // returns the chain tail — await all writes before asserting.
+        const pending = [];
         for (let i = 1; i <= 25; i++) {
-            ILAP.saveStats(`Game ${i}`, 'Manual');
+            pending.push(ILAP.saveStats(`Game ${i}`, 'Manual'));
         }
+        await Promise.all(pending);
 
         // Count tracks every call regardless of the history cap.
         expect(store.ilap_ignored_count).toBe(25);

@@ -27,32 +27,74 @@
         CONFIRM_POLL_MS: 600            // gap between userdata polls in the fallback
     };
 
-    // Authoritative ignore-state source: Steam's own dynamic store. Same-origin
-    // GET (read-only — NOT an ignore API call), returns rgIgnoredApps as the map
-    // of every ignored appid. Used only as a fallback when the in-page button
-    // can't confirm (currently Steam's web ignore button renders no pressed/mask
-    // state, so primary confirmation silently fails).
-    const USERDATA_URL = 'https://store.steampowered.com/dynamicstore/userdata/';
+    // Safety valve: if we click "Continue" this many times in a row without a
+    // single confirmed ignore in between, the interstitial handling has gone wrong
+    // (e.g. a mis-targeted button) — stop instead of busy-looping. The streak is
+    // pre-incremented before the click, so exactly MAX clicks are performed and
+    // the (MAX+1)-th is refused; each confirmed ignore resets the streak.
+    const MAX_CONTINUE_STREAK = 3;
 
     class SlideScanner {
+        // A node qualifies as a queue slide only if it actually carries a game
+        // link or the Ignore icon — used to validate whatever a selector returns,
+        // so a class change can never hand back a non-slide (e.g. the Prev button).
+        static _isSlide(el) {
+            if (!el) return false;
+            if (el.querySelector('a[href*="/app/"]')) return true;
+            return Array.from(el.querySelectorAll('path'))
+                .some(p => p.getAttribute('d')?.startsWith(SVG_PATHS.IGNORE_ICON));
+        }
+
+        // Re-derive the carousel container from any descendant (hash-independent):
+        // the nearest ancestor whose children are the sibling prev/current/next
+        // cards (>2 children, at least two holding a game link).
+        static _findCarousel(node) {
+            for (let el = node.parentElement; el; el = el.parentElement) {
+                const kids = Array.from(el.children);
+                if (kids.length > 2 &&
+                    kids.filter(k => k.querySelector('a[href*="/app/"]')).length >= 2) {
+                    return el;
+                }
+            }
+            return null;
+        }
+
         static getActiveSlide(dialog) {
-            // The specific carousel container (Prev/Current/Next cards) MUST be
-            // tried first — its children[2] is the active card holding the Ignore
-            // button. The generic Focusable-Panel parent matches a broader node
-            // whose children[2] is NOT the active card (Ignore lives elsewhere),
-            // so as a primary it silently breaks the loop. Keep it as fallback only.
-            const container = dialog.querySelector('._3q6eNRFBrPSFSGEn8uRFZ3') ||
-                              dialog.querySelector('div[class*="Focusable"][class*="Panel"]')?.parentElement;
-            return (container && container.children.length > 2) ? container.children[2] : null;
+            // PRIMARY — the hashed carousel container; children[2] is the centered
+            // (active) card holding the Ignore button. Validate before trusting it.
+            const hashed = dialog.querySelector('._3q6eNRFBrPSFSGEn8uRFZ3');
+            if (hashed && hashed.children.length > 2 && SlideScanner._isSlide(hashed.children[2])) {
+                return hashed.children[2];
+            }
+            // FALLBACK — re-derive the carousel from the Ignore icon (no hashes),
+            // then take its centered card. Survives a container class rename.
+            const ignore = Array.from(dialog.querySelectorAll('path'))
+                .find(p => p.getAttribute('d')?.startsWith(SVG_PATHS.IGNORE_ICON));
+            const carousel = ignore && SlideScanner._findCarousel(ignore);
+            if (carousel) {
+                const mid = carousel.children[Math.floor(carousel.children.length / 2)];
+                if (SlideScanner._isSlide(mid)) return mid;
+            }
+            // FAIL-SAFE — no confidently-identified active card → stop, never guess.
+            return null;
         }
 
         static getNextButton(dialog) {
+            // PRIMARY — the right-chevron SVG path (language-independent).
             const paths = Array.from(dialog.querySelectorAll('path'))
                 .filter(p => p.getAttribute('d')?.startsWith(SVG_PATHS.NEXT_ARROW));
             if (paths.length > 0) return paths[paths.length - 1].closest('div[class*="Focusable"]');
-            
-            const arrowBtns = dialog.querySelectorAll('div[class*="Arrow"]');
-            return arrowBtns.length > 0 ? arrowBtns[arrowBtns.length - 1] : null;
+
+            // FALLBACK — the rightmost carousel nav button. The prev/next arrows are
+            // both role=button icons; "next" is the one furthest right. Require ≥2
+            // so we don't grab an unrelated lone icon button.
+            const navBtns = Array.from(dialog.querySelectorAll('[role="button"]'))
+                .filter(b => b.querySelector('svg') && b.offsetParent !== null);
+            if (navBtns.length >= 2) {
+                return navBtns.reduce((a, b) =>
+                    b.getBoundingClientRect().left > a.getBoundingClientRect().left ? b : a);
+            }
+            return null;
         }
 
         static getIgnoreButton(slide) {
@@ -67,15 +109,25 @@
             return slide.querySelector('div[aria-label="Ignore" i]');
         }
 
-        static getContinueButton(slide) {
-            const candidates = Array.from(slide.querySelectorAll('div[class*="Focusable"]'));
-            const textButtons = candidates.filter(el => {
-                if (!el.textContent.trim()) return false;
-                if (el.querySelector('svg')) return false;
-                if (el.offsetParent === null) return false; 
-                return true;
-            });
-            return textButtons.length > 0 ? textButtons[textButtons.length - 1] : null;
+        // The end-of-queue interstitial ("you've reached the end") lives at the
+        // DIALOG level, not inside a slide — it offers OK (dismiss) and a primary
+        // Continue (start a fresh queue). Pick Continue as the rightmost leaf text
+        // button (no icon, no game link, no nested button): OK sits left, the
+        // highlighted Continue sits right. Language-independent (no text match).
+        static getContinueButton(dialog) {
+            const buttons = Array.from(dialog.querySelectorAll('div[class*="Focusable"]'))
+                .filter(el => {
+                    const txt = el.textContent.trim();
+                    if (!txt || txt.length > 40) return false;               // a short label
+                    if (el.querySelector('svg')) return false;               // not an icon button
+                    if (el.querySelector('a[href*="/app/"]')) return false;  // not a game card
+                    if (el.querySelector('div[class*="Focusable"]')) return false; // a leaf, not a row wrapper
+                    if (el.offsetParent === null) return false;              // visible
+                    return true;
+                });
+            if (!buttons.length) return null;
+            return buttons.reduce((a, b) =>
+                b.getBoundingClientRect().left > a.getBoundingClientRect().left ? b : a);
         }
 
         static getGameInfo(slide, nameExtractorAdapter) {
@@ -149,8 +201,9 @@
             
             this.isRunning = false;
             this.processedCount = 0;
+            this._continueStreak = 0;
             this.config = { skipPositive: false };
-            this.onUpdateCallback = null; 
+            this.onUpdateCallback = null;
         }
 
         setUiObserver(callback) {
@@ -174,6 +227,7 @@
         async start() {
             this.isRunning = true;
             this.processedCount = 0;
+            this._continueStreak = 0;
             this._notifyUI();
             await this._loop();
         }
@@ -193,19 +247,14 @@
 
         async _processCurrentSlide(dialog) {
             const slide = SlideScanner.getActiveSlide(dialog);
-            if (!slide) return false;
+            const nextBtn = slide ? SlideScanner.getNextButton(dialog) : null;
 
-            const nextBtn = SlideScanner.getNextButton(dialog);
-
-            // End of the served queue → click "Continue" to spin up a fresh one
-            // (keeps the feed effectively infinite).
-            if (!nextBtn) {
-                const continueBtn = SlideScanner.getContinueButton(slide);
-                if (continueBtn) {
-                     await this._clickWithDelay(continueBtn, TIMING.CONTINUE_CLICK_MS);
-                     return true;
-                }
-                return false;
+            // End of the served queue (no active slide, or a slide with no Next
+            // arrow) → click "Continue" to spin up a fresh one, keeping the feed
+            // effectively infinite. The interstitial buttons live at the dialog
+            // level, not inside a slide.
+            if (!slide || !nextBtn) {
+                return this._advanceViaContinue(dialog);
             }
 
             const gameInfo = SlideScanner.getGameInfo(slide, this.nameExtractor);
@@ -221,12 +270,7 @@
             if (!ignoreBtn) {
                 // No ignore control on this slide (e.g. an interstitial). Try
                 // Continue, otherwise stop — never advance past a game we didn't act on.
-                const continueBtn = SlideScanner.getContinueButton(slide);
-                if (continueBtn) {
-                     await this._clickWithDelay(continueBtn, TIMING.CONTINUE_CLICK_MS);
-                     return true;
-                }
-                return false;
+                return this._advanceViaContinue(dialog);
             }
 
             // Already ignored (cheap button check, no request) → just advance.
@@ -245,10 +289,22 @@
             if (!confirmed) return false;
 
             this.processedCount++;
+            this._continueStreak = 0;   // real progress → reset the Continue guard
             this._notifyUI();
             this.stats.save(gameInfo.name, "Queue");
 
             await this._clickWithDelay(nextBtn, TIMING.NEXT_CLICK_MS);
+            return true;
+        }
+
+        // Click the end-of-queue "Continue" to start a fresh queue. Guards against
+        // a runaway: if we keep hitting Continue without any ignore landing in
+        // between, the button targeting is wrong — stop rather than busy-loop.
+        async _advanceViaContinue(dialog) {
+            const continueBtn = SlideScanner.getContinueButton(dialog);
+            if (!continueBtn) return false;
+            if (++this._continueStreak > MAX_CONTINUE_STREAK) return false;
+            await this._clickWithDelay(continueBtn, TIMING.CONTINUE_CLICK_MS);
             return true;
         }
 
@@ -268,19 +324,11 @@
             const key = String(appid);
             const deadline = Date.now() + TIMING.CONFIRM_FALLBACK_MS;
             while (Date.now() < deadline) {
-                try {
-                    const res = await fetch(`${USERDATA_URL}?_=${Date.now()}`, {
-                        credentials: 'include',
-                        cache: 'no-store'
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        const ignored = data && data.rgIgnoredApps;
-                        if (ignored && Object.prototype.hasOwnProperty.call(ignored, key)) return true;
-                    }
-                } catch (e) {
-                    // Transient network/parse issue — retry until the deadline.
-                }
+                // Shared reader (window.ILAP.fetchIgnoredApps) resolves to a Set of
+                // ignored appids, or an empty Set on any transient failure — either
+                // way we just keep polling until the deadline.
+                const ignored = await window.ILAP.fetchIgnoredApps();
+                if (ignored.has(key)) return true;
                 await new Promise(r => setTimeout(r, TIMING.CONFIRM_POLL_MS));
             }
             return false;
@@ -301,8 +349,14 @@
 
         _isButtonActive(element) {
             if (!element) return false;
+            // aria-pressed first (semantic), though Steam's web button never sets it.
             const ariaPressed = element.getAttribute('aria-pressed');
             if (ariaPressed !== null) return ariaPressed === 'true';
+            // In-DOM ignored signal (verified by live probe): an un-ignored
+            // button carries exactly ONE hashed (underscore) class; on ignore Steam
+            // adds a SECOND hashed class within ~400ms. So "≥2 hashed classes" is a
+            // real, fast, language-independent confirmation — this is what makes the
+            // primary _waitForActiveState succeed before we ever touch userdata.
             const hashedClasses = Array.from(element.classList).filter(c => c.startsWith('_'));
             return hashedClasses.length >= 2;
         }
