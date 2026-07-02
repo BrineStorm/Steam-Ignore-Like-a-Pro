@@ -149,33 +149,34 @@
     // already queued — switch the existing job's filter in place. Either way the
     // job is staged as `enumerating`, then `resolveJob` resolves its appids (from
     // the retention cache, or the ~4 batched reads) and flips it to `pending`.
+    // Staging goes through Store.mutateQueue (the serialized queue RMW) so a
+    // click here can't interleave with the drainer's or the applet's writes.
     function pick(value, btn) {
         const id = curatorId();
         if (!id) return;
-        chrome.storage.local.get('ilap_curator_queue', (res) => {
-            const queue = Array.isArray(res.ilap_curator_queue) ? res.ilap_curator_queue.slice() : [];
+        const Store = window.ILAP.Curator && window.ILAP.Curator.Store;
+        if (!Store) return;
+
+        let outcome = null; // decided inside the mutator, acted on after the write
+        Store.mutateQueue((queue) => {
             const idx = queue.findIndex(j => j.curatorId === id);
 
             if (idx >= 0) {
-                if (queue[idx].filter === value) return; // already this type — no-op
-                const jobId = queue[idx].id;
-                const name = queue[idx].curatorName;
+                if (queue[idx].filter === value) return null; // already this type — no-op
                 // Switching filter changes the appid set, so re-resolve from
                 // scratch; already-ignored games are skipped instantly by the
                 // drainer's userdata dedupe, so progress isn't really lost.
+                outcome = { kind: 'switched', jobId: queue[idx].id, name: queue[idx].curatorName };
                 queue[idx] = Object.assign({}, queue[idx], {
-                    filter: value, status: 'enumerating', appids: [], cursor: 0, total: 0
+                    filter: value, status: 'enumerating', appids: [], total: 0
                 });
-                chrome.storage.local.set({ ilap_curator_queue: queue }, () => {
-                    showToast('curator_toast_switched', value);
-                    resolveJob(id, jobId, name, value);
-                });
-                return;
+                return queue;
             }
 
-            if (queue.length >= MAX_JOBS) { showToast('curator_toast_full', null, 4500); return; }
+            if (queue.length >= MAX_JOBS) { outcome = { kind: 'full' }; return null; }
             const name = curatorName(id);
             const jobId = 'job_' + id + '_' + Date.now();
+            outcome = { kind: 'added', jobId, name };
             queue.push({
                 id: jobId,
                 curatorId: id,
@@ -183,16 +184,21 @@
                 curatorUrl: location.origin + location.pathname,
                 filter: value,
                 appids: [],   // resolved by resolveJob
-                cursor: 0,
-                total: 0,
+                total: 0,     // drain progress lives in the per-job cursor key
                 status: 'enumerating',
                 addedAt: Date.now()
             });
-            chrome.storage.local.set({ ilap_curator_queue: queue }, () => {
+            return queue;
+        }).then(() => {
+            if (!outcome) return;
+            if (outcome.kind === 'full') { showToast('curator_toast_full', null, 4500); return; }
+            if (outcome.kind === 'switched') {
+                showToast('curator_toast_switched', value);
+            } else {
                 flash(btn, t('curator_added'));
                 showToast('curator_toast_added', value);
-                resolveJob(id, jobId, name, value);
-            });
+            }
+            resolveJob(id, outcome.jobId, outcome.name, value);
         });
     }
 
@@ -224,8 +230,12 @@
                 await Store.removeJob(jobId);
                 return;
             }
+            // Fresh appid list → progress restarts. The cursor key is reset here,
+            // while the job is still 'enumerating' (not drainable), so the drainer
+            // can't be advancing it concurrently.
+            await Store.setCursor(jobId, 0);
             await Store.updateJob(jobId, {
-                appids, total: appids.length, cursor: 0, status: 'pending'
+                appids, total: appids.length, status: 'pending'
             });
         } catch (e) {
             // Enumeration failed — leave the job idle (0/0) so the user can remove
@@ -350,13 +360,28 @@
         return true;
     }
 
-    function boot() {
-        if (!curatorId()) return;          // no-op on every non-curator store page
+    function start() {
         if (tryInject()) return;
         // The curator chrome can render after load; watch briefly, then give up.
         const obs = new MutationObserver(() => { if (tryInject()) obs.disconnect(); });
         obs.observe(document.documentElement, { childList: true, subtree: true });
         setTimeout(() => obs.disconnect(), 10000);
+    }
+
+    function boot() {
+        if (!curatorId()) return;          // no-op on every non-curator store page
+        // Login gate: staging an ignore job makes no sense without a Steam
+        // session, so the control isn't injected at all on a logged-out page
+        // (same SteamAuth source as the widget lock). A page whose header can't
+        // be read falls back to the live probe before injecting.
+        const Auth = window.ILAP.SteamAuth;
+        const dom = Auth.isLoggedInDom();
+        if (dom === false) return;
+        if (dom === null) {
+            Auth.probeLogin().then((ok) => { if (ok) start(); });
+            return;
+        }
+        start();
     }
 
     if (document.readyState === 'loading') {

@@ -8,11 +8,18 @@
     //     enumerated apps so re-adding a curator within a week costs 0 network.
     //     TTL 7 days; LRU-capped at 10 curators (evicted on every write).
     //  2. Job queue (`ilap_curator_queue`) — the array the button stages into and
-    //     the drainer/applet read; thin CRUD helpers so callers don't race on
-    //     read-modify-write.
+    //     the drainer/applet read. ALL mutations go through `mutateQueue`, a
+    //     per-context serialized read-modify-write, and the array holds only
+    //     user-owned fields (filter/status/appids); drain progress lives in a
+    //     separate per-job cursor key the drainer alone writes. Partitioning the
+    //     keys by writer is what makes cross-tab last-writer-wins harmless: the
+    //     drainer can never clobber a pause/remove, and a queue write can never
+    //     lose a cursor advance.
     //  3. Per-job lease lock (`ilap_curator_lock_<id>`) — exactly one tab drains a
     //     job at a time. Multi-tab is HANDOFF, not parallel: the holder
     //     heartbeats; if it dies the lease expires and a standby tab steals it.
+    //     A live lease doubles as the "running" signal for the UI — running is
+    //     derived, never stored in the job record.
     //
     // `evictCache` / `lockFree` are pure so they unit-test in Node without chrome.
 
@@ -22,6 +29,7 @@
     const CACHE_KEY = 'ilap_curator_cache';
     const QUEUE_KEY = 'ilap_curator_queue';
     const LOCK_PREFIX = 'ilap_curator_lock_';
+    const CURSOR_PREFIX = 'ilap_curator_cursor_';
     const PULSE_KEY = 'ilap_curator_pulse';
 
     const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;  // 7 days
@@ -91,20 +99,53 @@
         await set({ [QUEUE_KEY]: queue });
     }
 
+    // Serialized queue read-modify-write. chrome.storage has no atomic update,
+    // so overlapping get→set pairs in the SAME context (the drainer, the widget
+    // applet and the curator button all share a page's content-script context)
+    // could lose a write. Every mutation funnels through this one promise chain.
+    // The mutator gets a copy of the queue and returns the next array, or a
+    // non-array to skip the write.
+    let queueChain = Promise.resolve();
+    function mutateQueue(mutator) {
+        const run = queueChain.then(async () => {
+            const queue = await getQueue();
+            const next = mutator(queue.slice());
+            if (!Array.isArray(next)) return queue;
+            await setQueue(next);
+            return next;
+        });
+        queueChain = run.catch(() => {}); // one failed write can't wedge the chain
+        return run;
+    }
+
     // Patch one job by id. `patch` may be an object or a (job)=>partial fn.
     // No-ops if the job is gone (removed while we were working).
     async function updateJob(id, patch) {
-        const queue = await getQueue();
-        const next = queue.map(j => j.id === id
+        const next = await mutateQueue(queue => queue.map(j => j.id === id
             ? Object.assign({}, j, typeof patch === 'function' ? patch(j) : patch)
-            : j);
-        await setQueue(next);
+            : j));
         return next.find(j => j.id === id) || null;
     }
 
     async function removeJob(id) {
-        const queue = await getQueue();
-        await setQueue(queue.filter(j => j.id !== id));
+        await mutateQueue(queue => queue.filter(j => j.id !== id));
+        await remove(CURSOR_PREFIX + id); // the job's progress cursor dies with it
+    }
+
+    // --- drain cursor -------------------------------------------------------
+    // Per-job progress lives OUTSIDE the queue array, in a key only the lease
+    // holder writes (plus a zeroing reset while the job is 'enumerating', i.e.
+    // not drainable). Keeping the drainer's only frequent write out of the
+    // shared array is the cross-tab half of the race fix.
+
+    async function getCursor(jobId) {
+        const key = CURSOR_PREFIX + jobId;
+        const v = (await get(key))[key];
+        return Number.isFinite(v) ? v : null;
+    }
+
+    async function setCursor(jobId, value) {
+        await set({ [CURSOR_PREFIX + jobId]: value });
     }
 
     // Fire-and-forget signal that a job just finished draining. Surfaces (the
@@ -156,10 +197,12 @@
         // cache
         getCache, putCache,
         // queue
-        getQueue, setQueue, updateJob, removeJob, signalCompleted,
+        getQueue, setQueue, mutateQueue, updateJob, removeJob, signalCompleted,
+        // drain cursor
+        getCursor, setCursor,
         // lock
         acquireLock, renewLock, holdsLock, releaseLock,
         // constants
-        CACHE_KEY, QUEUE_KEY, LOCK_PREFIX, PULSE_KEY, CACHE_TTL, CACHE_MAX, LEASE_MS
+        CACHE_KEY, QUEUE_KEY, LOCK_PREFIX, CURSOR_PREFIX, PULSE_KEY, CACHE_TTL, CACHE_MAX, LEASE_MS
     };
 })();

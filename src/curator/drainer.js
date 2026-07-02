@@ -101,7 +101,9 @@
         }
 
         async _drainJob(job) {
-            await this.store.updateJob(job.id, { status: 'running' });
+            // No stored 'running' status: the UI derives "running" from the live
+            // lease. The drainer's only queue-array write is the final removeJob,
+            // so it can never clobber a concurrent pause/remove from the applet.
             const ignored = await this.fetchUserdata().catch(() => new Set());
             let lastBeat = Date.now();
             let fails = 0;
@@ -109,10 +111,15 @@
             while (true) {
                 const cur = (await this.store.getQueue()).find(j => j.id === job.id);
                 if (!cur) return;                       // removed from the queue
-                if (cur.status === 'paused') return;    // user paused
+                // Anything but a drainable status stops this pass: 'paused' (user
+                // intent) or 'enumerating' (filter switch re-resolving the list).
+                // 'running' is a legacy stored value from the pre-cursor-key model.
+                if (cur.status !== 'pending' && cur.status !== 'running') return;
                 if (!(await this.store.holdsLock(job.curatorId, this.ownerId))) return; // lost lease
 
-                const cursor = cur.cursor || 0;
+                const keyCursor = await this.store.getCursor(job.id);
+                // Legacy records (pre-cursor-key) kept the cursor inline.
+                const cursor = keyCursor != null ? keyCursor : (cur.cursor || 0);
                 if (cursor >= cur.appids.length) {
                     // Finished: drop the job entirely (no lingering "done" record) and
                     // emit a completion pulse so the widget blinks once.
@@ -124,7 +131,7 @@
                 const appid = String(cur.appids[cursor]);
                 if (ignored.has(appid)) {
                     // Already ignored (dedupe) — count it as done, no request.
-                    await this.store.updateJob(job.id, { cursor: cursor + 1 });
+                    await this.store.setCursor(job.id, cursor + 1);
                     fails = 0;
                     continue;
                 }
@@ -132,7 +139,7 @@
                 const ok = await this.api.ignore(appid, REASON);
                 if (ok) {
                     ignored.add(appid);
-                    await this.store.updateJob(job.id, { cursor: cursor + 1 });
+                    await this.store.setCursor(job.id, cursor + 1);
                     fails = 0;
                 } else {
                     // Don't advance on failure (cursor only moves on confirmed
@@ -140,7 +147,7 @@
                     // wedge the whole job.
                     fails += 1;
                     if (fails >= MAX_FAILS) {
-                        await this.store.updateJob(job.id, { cursor: cursor + 1 });
+                        await this.store.setCursor(job.id, cursor + 1);
                         fails = 0;
                     }
                 }

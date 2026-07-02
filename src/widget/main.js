@@ -31,6 +31,11 @@
             transition: border-color .15s ease, box-shadow .15s ease;
         }
         .ilap-launcher:hover, .ilap-launcher.active { border-color: ${SPARED}; box-shadow: 0 2px 12px rgba(0,0,0,.6); }
+        /* Logged-out lock: greyed, no hover highlight, panel won't open. */
+        .ilap-launcher.locked, .ilap-launcher.locked:hover {
+            filter: grayscale(1); opacity: .55; cursor: not-allowed;
+            border-color: ${SPARED_DIM}; box-shadow: 0 2px 8px rgba(0,0,0,.5);
+        }
         /* One-shot highlight blink, fired when a curator ignore-queue job finishes. */
         @keyframes ilap-launcher-pulse {
             0%   { border-color: ${SPARED_DIM}; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
@@ -92,10 +97,53 @@
             }
         };
 
+        // Logged-out lock. Queue/settings management makes no sense without a
+        // Steam session, so the whole surface is gated: greyed launcher with a
+        // "sign in" tooltip, panel not openable. Initial state comes from the
+        // page header; a click while locked re-probes the LIVE cookies, because
+        // a page opened before the user signed in (in another tab) still reads
+        // logged-out in its own DOM — the probe unlocks it in place.
+        const t = (k) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k) : k;
+        const Auth = window.ILAP.SteamAuth;
+        let locked = false;
+        const setLocked = (v) => {
+            locked = v;
+            launcher.classList.toggle('locked', v);
+            if (v) launcher.title = t('widget_login_required');
+            else launcher.removeAttribute('title');
+        };
+        // The locale loads from storage async — refresh the tooltip at hover time.
+        launcher.addEventListener('mouseenter', () => {
+            if (locked) launcher.title = t('widget_login_required');
+        });
+
+        let probing = false;
+        let lastProbe = 0;
         launcher.addEventListener('click', (e) => {
             e.stopPropagation();
+            if (locked) {
+                const now = Date.now();
+                if (probing || now - lastProbe < 3000) return;
+                probing = true;
+                lastProbe = now;
+                Auth.probeLogin().then((ok) => {
+                    probing = false;
+                    if (ok) { setLocked(false); setOpen(true); }
+                });
+                return;
+            }
             setOpen(!panel.classList.contains('open'));
         });
+
+        const domState = Auth.isLoggedInDom();
+        if (domState === false) {
+            setLocked(true);
+        } else if (domState === null) {
+            // No store header to read (e.g. a stripped surface) — lock until a
+            // live probe settles the real state.
+            setLocked(true);
+            Auth.probeLogin().then((ok) => { if (ok) setLocked(false); });
+        }
 
         // Collapse when clicking elsewhere on the page. Clicks inside the shadow
         // are retargeted to the host, so host.contains(target) stays true for them.

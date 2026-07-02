@@ -3,15 +3,21 @@
     'use strict';
 
     // Renders the curator ignore queue inside the popup/widget as a collapsible
-    // applet (mirrors the SETTINGS accordion). Sketch surface for Phase 2: it only
-    // reflects the jobs stored in chrome.storage.local under `ilap_curator_queue`.
-    // The whole <details> is hidden when the queue is empty, so it never shows even
-    // when the rest of the UI is locked. Draining/progress logic comes later.
+    // applet (mirrors the SETTINGS accordion). It renders from a full storage
+    // snapshot: the job records (`ilap_curator_queue`) hold only user-owned state,
+    // drain progress comes from the per-job cursor keys, and "running" is derived
+    // from a live drain lease — the drainer never stores a status, so it can never
+    // clobber a pause/remove written here. The whole <details> is hidden when the
+    // queue is empty, so it never shows even when the rest of the UI is locked.
 
     const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
 
     // Shared HTML-escaper (src/escape.js, loaded first in popup.html + content_scripts).
     const esc = window.ILAP.Sanitizer.escapeHTML;
+
+    // Storage model (src/curator/store.js, loaded before this script in both
+    // content_scripts and popup.html) — serialized queue writes + key prefixes.
+    const Store = window.ILAP.Curator.Store;
 
     // Filter vocabulary + label colours are shared with the curator-page control
     // (see src/curator/filters.js, loaded before this script in both content_scripts
@@ -58,32 +64,28 @@
             if (this.list) this.list.addEventListener('click', (e) => this._onAction(e));
         }
 
-        // Pause/Resume just flips the stored status flag (no drainer to pause yet);
-        // Remove drops the job from the queue. Both are storage-only management ops —
-        // the actual draining behaviour is wired in a later Phase-2 sub-step.
+        // Pause/Resume flips the stored user intent (paused ↔ pending — 'running'
+        // is never stored); Remove drops the job. Both go through Store's
+        // serialized queue writers, so a click here can't interleave with a
+        // concurrent queue write in the same context.
         _onAction(e) {
             const btn = e.target.closest('.queue-act');
             if (!btn) return;
             const id = btn.dataset.jobId;
             const act = btn.dataset.act;
-            chrome.storage.local.get('ilap_curator_queue', (res) => {
-                let jobs = Array.isArray(res.ilap_curator_queue) ? res.ilap_curator_queue.slice() : [];
-                if (act === 'remove') {
-                    jobs = jobs.filter(j => j.id !== id);
-                } else if (act === 'pause') {
-                    // Toggle paused ↔ running (a future drainer owns the real run loop;
-                    // for now this just flips the flag so the indicator is reachable).
-                    jobs = jobs.map(j => j.id === id
-                        ? Object.assign({}, j, { status: j.status === 'paused' ? 'running' : 'paused' })
-                        : j);
-                }
-                chrome.storage.local.set({ ilap_curator_queue: jobs });
-            });
+            if (act === 'remove') {
+                Store.removeJob(id);
+            } else if (act === 'pause') {
+                Store.updateJob(id, (j) => ({ status: j.status === 'paused' ? 'pending' : 'paused' }));
+            }
         }
 
-        render(jobs) {
+        // `store` is a full chrome.storage.local snapshot: the queue array plus
+        // the per-job lock/cursor keys this view derives running/progress from.
+        render(store) {
             if (!this.accordion) return;
-            jobs = Array.isArray(jobs) ? jobs : [];
+            store = store || {};
+            const jobs = Array.isArray(store.ilap_curator_queue) ? store.ilap_curator_queue : [];
 
             if (jobs.length === 0) {
                 this.accordion.hidden = true;
@@ -92,20 +94,42 @@
             }
 
             this.accordion.hidden = false;
+            const now = Date.now();
+            const statuses = jobs.map(j => this._effectiveStatus(j, store, now));
             // Barber-pole indicator while any job is actively ignoring.
-            this.accordion.classList.toggle('has-running', jobs.some(j => j.status === 'running'));
+            this.accordion.classList.toggle('has-running', statuses.some(s => s === 'running'));
             if (this.chip) this.chip.textContent = jobs.length;
             const cur = currentCuratorId();
-            if (this.list) this.list.innerHTML = jobs.map(j => this._row(j, cur)).join('');
+            if (this.list) {
+                this.list.innerHTML = jobs
+                    .map((j, i) => this._row(j, cur, statuses[i], this._done(j, store)))
+                    .join('');
+            }
             if (window.ILAP && window.ILAP.i18n) window.ILAP.i18n.applyDom(this.list);
         }
 
-        _row(job, cur) {
+        // Stored status carries only user intent ('enumerating'/'paused', else
+        // drainable). "Running" is derived: a drainable job whose drain lease is
+        // live IS being drained by some tab right now.
+        _effectiveStatus(job, store, now) {
+            if (job.status === 'enumerating' || job.status === 'paused') return job.status;
+            const lock = store[Store.LOCK_PREFIX + job.curatorId];
+            return (lock && (lock.expiresAt || 0) > now) ? 'running' : 'pending';
+        }
+
+        // Progress comes from the drainer-owned cursor key; legacy records
+        // (pre-cursor-key) kept the cursor inline.
+        _done(job, store) {
+            const v = store[Store.CURSOR_PREFIX + job.id];
+            return Number.isFinite(v) ? v : (job.cursor || 0);
+        }
+
+        _row(job, cur, effStatus, cursor) {
             const name = esc(job.curatorName || job.curatorId || '');
             const total = job.total || 0;
-            const done = Math.min(job.cursor || 0, total || job.cursor || 0);
-            const status = esc(t(STATUS_LABELS[job.status] || 'queue_status_pending'));
-            const statusColor = STATUS_COLORS[job.status];
+            const done = Math.min(cursor, total || cursor);
+            const status = esc(t(STATUS_LABELS[effStatus] || 'queue_status_pending'));
+            const statusColor = STATUS_COLORS[effStatus];
             const isCurrent = !!cur && job.curatorId === cur;
             const filter = esc(t(Filters.labelKey(job.filter)));
             const pct = total > 0 ? Math.round(done / total * 100) : 0;

@@ -101,7 +101,8 @@
             curator_queue_full: "Queue full",
             filter_not_recommended: "Not Recommended only",
             filter_informational: "Informational only",
-            filter_all_but_recommended: "All except Recommended"
+            filter_all_but_recommended: "All except Recommended",
+            widget_login_required: "Sign in to Steam to use the extension"
         },
 
         de: {
@@ -178,7 +179,8 @@
             curator_queue_full: "Warteschlange voll",
             filter_not_recommended: "Nur „Nicht empfohlen“",
             filter_informational: "Nur „Informativ“",
-            filter_all_but_recommended: "Alle außer „Empfohlen“"
+            filter_all_but_recommended: "Alle außer „Empfohlen“",
+            widget_login_required: "Melde dich bei Steam an, um die Erweiterung zu nutzen"
         },
 
         fr: {
@@ -255,7 +257,8 @@
             curator_queue_full: "File pleine",
             filter_not_recommended: "Non recommandés uniquement",
             filter_informational: "Informatifs uniquement",
-            filter_all_but_recommended: "Tous sauf recommandés"
+            filter_all_but_recommended: "Tous sauf recommandés",
+            widget_login_required: "Connectez-vous à Steam pour utiliser l'extension"
         },
 
         es: {
@@ -332,7 +335,8 @@
             curator_queue_full: "Cola llena",
             filter_not_recommended: "Solo No recomendados",
             filter_informational: "Solo Informativos",
-            filter_all_but_recommended: "Todos excepto Recomendados"
+            filter_all_but_recommended: "Todos excepto Recomendados",
+            widget_login_required: "Inicia sesión en Steam para usar la extensión"
         },
 
         el: {
@@ -409,7 +413,8 @@
             curator_queue_full: "Η ουρά είναι γεμάτη",
             filter_not_recommended: "Μόνο «Δεν προτείνεται»",
             filter_informational: "Μόνο «Ενημερωτικά»",
-            filter_all_but_recommended: "Όλα εκτός «Προτείνεται»"
+            filter_all_but_recommended: "Όλα εκτός «Προτείνεται»",
+            widget_login_required: "Συνδεθείτε στο Steam για να χρησιμοποιήσετε την επέκταση"
         },
 
         it: {
@@ -486,7 +491,8 @@
             curator_queue_full: "Coda piena",
             filter_not_recommended: "Solo Non consigliati",
             filter_informational: "Solo Informativi",
-            filter_all_but_recommended: "Tutti tranne i Consigliati"
+            filter_all_but_recommended: "Tutti tranne i Consigliati",
+            widget_login_required: "Accedi a Steam per usare l'estensione"
         },
 
         'pt-BR': {
@@ -563,7 +569,8 @@
             curator_queue_full: "Fila cheia",
             filter_not_recommended: "Apenas Não recomendados",
             filter_informational: "Apenas Informativos",
-            filter_all_but_recommended: "Todos exceto Recomendados"
+            filter_all_but_recommended: "Todos exceto Recomendados",
+            widget_login_required: "Faça login no Steam para usar a extensão"
         },
 
         tr: {
@@ -640,7 +647,8 @@
             curator_queue_full: "Kuyruk dolu",
             filter_not_recommended: "Yalnızca Tavsiye edilmeyen",
             filter_informational: "Yalnızca Bilgilendirici",
-            filter_all_but_recommended: "Tavsiye edilenler hariç tümü"
+            filter_all_but_recommended: "Tavsiye edilenler hariç tümü",
+            widget_login_required: "Uzantıyı kullanmak için Steam'de oturum açın"
         },
 
         ru: {
@@ -717,7 +725,8 @@
             curator_queue_full: "Очередь заполнена",
             filter_not_recommended: "Только «Не рекомендую»",
             filter_informational: "Только «Информация»",
-            filter_all_but_recommended: "Все, кроме «Рекомендую»"
+            filter_all_but_recommended: "Все, кроме «Рекомендую»",
+            widget_login_required: "Войдите в Steam, чтобы пользоваться расширением"
         },
 
         uk: {
@@ -794,7 +803,8 @@
             curator_queue_full: "Черга заповнена",
             filter_not_recommended: "Лише «Не раджу»",
             filter_informational: "Лише «Інформація»",
-            filter_all_but_recommended: "Усі, крім «Раджу»"
+            filter_all_but_recommended: "Усі, крім «Раджу»",
+            widget_login_required: "Увійдіть у Steam, щоб користуватися розширенням"
         },
 
         pl: {
@@ -871,7 +881,8 @@
             curator_queue_full: "Kolejka pełna",
             filter_not_recommended: "Tylko Nie polecane",
             filter_informational: "Tylko Informacyjne",
-            filter_all_but_recommended: "Wszystkie oprócz Polecanych"
+            filter_all_but_recommended: "Wszystkie oprócz Polecanych",
+            widget_login_required: "Zaloguj się do Steam, aby korzystać z rozszerzenia"
         },
 
         cs: {
@@ -948,7 +959,8 @@
             curator_queue_full: "Fronta plná",
             filter_not_recommended: "Pouze Nedoporučené",
             filter_informational: "Pouze Informativní",
-            filter_all_but_recommended: "Vše kromě Doporučených"
+            filter_all_but_recommended: "Vše kromě Doporučených",
+            widget_login_required: "Přihlaste se do Steamu, abyste mohli používat rozšíření"
         },
 
         hu: {
@@ -1025,7 +1037,8 @@
             curator_queue_full: "A sor megtelt",
             filter_not_recommended: "Csak a Nem ajánlott",
             filter_informational: "Csak az Informatív",
-            filter_all_but_recommended: "Minden az Ajánlott kivételével"
+            filter_all_but_recommended: "Minden az Ajánlott kivételével",
+            widget_login_required: "Jelentkezz be a Steambe a bővítmény használatához"
         },
 
         sr: {
@@ -1102,7 +1115,8 @@
             curator_queue_full: "Red je pun",
             filter_not_recommended: "Samo Nepreporučeno",
             filter_informational: "Samo Informativno",
-            filter_all_but_recommended: "Sve osim Preporučeno"
+            filter_all_but_recommended: "Sve osim Preporučeno",
+            widget_login_required: "Prijavite se na Steam da biste koristili proširenje"
         },
 
         ro: {
@@ -1179,7 +1193,8 @@
             curator_queue_full: "Coadă plină",
             filter_not_recommended: "Doar Nerecomandate",
             filter_informational: "Doar Informative",
-            filter_all_but_recommended: "Toate cu excepția celor Recomandate"
+            filter_all_but_recommended: "Toate cu excepția celor Recomandate",
+            widget_login_required: "Conectați-vă la Steam pentru a utiliza extensia"
         },
 
         ja: {
@@ -1256,7 +1271,8 @@
             curator_queue_full: "キューが満杯",
             filter_not_recommended: "非推奨のみ",
             filter_informational: "情報提供のみ",
-            filter_all_but_recommended: "おすすめ以外すべて"
+            filter_all_but_recommended: "おすすめ以外すべて",
+            widget_login_required: "拡張機能を使用するにはSteamにログインしてください"
         },
 
         ko: {
@@ -1333,7 +1349,8 @@
             curator_queue_full: "대기열 가득 참",
             filter_not_recommended: "비추천만",
             filter_informational: "정보성만",
-            filter_all_but_recommended: "추천 제외 전체"
+            filter_all_but_recommended: "추천 제외 전체",
+            widget_login_required: "확장 프로그램을 사용하려면 Steam에 로그인하세요"
         },
 
         'zh-TW': {
@@ -1410,7 +1427,8 @@
             curator_queue_full: "佇列已滿",
             filter_not_recommended: "僅限不推薦",
             filter_informational: "僅限資訊性",
-            filter_all_but_recommended: "推薦以外全部"
+            filter_all_but_recommended: "推薦以外全部",
+            widget_login_required: "請登入 Steam 以使用擴充功能"
         },
 
         th: {
@@ -1487,7 +1505,8 @@
             curator_queue_full: "คิวเต็ม",
             filter_not_recommended: "เฉพาะไม่แนะนำ",
             filter_informational: "เฉพาะให้ข้อมูล",
-            filter_all_but_recommended: "ทั้งหมดยกเว้นที่แนะนำ"
+            filter_all_but_recommended: "ทั้งหมดยกเว้นที่แนะนำ",
+            widget_login_required: "ลงชื่อเข้าใช้ Steam เพื่อใช้งานส่วนขยาย"
         }
     };
 
@@ -1547,7 +1566,9 @@
     }
 
     window.ILAP.t = t;
-    window.ILAP.i18n = { setLang, getLang, getLanguages, applyDom };
+    // DICT is exported for the Node unit suite (per-locale completeness +
+    // placeholder integrity checks); product code must go through t().
+    window.ILAP.i18n = { setLang, getLang, getLanguages, applyDom, DICT };
 
     // Storage migration shim: legacy gesture-shortcut values → current names.
     // Parked here because i18n.js is the only module loaded in BOTH the content

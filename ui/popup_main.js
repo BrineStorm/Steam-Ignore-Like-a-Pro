@@ -217,7 +217,7 @@
 
             setupLangChip(root);
             updateBasicUI(root, res);
-            if (queue) queue.render(res.ilap_curator_queue);
+            if (queue) queue.render(res);
 
             const accordion = root.getElementById('settings-accordion');
             const queueAcc = root.getElementById('queue-accordion');
@@ -255,7 +255,7 @@
                     window.ILAP.i18n.setLang(current.ilap_lang);
                 }
                 updateBasicUI(root, current);
-                if (queue) queue.render(current.ilap_curator_queue);
+                if (queue) queue.render(current);
                 // Reflect external setting changes (e.g. EQ "Disable" → q_master=false)
                 // onto the open settings panel. Value-only, preserves CSS transitions.
                 settings.syncValues(current);

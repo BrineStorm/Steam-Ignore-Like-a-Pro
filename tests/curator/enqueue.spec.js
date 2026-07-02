@@ -156,4 +156,17 @@ test.describe('Curator — enqueue button', () => {
         expect(queue).toHaveLength(3);
         expect(queue.some(j => j.curatorId === CURATOR_ID)).toBe(false);
     });
+
+    test('Logged out: the button is not injected at all', async ({ page, context }) => {
+        await context.clearCookies();
+        await page.goto(CURATOR_PATH);
+
+        // Curator pages are public, so the page itself renders; boot() must bail
+        // on the login gate before ever reaching tryInject. Injection is
+        // synchronous once the curator chrome exists, so a short settle after
+        // the header is enough to prove the button never appears.
+        await page.locator('#global_action_menu').waitFor({ timeout: 20000 });
+        await page.waitForTimeout(2500);
+        await expect(page.locator(BTN)).toHaveCount(0);
+    });
 });

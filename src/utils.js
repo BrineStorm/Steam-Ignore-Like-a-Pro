@@ -60,6 +60,30 @@
         }
     }
 
+    // Login-state source for gating the on-page UI. Two signals, because a page
+    // can outlive its login state (opened before the user signed in elsewhere):
+    // the store header DOM (free, but frozen at page load) and a live same-origin
+    // probe — /account/ redirects to the login page when the session cookies are
+    // absent (steamLoginSecure is HttpOnly, so the cookie can't be read directly).
+    const ACCOUNT_URL = 'https://store.steampowered.com/account/';
+    const SteamAuth = {
+        // true/false from the store header; null when the header isn't rendered
+        // at all (unknown surface) → caller falls back to the live probe.
+        isLoggedInDom() {
+            if (document.querySelector('#account_pulldown, #global_actions .user_avatar')) return true;
+            return document.getElementById('global_action_menu') ? false : null;
+        },
+        // Live check against the CURRENT cookies (a read, not an ignore call).
+        // null when the request itself failed (offline) — keep the current state.
+        async probeLogin() {
+            try {
+                const res = await fetch(ACCOUNT_URL, { credentials: 'include', cache: 'no-store' });
+                if (!res.ok) return null;
+                return !res.url.includes('/login');
+            } catch (e) { return null; }
+        }
+    };
+
     const SteamAPI = {
         async ignore(appid, reason) {
             const sessionid = SessionService.getID();
@@ -306,6 +330,7 @@
     window.ILAP.getSessionID = SessionService.getID;
     window.ILAP.apiIgnoreGame = SteamAPI.ignore;
     window.ILAP.fetchIgnoredApps = fetchIgnoredApps;
+    window.ILAP.SteamAuth = SteamAuth;
     window.ILAP.saveStats = (name, source) => StatsManager.save(name, source);
     window.ILAP.getGameName = (appid, el) => extractorProvider.get(appid, el);
     window.ILAP.SessionStateService = SessionStateService;

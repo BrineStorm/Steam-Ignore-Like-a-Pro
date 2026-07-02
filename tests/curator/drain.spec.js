@@ -24,7 +24,6 @@ function makeJob(over = {}) {
         curatorUrl: 'https://store.steampowered.com/curator/99001/',
         filter: 'not_recommended',
         appids: ['111', '222', '333'],
-        cursor: 0,
         total: 3,
         status: 'pending',
         addedAt: Date.now(),
@@ -71,6 +70,10 @@ test.describe('Curator — queue drainer', () => {
         // A completion pulse was emitted (drives the widget's one-shot blink).
         const res = await getExtensionStorage(context, 'ilap_curator_pulse');
         expect(typeof res.ilap_curator_pulse).toBe('number');
+
+        // The per-job progress cursor key is cleaned up with the finished job.
+        const leftover = await getExtensionStorage(context, 'ilap_curator_cursor_job_drain_1');
+        expect(leftover.ilap_curator_cursor_job_drain_1).toBeUndefined();
     });
 
     test('a paused job is never drained', async ({ page, context }) => {
@@ -86,6 +89,8 @@ test.describe('Curator — queue drainer', () => {
         expect(calls).toHaveLength(0);
         const job = (await readQueue(context))[0];
         expect(job.status).toBe('paused');
-        expect(job.cursor).toBe(0);
+        // No drain happened → the drainer never created the job's cursor key.
+        const cur = await getExtensionStorage(context, 'ilap_curator_cursor_job_drain_1');
+        expect(cur.ilap_curator_cursor_job_drain_1).toBeUndefined();
     });
 });

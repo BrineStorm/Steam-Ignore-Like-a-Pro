@@ -26,11 +26,16 @@ function makeJob(over = {}) {
         curatorUrl: 'https://store.steampowered.com/curator/' + curatorId + '/',
         filter: 'not_recommended',
         appids: [],
-        cursor: 0,
         total: 0,
         status: 'pending',
         addedAt: Date.now(),
     }, over);
+}
+
+// A live drain lease for a job's curator — the applet derives "running" from it
+// ('running' is never stored in the job record).
+function liveLease(job) {
+    return { ['ilap_curator_lock_' + job.curatorId]: { owner: 'test', expiresAt: Date.now() + 60000 } };
 }
 
 async function seedQueue(context, jobs) {
@@ -102,8 +107,8 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect(page.locator('#queue-accordion')).toBeHidden();
     });
 
-    test('Pause button flips a running job to paused in storage', async ({ page, context }) => {
-        await seedQueue(context, [makeJob({ status: 'running' })]);
+    test('Pause button flips a drainable job to paused in storage', async ({ page, context }) => {
+        await seedQueue(context, [makeJob({ status: 'pending' })]);
         await openPopup(page, context);
         await page.locator('#queue-accordion summary').click();
 
@@ -112,14 +117,14 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect.poll(async () => (await readQueue(context))[0].status).toBe('paused');
     });
 
-    test('Resume (play) button flips a paused job back to running', async ({ page, context }) => {
+    test('Resume (play) button flips a paused job back to pending (running is never stored)', async ({ page, context }) => {
         await seedQueue(context, [makeJob({ status: 'paused' })]);
         await openPopup(page, context);
         await page.locator('#queue-accordion summary').click();
 
         await page.locator('.queue-act.is-play').first().click();
 
-        await expect.poll(async () => (await readQueue(context))[0].status).toBe('running');
+        await expect.poll(async () => (await readQueue(context))[0].status).toBe('pending');
     });
 
     test('Remove (trash) button deletes the job from the queue', async ({ page, context }) => {
@@ -147,22 +152,41 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect.poll(async () => (await readQueue(context)).length).toBe(0);
     });
 
-    test('Barber-pole running indicator: .has-running is present only while a job is running', async ({ page, context }) => {
-        await seedQueue(context, [makeJob({ status: 'paused' })]);
+    test('Barber-pole running indicator: .has-running only while a job holds a live drain lease', async ({ page, context }) => {
+        // Pending job, no lease → not running.
+        await seedQueue(context, [makeJob()]);
         await openPopup(page, context);
         await expect(page.locator('#queue-accordion')).not.toHaveClass(/has-running/);
 
-        await seedQueue(context, [makeJob({ status: 'running' })]);
+        // Same job with a live lease → running (derived, not stored).
+        const running = makeJob();
+        await setExtensionStorage(context, Object.assign({ ilap_curator_queue: [running] }, liveLease(running)));
         await expect(page.locator('#queue-accordion')).toHaveClass(/has-running/);
+
+        // A paused job is never shown running, even with a live lease.
+        const paused = makeJob({ status: 'paused' });
+        await setExtensionStorage(context, Object.assign({ ilap_curator_queue: [paused] }, liveLease(paused)));
+        await expect(page.locator('#queue-accordion')).not.toHaveClass(/has-running/);
     });
 
-    test('Status label is coloured green for running and yellow for paused', async ({ page, context }) => {
-        await seedQueue(context, [makeJob({ status: 'running' })]);
+    test('Status label is coloured green for running (live lease) and yellow for paused', async ({ page, context }) => {
+        const running = makeJob();
+        await setExtensionStorage(context, Object.assign({ ilap_curator_queue: [running] }, liveLease(running)));
         await openPopup(page, context);
         await expect(page.locator('.queue-job-status')).toHaveAttribute('style', /#7ad13f/i);
 
         await seedQueue(context, [makeJob({ status: 'paused' })]);
         await expect(page.locator('.queue-job-status')).toHaveAttribute('style', /#ffd21a/i);
+    });
+
+    test('Progress count reads the drainer-owned cursor key', async ({ page, context }) => {
+        const job = makeJob({ total: 10, appids: Array.from({ length: 10 }, (_, i) => String(i + 1)) });
+        await setExtensionStorage(context, {
+            ilap_curator_queue: [job],
+            ['ilap_curator_cursor_' + job.id]: 4,
+        });
+        await openPopup(page, context);
+        await expect(page.locator('.queue-job-count')).toHaveText('4 / 10');
     });
 
     test('Filter label uses the Steam category colour (orange for Not Recommended)', async ({ page, context }) => {

@@ -111,10 +111,10 @@ Steam-Ignore-Like-a-Pro/
 │   ├── curator/
 │   │   ├── enumerate.js         # Phase 2: results_html parser + paged ajax enumerator (pure + fetch)
 │   │   ├── store.js             # Phase 2: retention cache (TTL/LRU), queue CRUD, per-job lease lock
-│   │   ├── main.js              # Phase 2: curator-page "Add to ignore queue" button + droplist; cache-aware enumeration
+│   │   ├── main.js              # Phase 2: curator-page "Add to ignore queue" button + droplist; cache-aware enumeration; login-gated (no button when logged out)
 │   │   └── drainer.js           # Phase 2: CuratorQueueDrainer — opportunistic content-script ignore drainer (no SW)
 │   └── widget/
-│       └── main.js              # On-page shadow-DOM widget host (popup surface)
+│       └── main.js              # On-page shadow-DOM widget host (popup surface); login-gated launcher
 ├── ui/
 │   ├── popup.html
 │   ├── popup_markup.js          # Shared popup body markup (window.ILAP_PopupMarkup)
@@ -129,6 +129,7 @@ Steam-Ignore-Like-a-Pro/
     ├── _extension.js            # Shared helpers: getExtensionId, storage read/write/clear, popupUrl
     ├── cross-cutting/
     │   ├── history-cap.spec.js       # ilap_ignored_history capped at 20
+    │   ├── i18n.unit.spec.js         # Node unit: DICT completeness/extras per locale, {n}/{type} placeholder integrity, t() fallback ladder
     │   └── sw-restart.spec.js        # Survives chrome.runtime.reload + page reload
     ├── explore-queue/
     │   ├── _helpers.js
@@ -155,12 +156,14 @@ Steam-Ignore-Like-a-Pro/
     │   ├── settings.spec.js          # Queue toggles, mode, shortcut selects, mutual exclusion
     │   ├── queue.spec.js             # Curator queue applet: hidden-when-empty, chip count, pause/remove, running indicator, colours, mutual exclusion
     │   └── lang-chip.spec.js         # Language-chip focus-trap: click left of focused chip toggles Settings (not the language list)
-    └── curator/
-        ├── _helpers.js               # interceptIgnoreApi + routeUserdata stubs (no real ignores)
-        ├── enumerate.unit.spec.js    # Node unit: parseResults / categorize / filterAppids / buildUrl / paged enumerate
-        ├── store.unit.spec.js        # Node unit: evictCache (TTL+LRU), lockFree, isFresh
-        ├── enqueue.spec.js           # Curator-page button (live): injection+logo, dropdown, stage job, Added state, switch-in-place, 3-job cap
-        └── drain.spec.js             # Drainer E2E (stubbed): ignores un-ignored appids, dedupe-skips already-ignored, respects paused
+    ├── curator/
+    │   ├── _helpers.js               # interceptIgnoreApi + routeUserdata stubs (no real ignores)
+    │   ├── enumerate.unit.spec.js    # Node unit: parseResults / categorize / filterAppids / buildUrl / paged enumerate
+    │   ├── store.unit.spec.js        # Node unit: evictCache (TTL+LRU), lockFree, isFresh + serialized queue RMW / cursor keys (chrome stub)
+    │   ├── enqueue.spec.js           # Curator-page button (live): injection+logo, dropdown, stage job, Added state, switch-in-place, 3-job cap, logged-out no-inject
+    │   └── drain.spec.js             # Drainer E2E (stubbed): ignores un-ignored appids, dedupe-skips already-ignored, respects paused
+    └── widget/
+        └── login-lock.spec.js        # Login gate: locked launcher when logged out; stale pre-login page unlocks via live probe on click
 ```
 
 ### Script Load Order (manifest content_scripts)
@@ -205,6 +208,7 @@ window.ILAP.getSessionID      // Steam session cookie
 window.ILAP.apiIgnoreGame     // POST to Steam ignore endpoint
 window.ILAP.saveStats         // Write to chrome.storage.local
 window.ILAP.getGameName       // 5-strategy name extractor
+window.ILAP.SteamAuth         // login gate: header DOM check + live /account/ probe
 window.ILAP.SessionStateService
 window.ILAP.SESSION_IGNORED_KEY
 ```
@@ -240,9 +244,10 @@ Each module has a dedicated `main.js` that builds the object graph (adapter obje
 | `ilap_queue_active` | session | Explore queue ACTIVE intent |
 | `ilap_queue_ff` | session | Explore queue fast-forward intent |
 | `ilap_queue_nav_token` | session | 15 s navigation authorization token |
-| `ilap_curator_queue` | local | Curator ignore jobs (≤3), each with appids + cursor + status |
+| `ilap_curator_queue` | local | Curator ignore jobs (≤3), user-owned fields only (appids + filter + status: enumerating/pending/paused; all writes via `Store.mutateQueue`) |
 | `ilap_curator_cache` | local | Per-curator enumerated apps cache (TTL 7 d, LRU ≤10) |
-| `ilap_curator_lock_<id>` | local | Per-job drain lease `{ owner, expiresAt }` (single-drainer handoff) |
+| `ilap_curator_cursor_<jobId>` | local | Drainer-owned per-job progress cursor (single writer = lease holder; removed with the job) |
+| `ilap_curator_lock_<id>` | local | Per-job drain lease `{ owner, expiresAt }` (single-drainer handoff); a live lease is also the UI's derived "running" signal |
 | `ilap_curator_pulse` | local | Timestamp written when a job finishes; widget watches it to blink once (finished jobs are removed, not kept) |
 
 ---
