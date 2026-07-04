@@ -15,6 +15,9 @@ const RU_DQ_TITLE = 'Очередь рекомендаций';
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
+    // popup.html renders the full UI only in popup surface mode (widget mode
+    // shows the signpost stub — covered by surface-stub.spec.js).
+    await setExtensionStorage(context, { ilap_surface_mode: 'popup' });
 });
 
 test.afterEach(async ({ context }) => {
@@ -69,8 +72,8 @@ test.describe('Popup — language switch', () => {
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
 
-        await page.locator('#settings-accordion summary').click();
-        await page.locator('#default-key').waitFor({ timeout: 5000 });
+        await page.locator('#settings-accordion > summary').click();
+        await page.locator('#dq-section summary').waitFor({ timeout: 5000 });
         await expect(page.locator('[data-i18n="your_discovery_queue"]')).toHaveText('Your Discovery Queue');
 
         await page.locator('#lang-quick').selectOption('ru');

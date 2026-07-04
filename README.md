@@ -48,6 +48,17 @@ This extension allows this.
 - **Quick Settings** - Customize gestures or hotkeys, configure ignore modes to suit your browsing style, and toggle specific features or the entire extension directly from the popup.
 - **Ignore History Tracking** - View your recently ignored game titles instantly from the extension popup.
 
+### Interface surface
+
+The extension's settings/history interface can live in one of two places:
+
+- **On the page** (default) - a small launcher docked in the top-right of every Steam Store page, so it works everywhere, including the Steam desktop client where the browser toolbar isn't available.
+- **In the toolbar popup** - the classic browser action popup. Switch to it from the interface toggle in the settings. In this mode the on-page launcher steps aside to a faint beacon in the corner. (The toolbar popup is unavailable inside the Steam desktop client, so this mode is disabled there.)
+
+Moving the interface into the toolbar popup is only allowed while the curator **ignore queue is empty**, since draining that queue needs an open Steam page.
+
+**Escape hatch:** press **`Ctrl+Alt+Shift+I`** on any Steam Store page to force the interface back onto the page at any time.
+
 ### Automation Helpers
 
 - **Your Discovery Queue Helper** - Automate ignoring while browsing through your daily Discovery Queue. 

@@ -146,50 +146,18 @@
     }
 
     // Pick a filter from the dropdown: add a new job, or — if this curator is
-    // already queued — switch the existing job's filter in place. Either way the
-    // job is staged as `enumerating`, then `resolveJob` resolves its appids (from
-    // the retention cache, or the ~4 batched reads) and flips it to `pending`.
-    // Staging goes through Store.mutateQueue (the serialized queue RMW) so a
-    // click here can't interleave with the drainer's or the applet's writes.
+    // already queued — switch the existing job's filter in place. Staging +
+    // resolution (cache-vs-enumerate → `pending`) is owned by the injectable
+    // EnqueueService (built in boot, serialized through Store.mutateQueue); this
+    // stays the thin UI layer — gather the page-derived inputs, react to the
+    // outcome with the toast/flash, and kick off resolution with window.confirm
+    // injected as the confirm gate.
     function pick(value, btn) {
         const id = curatorId();
-        if (!id) return;
-        const Store = window.ILAP.Curator && window.ILAP.Curator.Store;
-        if (!Store) return;
-
-        let outcome = null; // decided inside the mutator, acted on after the write
-        Store.mutateQueue((queue) => {
-            const idx = queue.findIndex(j => j.curatorId === id);
-
-            if (idx >= 0) {
-                if (queue[idx].filter === value) return null; // already this type — no-op
-                // Switching filter changes the appid set, so re-resolve from
-                // scratch; already-ignored games are skipped instantly by the
-                // drainer's userdata dedupe, so progress isn't really lost.
-                outcome = { kind: 'switched', jobId: queue[idx].id, name: queue[idx].curatorName };
-                queue[idx] = Object.assign({}, queue[idx], {
-                    filter: value, status: 'enumerating', appids: [], total: 0
-                });
-                return queue;
-            }
-
-            if (queue.length >= MAX_JOBS) { outcome = { kind: 'full' }; return null; }
-            const name = curatorName(id);
-            const jobId = 'job_' + id + '_' + Date.now();
-            outcome = { kind: 'added', jobId, name };
-            queue.push({
-                id: jobId,
-                curatorId: id,
-                curatorName: name,
-                curatorUrl: location.origin + location.pathname,
-                filter: value,
-                appids: [],   // resolved by resolveJob
-                total: 0,     // drain progress lives in the per-job cursor key
-                status: 'enumerating',
-                addedAt: Date.now()
-            });
-            return queue;
-        }).then(() => {
+        if (!id || !service) return;
+        const name = curatorName(id);
+        const url = location.origin + location.pathname;
+        service.stage(id, name, url, value).then((outcome) => {
             if (!outcome) return;
             if (outcome.kind === 'full') { showToast('curator_toast_full', null, 4500); return; }
             if (outcome.kind === 'switched') {
@@ -198,50 +166,9 @@
                 flash(btn, t('curator_added'));
                 showToast('curator_toast_added', value);
             }
-            resolveJob(id, outcome.jobId, outcome.name, value);
+            service.resolve(id, outcome.jobId, outcome.name, value,
+                (n) => window.confirm(t('curator_confirm', { n })));
         });
-    }
-
-    // Resolve a staged job's appids and flip it to `pending` so the drainer can
-    // start. Uses the 7-day retention cache when fresh (0 network), otherwise
-    // enumerates the curator and caches the result. Confirms before queueing a
-    // large batch; honours removal mid-enumeration.
-    async function resolveJob(id, jobId, name, filter) {
-        const C = window.ILAP && window.ILAP.Curator;
-        if (!C || !C.Enumerator || !C.Store) return;
-        const Enum = C.Enumerator, Store = C.Store;
-        try {
-            let apps;
-            const cache = await Store.getCache(id);
-            if (cache && Store.isFresh(cache, Date.now())) {
-                apps = cache.apps;
-            } else {
-                const result = await Enum.enumerate(id);
-                await Store.putCache(id, { total: result.total, name, apps: result.apps });
-                apps = result.apps;
-            }
-
-            // Bail if the user removed the job while we were enumerating.
-            if (!(await Store.getQueue()).some(j => j.id === jobId)) return;
-
-            const appids = Enum.filterAppids(apps, filter);
-            if (appids.length > CONFIRM_THRESHOLD
-                && !window.confirm(t('curator_confirm', { n: appids.length }))) {
-                await Store.removeJob(jobId);
-                return;
-            }
-            // Fresh appid list → progress restarts. The cursor key is reset here,
-            // while the job is still 'enumerating' (not drainable), so the drainer
-            // can't be advancing it concurrently.
-            await Store.setCursor(jobId, 0);
-            await Store.updateJob(jobId, {
-                appids, total: appids.length, status: 'pending'
-            });
-        } catch (e) {
-            // Enumeration failed — leave the job idle (0/0) so the user can remove
-            // or re-add it; never auto-ignore on a half-resolved list.
-            await Store.updateJob(jobId, { status: 'pending', appids: [], total: 0 });
-        }
     }
 
     // Build the split control (logo + label + caret) and place it just before the
@@ -344,44 +271,107 @@
         });
     }
 
-    function inject(report) {
-        if (report.querySelector('#' + BTN_ID)) return;
-        injectStyle();
-        const { wrap, btn } = buildButton(report);
-        const { menu, renderMenu } = buildMenu();
-        wireMenu(wrap, btn, menu);
-        wireStorageSync(btn, renderMenu);
-    }
+    let service = null; // EnqueueService, assembled in boot() once deps are present
 
-    function tryInject() {
-        const report = document.querySelector('.nav_right_side > .curator_report');
-        if (!report) return false;
-        inject(report);
-        return true;
-    }
+    // Owns the injected curator-button lifecycle: the injection handle plus the
+    // login and surface gates that decide whether it's shown. Kept as one small
+    // object (state private to the closure) so boot() reads as assembly — seed the
+    // surface, settle login, react to a live surface flip — with no free-floating
+    // module state.
+    function createButtonController() {
+        let injectedCtl = null; // { wrap, menu } once injected; kept for the live surface switch
+        let loginOk = false;
+        let surfaceOn = true;
 
-    function start() {
-        if (tryInject()) return;
-        // The curator chrome can render after load; watch briefly, then give up.
-        const obs = new MutationObserver(() => { if (tryInject()) obs.disconnect(); });
-        obs.observe(document.documentElement, { childList: true, subtree: true });
-        setTimeout(() => obs.disconnect(), 10000);
+        function inject(report) {
+            if (report.querySelector('#' + BTN_ID)) return;
+            injectStyle();
+            const { wrap, btn } = buildButton(report);
+            const { menu, renderMenu } = buildMenu();
+            wireMenu(wrap, btn, menu);
+            wireStorageSync(btn, renderMenu);
+            injectedCtl = { wrap, menu };
+        }
+
+        function tryInject() {
+            if (!surfaceOn) return true; // parked surface — stop looking, don't inject
+            const report = document.querySelector('.nav_right_side > .curator_report');
+            if (!report) return false;
+            inject(report);
+            return true;
+        }
+
+        function start() {
+            if (tryInject()) return;
+            // The curator chrome can render after load; watch briefly, then give up.
+            const obs = new MutationObserver(() => { if (tryInject()) obs.disconnect(); });
+            obs.observe(document.documentElement, { childList: true, subtree: true });
+            setTimeout(() => obs.disconnect(), 10000);
+        }
+
+        return {
+            // Seed the effective surface at boot (before login settles) — no side effect.
+            setSurface(on) { surfaceOn = on; },
+            // Login gate settled positive: remember it and inject if the surface allows.
+            onLogin() { loginOk = true; if (surfaceOn) start(); },
+            // Live surface switch: popup mode hides the button in place (fresh
+            // popup-mode pages never inject it at all), widget mode shows/injects it.
+            applySurface(on) {
+                surfaceOn = on;
+                if (!on) {
+                    if (injectedCtl) {
+                        injectedCtl.menu.classList.remove('open');
+                        injectedCtl.wrap.classList.remove('open');
+                        injectedCtl.wrap.style.display = 'none';
+                    }
+                    return;
+                }
+                if (injectedCtl) { injectedCtl.wrap.style.display = ''; return; }
+                if (loginOk) start();
+            }
+        };
     }
 
     function boot() {
         if (!curatorId()) return;          // no-op on every non-curator store page
-        // Login gate: staging an ignore job makes no sense without a Steam
-        // session, so the control isn't injected at all on a logged-out page
-        // (same SteamAuth source as the widget lock). A page whose header can't
-        // be read falls back to the live probe before injecting.
-        const Auth = window.ILAP.SteamAuth;
-        const dom = Auth.isLoggedInDom();
-        if (dom === false) return;
-        if (dom === null) {
-            Auth.probeLogin().then((ok) => { if (ok) start(); });
-            return;
+        const Surface = window.ILAP.Surface;
+
+        // Assemble the enqueue service with its real deps (DIP: pick() no longer
+        // reaches into the Store/Enumerator singletons itself). If the Phase-2
+        // curator scripts aren't present, `service` stays null and pick() no-ops.
+        const C = window.ILAP.Curator;
+        if (C && C.Store && C.Enumerator && C.EnqueueService) {
+            service = new C.EnqueueService({
+                store: C.Store, enumerator: C.Enumerator,
+                maxJobs: MAX_JOBS, confirmThreshold: CONFIRM_THRESHOLD
+            });
         }
-        start();
+
+        const ctl = createButtonController();
+
+        // Surface gate: in popup mode the curator queue must stay empty, so the
+        // staging control is withheld; a live mode switch hides/shows it in place.
+        chrome.storage.onChanged.addListener((changes, area) => {
+            if (area === 'local' && changes[Surface.KEY]) {
+                ctl.applySurface(Surface.resolve(changes[Surface.KEY].newValue, navigator.userAgent) === 'widget');
+            }
+        });
+
+        chrome.storage.local.get({ [Surface.KEY]: 'widget' }, (data) => {
+            ctl.setSurface(Surface.resolve(data[Surface.KEY], navigator.userAgent) === 'widget');
+            // Login gate: staging an ignore job makes no sense without a Steam
+            // session, so the control isn't injected at all on a logged-out page
+            // (same SteamAuth source as the widget lock). A page whose header can't
+            // be read falls back to the live probe before injecting.
+            const Auth = window.ILAP.SteamAuth;
+            const dom = Auth.isLoggedInDom();
+            if (dom === false) return;
+            if (dom === null) {
+                Auth.probeLogin().then((ok) => { if (ok) ctl.onLogin(); });
+                return;
+            }
+            ctl.onLogin();
+        });
     }
 
     if (document.readyState === 'loading') {

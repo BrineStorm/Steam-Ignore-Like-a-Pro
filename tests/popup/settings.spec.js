@@ -7,16 +7,25 @@ const {
     popupUrl,
 } = require('../_extension.js');
 
-async function openPopupAndExpandSettings(page, context) {
+// Feature areas are now mutually-exclusive collapsible subcategories, so a test
+// can only have ONE expanded at a time. Expand whichever the test drives:
+// 'mi' (default) for Manual Ignore controls, 'dq' for Discovery Queue controls.
+async function openPopupAndExpandSettings(page, context, expand = 'mi') {
     const extId = await getExtensionId(context);
     await page.goto(popupUrl(extId));
-    await page.locator('#settings-accordion summary').click();
+    await page.locator('#settings-accordion > summary').click();
     // Settings render lazily on accordion toggle; give it a tick.
-    await page.locator('#default-key').waitFor({ timeout: 5000 });
+    await page.locator('#dq-section summary').waitFor({ timeout: 5000 });
+    // Click the title (not the DQ master switch, which stops propagation).
+    await page.locator(`#${expand}-section summary .section-title`).click();
+    await expect(page.locator(`#${expand}-section`)).toHaveJSProperty('open', true);
 }
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
+    // popup.html renders the full UI only in popup surface mode (widget mode
+    // shows the signpost stub — covered by surface-stub.spec.js).
+    await setExtensionStorage(context, { ilap_surface_mode: 'popup' });
 });
 
 test.afterEach(async ({ context }) => {
@@ -26,7 +35,7 @@ test.afterEach(async ({ context }) => {
 test.describe('Popup — settings accordion', () => {
 
     test('Queue master toggle: defaults ON, click writes ilap_q_master=false', async ({ page, context }) => {
-        await openPopupAndExpandSettings(page, context);
+        await openPopupAndExpandSettings(page, context, 'dq');
 
         const qMaster = page.locator('#q-master');
         await expect(qMaster).toBeChecked();
@@ -41,7 +50,7 @@ test.describe('Popup — settings accordion', () => {
     });
 
     test('Click-Next-after-ignore toggle persists ilap_q_next', async ({ page, context }) => {
-        await openPopupAndExpandSettings(page, context);
+        await openPopupAndExpandSettings(page, context, 'dq');
 
         const qNext = page.locator('#q-next');
         await expect(qNext).not.toBeChecked();
@@ -54,7 +63,7 @@ test.describe('Popup — settings accordion', () => {
     });
 
     test('Ignore mode toggle bad ↔ all persists ilap_q_mode', async ({ page, context }) => {
-        await openPopupAndExpandSettings(page, context);
+        await openPopupAndExpandSettings(page, context, 'dq');
 
         const qMode = page.locator('#q-mode-toggle');
         await expect(qMode).not.toBeChecked(); // default: bad
@@ -102,7 +111,7 @@ test.describe('Popup — settings accordion', () => {
     });
 
     test('External ilap_q_master=false reflects live on the open settings panel (EQ "Disable" sync)', async ({ page, context }) => {
-        await openPopupAndExpandSettings(page, context);
+        await openPopupAndExpandSettings(page, context, 'dq');
 
         const qMaster = page.locator('#q-master');
         await expect(qMaster).toBeChecked();
@@ -117,7 +126,7 @@ test.describe('Popup — settings accordion', () => {
     });
 
     test('External ilap_q_mode change reflects live on the segmented mode toggle', async ({ page, context }) => {
-        await openPopupAndExpandSettings(page, context);
+        await openPopupAndExpandSettings(page, context, 'dq');
 
         const qMode = page.locator('#q-mode-toggle');
         await expect(qMode).not.toBeChecked(); // default: bad
@@ -125,6 +134,22 @@ test.describe('Popup — settings accordion', () => {
         await setExtensionStorage(context, { ilap_q_mode: 'all' });
 
         await expect(qMode).toBeChecked();
+    });
+
+    test('Surface toggle reflects popup mode and switches back to the widget (stub reloads in)', async ({ page, context }) => {
+        await openPopupAndExpandSettings(page, context);
+
+        const surface = page.locator('#surface-toggle');
+        await expect(surface).toBeChecked(); // beforeEach seeds popup mode
+
+        // Segmented control: the visible click surface is the .wide-track.
+        await page.locator('#surface-toggle ~ .wide-track').click();
+
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, 'ilap_surface_mode')).ilap_surface_mode
+        ).toBe('widget');
+        // The popup window reloads itself into the widget-mode signpost stub.
+        await page.locator('#ilap-popup-stub').waitFor({ timeout: 5000 });
     });
 
     test('Default and Already-Played selectors mutually exclude their chosen values', async ({ page, context }) => {
@@ -157,8 +182,8 @@ test.describe('Popup — settings open-state persistence', () => {
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
 
-        await page.locator('#settings-accordion summary').click();
-        await page.locator('#default-key').waitFor({ timeout: 5000 });
+        await page.locator('#settings-accordion > summary').click();
+        await page.locator('#dq-section summary').waitFor({ timeout: 5000 });
 
         await expect.poll(async () =>
             (await getExtensionStorage(context, 'ilap_settings_open')).ilap_settings_open
@@ -173,7 +198,7 @@ test.describe('Popup — settings open-state persistence', () => {
         // Restored open from storage.
         await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', true);
 
-        await page.locator('#settings-accordion summary').click();
+        await page.locator('#settings-accordion > summary').click();
 
         await expect.poll(async () =>
             (await getExtensionStorage(context, 'ilap_settings_open')).ilap_settings_open
@@ -186,7 +211,71 @@ test.describe('Popup — settings open-state persistence', () => {
         await page.goto(popupUrl(extId));
 
         await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', true);
-        // Settings panel was initialised eagerly (not only on a toggle click).
+        // Settings panel was initialised eagerly (not only on a toggle click):
+        // the subcategory summaries are present even while collapsed.
+        await expect(page.locator('#dq-section summary')).toBeVisible();
+    });
+});
+
+test.describe('Popup — settings subcategory persistence', () => {
+
+    async function openSettings(page, context) {
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        await page.locator('#settings-accordion > summary').click();
+        await page.locator('#dq-section summary').waitFor({ timeout: 5000 });
+    }
+
+    test('Both subcategories start collapsed when no state is stored', async ({ page, context }) => {
+        await openSettings(page, context);
+
+        await expect(page.locator('#dq-section')).toHaveJSProperty('open', false);
+        await expect(page.locator('#mi-section')).toHaveJSProperty('open', false);
+    });
+
+    test('Expanding Manual Ignore persists ilap_mi_open=true and leaves Discovery Queue collapsed', async ({ page, context }) => {
+        await openSettings(page, context);
+
+        await page.locator('#mi-section summary .section-title').click();
+
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, 'ilap_mi_open')).ilap_mi_open
+        ).toBe(true);
+        const dq = await getExtensionStorage(context, 'ilap_dq_open');
+        expect(dq.ilap_dq_open).toBeFalsy();
+    });
+
+    test('Stored subcategory state restores each area independently (MI open, DQ closed)', async ({ page, context }) => {
+        await setExtensionStorage(context, {
+            ilap_settings_open: true,
+            ilap_mi_open: true,
+            ilap_dq_open: false,
+        });
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+
+        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', true);
+        await expect(page.locator('#mi-section')).toHaveJSProperty('open', true);
+        await expect(page.locator('#dq-section')).toHaveJSProperty('open', false);
         await expect(page.locator('#default-key')).toBeVisible();
+    });
+
+    test('Subcategories are mutually exclusive: opening one collapses the other', async ({ page, context }) => {
+        // Start with Manual Ignore expanded.
+        await setExtensionStorage(context, { ilap_settings_open: true, ilap_mi_open: true });
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        await expect(page.locator('#mi-section')).toHaveJSProperty('open', true);
+
+        // Opening Discovery Queue collapses Manual Ignore (and both states persist).
+        await page.locator('#dq-section summary .section-title').click();
+        await expect(page.locator('#dq-section')).toHaveJSProperty('open', true);
+        await expect(page.locator('#mi-section')).toHaveJSProperty('open', false);
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, 'ilap_dq_open')).ilap_dq_open
+        ).toBe(true);
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, 'ilap_mi_open')).ilap_mi_open
+        ).toBe(false);
     });
 });

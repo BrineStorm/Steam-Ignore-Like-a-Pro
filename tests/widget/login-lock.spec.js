@@ -14,11 +14,19 @@ const fs = require('fs');
 
 const PAGE = '/search/?term=portal&ndl=1';
 
+// The widget mounts collapsed to the chevron tab on fresh storage — slide the
+// launcher out first (see collapse.spec.js for the collapse behaviour itself).
+async function expandWidget(page) {
+    await page.locator('.ilap-chevron').click();
+    await expect(page.locator('.ilap-launcher')).not.toHaveClass(/stashed/);
+}
+
 test.describe('on-page widget — login lock', () => {
 
     test('logged out: launcher locked (grey + tooltip), click does not open the panel', async ({ context, page }) => {
         await context.clearCookies();
         await page.goto(PAGE);
+        await expandWidget(page);
 
         const launcher = page.locator('.ilap-launcher');
         await expect(launcher).toHaveClass(/locked/);
@@ -37,6 +45,7 @@ test.describe('on-page widget — login lock', () => {
 
         await context.clearCookies();
         await page.goto(PAGE);
+        await expandWidget(page);
         const launcher = page.locator('.ilap-launcher');
         await expect(launcher).toHaveClass(/locked/);
 
@@ -55,6 +64,7 @@ test.describe('on-page widget — login lock', () => {
         test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session');
 
         await page.goto(PAGE);
+        await expandWidget(page);
         const launcher = page.locator('.ilap-launcher');
         await expect(launcher).not.toHaveClass(/locked/);
 

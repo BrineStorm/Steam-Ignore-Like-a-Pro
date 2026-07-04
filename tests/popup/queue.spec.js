@@ -55,6 +55,9 @@ async function readQueue(context) {
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
+    // popup.html renders the full UI only in popup surface mode (widget mode
+    // shows the signpost stub — covered by surface-stub.spec.js).
+    await setExtensionStorage(context, { ilap_surface_mode: 'popup' });
 });
 
 test.afterEach(async ({ context }) => {
@@ -222,9 +225,11 @@ test.describe('Popup — ignore-queue applet', () => {
 
         const queueAcc = page.locator('#queue-accordion');
         const settingsAcc = page.locator('#settings-accordion');
+        // Settings now nests subcategory <summary>s; target its own summary only.
+        const settingsSummary = page.locator('#settings-accordion > summary');
 
         // Open Settings first.
-        await settingsAcc.locator('summary').click();
+        await settingsSummary.click();
         await expect(settingsAcc).toHaveJSProperty('open', true);
 
         // Opening the Queue collapses Settings.
@@ -233,8 +238,63 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect(settingsAcc).toHaveJSProperty('open', false);
 
         // Re-opening Settings collapses the Queue.
-        await settingsAcc.locator('summary').click();
+        await settingsSummary.click();
         await expect(settingsAcc).toHaveJSProperty('open', true);
         await expect(queueAcc).toHaveJSProperty('open', false);
+    });
+
+    // The Queue↔Settings collapse must happen in ONE synchronous frame so the tall
+    // SETTINGS panel never flashes to full height before snapping shut. These cover
+    // the two states the panel can be in when the Queue is opened over it.
+    test('Opening the Queue collapses SETTINGS in the same frame with a subcategory expanded (and restores it on reopen)', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_settings_open: true, ilap_mi_open: true });
+        await seedQueue(context, [makeJob()]);
+        await openPopup(page, context);
+        await page.locator('#mi-section').waitFor();
+        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', true);
+        await expect(page.locator('#mi-section')).toHaveJSProperty('open', true);
+
+        // Click the queue summary and read both open states WITHOUT yielding a paint.
+        const states = await page.evaluate(() => {
+            const s = document.getElementById('settings-accordion');
+            const q = document.getElementById('queue-accordion');
+            q.querySelector(':scope > summary').click();
+            return { settingsOpen: s.open, queueOpen: q.open, settingsSolo: s.classList.contains('solo-collapse') };
+        });
+        // Never a both-open frame; and a concurrent collapse is NOT marked solo (snaps, no anim).
+        expect(states).toEqual({ settingsOpen: false, queueOpen: true, settingsSolo: false });
+
+        // Reopening SETTINGS restores the previously-expanded subcategory.
+        await page.locator('#settings-accordion > summary').click();
+        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', true);
+        await expect(page.locator('#mi-section')).toHaveJSProperty('open', true);
+    });
+
+    test('Opening the Queue collapses SETTINGS in the same frame with both subcategories collapsed', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_settings_open: true });
+        await seedQueue(context, [makeJob()]);
+        await openPopup(page, context);
+        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', true);
+        await expect(page.locator('#dq-section')).toHaveJSProperty('open', false);
+        await expect(page.locator('#mi-section')).toHaveJSProperty('open', false);
+
+        const states = await page.evaluate(() => {
+            const s = document.getElementById('settings-accordion');
+            const q = document.getElementById('queue-accordion');
+            q.querySelector(':scope > summary').click();
+            return { settingsOpen: s.open, queueOpen: q.open };
+        });
+        expect(states).toEqual({ settingsOpen: false, queueOpen: true });
+    });
+
+    test('Closing SETTINGS on its own marks it .solo-collapse (animated close)', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_settings_open: true });
+        await seedQueue(context, [makeJob()]);
+        await openPopup(page, context);
+        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', true);
+
+        await page.locator('#settings-accordion > summary').click();
+        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', false);
+        await expect(page.locator('#settings-accordion')).toHaveClass(/solo-collapse/);
     });
 });

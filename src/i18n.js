@@ -102,7 +102,16 @@
             filter_not_recommended: "Not Recommended only",
             filter_informational: "Informational only",
             filter_all_but_recommended: "All except Recommended",
-            widget_login_required: "Sign in to Steam to use the extension"
+            widget_login_required: "Sign in to Steam to use the extension",
+            widget_expand: "Expand the icon",
+            widget_pin: "Pin the icon on screen",
+            surface_mode: "Interface:",
+            surface_widget: "On page",
+            surface_popup: "Toolbar",
+            surface_popup_blocked: "Empty the ignore tasks queue to move the interface into the toolbar popup",
+            surface_ghost_hint: "Widget mode off — press {keys} to bring it back",
+            popup_stub_message: "The interface lives on the Steam Store pages — look for the icon in the top-right corner.",
+            popup_stub_switch: "Move the interface into this popup"
         },
 
         de: {
@@ -180,7 +189,16 @@
             filter_not_recommended: "Nur „Nicht empfohlen“",
             filter_informational: "Nur „Informativ“",
             filter_all_but_recommended: "Alle außer „Empfohlen“",
-            widget_login_required: "Melde dich bei Steam an, um die Erweiterung zu nutzen"
+            widget_login_required: "Melde dich bei Steam an, um die Erweiterung zu nutzen",
+            widget_expand: "Symbol ausklappen",
+            widget_pin: "Symbolanzeige anheften",
+            surface_mode: "Oberfläche:",
+            surface_widget: "Auf der Seite",
+            surface_popup: "Symbolleiste",
+            surface_popup_blocked: "Leere die Aufgaben-Warteschlange, um die Oberfläche ins Symbolleisten-Popup zu verlegen",
+            surface_ghost_hint: "Widget-Modus aus — {keys} drücken, um ihn zurückzuholen",
+            popup_stub_message: "Die Oberfläche lebt auf den Steam-Shop-Seiten — das Symbol findest du oben rechts.",
+            popup_stub_switch: "Oberfläche in dieses Popup verlegen"
         },
 
         fr: {
@@ -258,7 +276,16 @@
             filter_not_recommended: "Non recommandés uniquement",
             filter_informational: "Informatifs uniquement",
             filter_all_but_recommended: "Tous sauf recommandés",
-            widget_login_required: "Connectez-vous à Steam pour utiliser l'extension"
+            widget_login_required: "Connectez-vous à Steam pour utiliser l'extension",
+            widget_expand: "Déployer l'icône",
+            widget_pin: "Épingler l'affichage de l'icône",
+            surface_mode: "Interface :",
+            surface_widget: "Sur la page",
+            surface_popup: "Barre d'outils",
+            surface_popup_blocked: "Videz la file des tâches d'exclusion pour déplacer l'interface vers le popup de la barre d'outils",
+            surface_ghost_hint: "Mode widget désactivé — appuyez sur {keys} pour le rétablir",
+            popup_stub_message: "L'interface vit sur les pages du magasin Steam — cherchez l'icône en haut à droite.",
+            popup_stub_switch: "Déplacer l'interface vers ce popup"
         },
 
         es: {
@@ -336,7 +363,16 @@
             filter_not_recommended: "Solo No recomendados",
             filter_informational: "Solo Informativos",
             filter_all_but_recommended: "Todos excepto Recomendados",
-            widget_login_required: "Inicia sesión en Steam para usar la extensión"
+            widget_login_required: "Inicia sesión en Steam para usar la extensión",
+            widget_expand: "Desplegar el icono",
+            widget_pin: "Fijar la visualización del icono",
+            surface_mode: "Interfaz:",
+            surface_widget: "En la página",
+            surface_popup: "Barra de herramientas",
+            surface_popup_blocked: "Vacía la cola de tareas de ignorar para mover la interfaz al popup de la barra de herramientas",
+            surface_ghost_hint: "Modo widget desactivado — pulsa {keys} para recuperarlo",
+            popup_stub_message: "La interfaz vive en las páginas de la tienda de Steam — busca el icono arriba a la derecha.",
+            popup_stub_switch: "Mover la interfaz a este popup"
         },
 
         el: {
@@ -414,7 +450,16 @@
             filter_not_recommended: "Μόνο «Δεν προτείνεται»",
             filter_informational: "Μόνο «Ενημερωτικά»",
             filter_all_but_recommended: "Όλα εκτός «Προτείνεται»",
-            widget_login_required: "Συνδεθείτε στο Steam για να χρησιμοποιήσετε την επέκταση"
+            widget_login_required: "Συνδεθείτε στο Steam για να χρησιμοποιήσετε την επέκταση",
+            widget_expand: "Ανάπτυξη του εικονιδίου",
+            widget_pin: "Καρφίτσωμα εμφάνισης εικονιδίου",
+            surface_mode: "Διεπαφή:",
+            surface_widget: "Στη σελίδα",
+            surface_popup: "Γραμμή εργαλείων",
+            surface_popup_blocked: "Αδειάστε την ουρά εργασιών αγνόησης για να μεταφέρετε τη διεπαφή στο αναδυόμενο της γραμμής εργαλείων",
+            surface_ghost_hint: "Η λειτουργία widget είναι ανενεργή — πατήστε {keys} για επαναφορά",
+            popup_stub_message: "Η διεπαφή ζει στις σελίδες του καταστήματος Steam — αναζητήστε το εικονίδιο πάνω δεξιά.",
+            popup_stub_switch: "Μεταφορά της διεπαφής σε αυτό το αναδυόμενο"
         },
 
         it: {
@@ -492,7 +537,16 @@
             filter_not_recommended: "Solo Non consigliati",
             filter_informational: "Solo Informativi",
             filter_all_but_recommended: "Tutti tranne i Consigliati",
-            widget_login_required: "Accedi a Steam per usare l'estensione"
+            widget_login_required: "Accedi a Steam per usare l'estensione",
+            widget_expand: "Espandi l'icona",
+            widget_pin: "Fissa la visualizzazione dell'icona",
+            surface_mode: "Interfaccia:",
+            surface_widget: "Sulla pagina",
+            surface_popup: "Barra strumenti",
+            surface_popup_blocked: "Svuota la coda delle attività per spostare l'interfaccia nel popup della barra degli strumenti",
+            surface_ghost_hint: "Modalità widget disattivata — premi {keys} per ripristinarla",
+            popup_stub_message: "L'interfaccia vive nelle pagine del negozio Steam — cerca l'icona in alto a destra.",
+            popup_stub_switch: "Sposta l'interfaccia in questo popup"
         },
 
         'pt-BR': {
@@ -570,7 +624,16 @@
             filter_not_recommended: "Apenas Não recomendados",
             filter_informational: "Apenas Informativos",
             filter_all_but_recommended: "Todos exceto Recomendados",
-            widget_login_required: "Faça login no Steam para usar a extensão"
+            widget_login_required: "Faça login no Steam para usar a extensão",
+            widget_expand: "Expandir o ícone",
+            widget_pin: "Fixar a exibição do ícone",
+            surface_mode: "Interface:",
+            surface_widget: "Na página",
+            surface_popup: "Barra de ferramentas",
+            surface_popup_blocked: "Esvazie a fila de tarefas de ignorar para mover a interface para o popup da barra de ferramentas",
+            surface_ghost_hint: "Modo widget desativado — pressione {keys} para trazê-lo de volta",
+            popup_stub_message: "A interface vive nas páginas da loja Steam — procure o ícone no canto superior direito.",
+            popup_stub_switch: "Mover a interface para este popup"
         },
 
         tr: {
@@ -648,7 +711,16 @@
             filter_not_recommended: "Yalnızca Tavsiye edilmeyen",
             filter_informational: "Yalnızca Bilgilendirici",
             filter_all_but_recommended: "Tavsiye edilenler hariç tümü",
-            widget_login_required: "Uzantıyı kullanmak için Steam'de oturum açın"
+            widget_login_required: "Uzantıyı kullanmak için Steam'de oturum açın",
+            widget_expand: "Simgeyi genişlet",
+            widget_pin: "Simge görünümünü sabitle",
+            surface_mode: "Arayüz:",
+            surface_widget: "Sayfada",
+            surface_popup: "Araç çubuğu",
+            surface_popup_blocked: "Arayüzü araç çubuğu penceresine taşımak için yoksayma görev kuyruğunu boşaltın",
+            surface_ghost_hint: "Widget modu kapalı — geri getirmek için {keys} tuşlarına basın",
+            popup_stub_message: "Arayüz Steam mağaza sayfalarında yaşıyor — simgeyi sağ üst köşede arayın.",
+            popup_stub_switch: "Arayüzü bu pencereye taşı"
         },
 
         ru: {
@@ -726,7 +798,16 @@
             filter_not_recommended: "Только «Не рекомендую»",
             filter_informational: "Только «Информация»",
             filter_all_but_recommended: "Все, кроме «Рекомендую»",
-            widget_login_required: "Войдите в Steam, чтобы пользоваться расширением"
+            widget_login_required: "Войдите в Steam, чтобы пользоваться расширением",
+            widget_expand: "Раскрыть иконку",
+            widget_pin: "Закрепить отображение иконки",
+            surface_mode: "Интерфейс:",
+            surface_widget: "На странице",
+            surface_popup: "В тулбаре",
+            surface_popup_blocked: "Очистите очередь задач скрытия, чтобы перенести интерфейс в попап тулбара",
+            surface_ghost_hint: "Режим виджета выключен — нажмите {keys}, чтобы вернуть",
+            popup_stub_message: "Интерфейс живёт на страницах магазина Steam — ищите иконку в правом верхнем углу.",
+            popup_stub_switch: "Перенести интерфейс в этот попап"
         },
 
         uk: {
@@ -804,7 +885,16 @@
             filter_not_recommended: "Лише «Не раджу»",
             filter_informational: "Лише «Інформація»",
             filter_all_but_recommended: "Усі, крім «Раджу»",
-            widget_login_required: "Увійдіть у Steam, щоб користуватися розширенням"
+            widget_login_required: "Увійдіть у Steam, щоб користуватися розширенням",
+            widget_expand: "Розгорнути іконку",
+            widget_pin: "Закріпити відображення іконки",
+            surface_mode: "Інтерфейс:",
+            surface_widget: "На сторінці",
+            surface_popup: "У тулбарі",
+            surface_popup_blocked: "Очистіть чергу завдань приховування, щоб перенести інтерфейс у попап тулбара",
+            surface_ghost_hint: "Режим віджета вимкнено — натисніть {keys}, щоб повернути",
+            popup_stub_message: "Інтерфейс живе на сторінках крамниці Steam — шукайте іконку у верхньому правому куті.",
+            popup_stub_switch: "Перенести інтерфейс у цей попап"
         },
 
         pl: {
@@ -882,7 +972,16 @@
             filter_not_recommended: "Tylko Nie polecane",
             filter_informational: "Tylko Informacyjne",
             filter_all_but_recommended: "Wszystkie oprócz Polecanych",
-            widget_login_required: "Zaloguj się do Steam, aby korzystać z rozszerzenia"
+            widget_login_required: "Zaloguj się do Steam, aby korzystać z rozszerzenia",
+            widget_expand: "Rozwiń ikonę",
+            widget_pin: "Przypnij wyświetlanie ikony",
+            surface_mode: "Interfejs:",
+            surface_widget: "Na stronie",
+            surface_popup: "Pasek narzędzi",
+            surface_popup_blocked: "Opróżnij kolejkę zadań ukrywania, aby przenieść interfejs do okienka paska narzędzi",
+            surface_ghost_hint: "Tryb widżetu wyłączony — naciśnij {keys}, aby go przywrócić",
+            popup_stub_message: "Interfejs żyje na stronach sklepu Steam — szukaj ikony w prawym górnym rogu.",
+            popup_stub_switch: "Przenieś interfejs do tego okienka"
         },
 
         cs: {
@@ -960,7 +1059,16 @@
             filter_not_recommended: "Pouze Nedoporučené",
             filter_informational: "Pouze Informativní",
             filter_all_but_recommended: "Vše kromě Doporučených",
-            widget_login_required: "Přihlaste se do Steamu, abyste mohli používat rozšíření"
+            widget_login_required: "Přihlaste se do Steamu, abyste mohli používat rozšíření",
+            widget_expand: "Rozbalit ikonu",
+            widget_pin: "Připnout zobrazení ikony",
+            surface_mode: "Rozhraní:",
+            surface_widget: "Na stránce",
+            surface_popup: "Panel nástrojů",
+            surface_popup_blocked: "Vyprázdněte frontu úloh skrývání, abyste přesunuli rozhraní do vyskakovacího okna panelu nástrojů",
+            surface_ghost_hint: "Režim widgetu vypnutý — stiskněte {keys} pro obnovení",
+            popup_stub_message: "Rozhraní žije na stránkách obchodu Steam — ikonu hledejte vpravo nahoře.",
+            popup_stub_switch: "Přesunout rozhraní do tohoto okna"
         },
 
         hu: {
@@ -1038,7 +1146,16 @@
             filter_not_recommended: "Csak a Nem ajánlott",
             filter_informational: "Csak az Informatív",
             filter_all_but_recommended: "Minden az Ajánlott kivételével",
-            widget_login_required: "Jelentkezz be a Steambe a bővítmény használatához"
+            widget_login_required: "Jelentkezz be a Steambe a bővítmény használatához",
+            widget_expand: "Ikon kibontása",
+            widget_pin: "Ikon megjelenítésének rögzítése",
+            surface_mode: "Felület:",
+            surface_widget: "Az oldalon",
+            surface_popup: "Eszköztár",
+            surface_popup_blocked: "Ürítsd ki a mellőzési feladatsort, hogy a felületet az eszköztár felugró ablakába helyezd át",
+            surface_ghost_hint: "Widget mód kikapcsolva — nyomd meg: {keys} a visszahozáshoz",
+            popup_stub_message: "A felület a Steam áruház oldalain él — az ikont a jobb felső sarokban találod.",
+            popup_stub_switch: "Felület áthelyezése ebbe a felugró ablakba"
         },
 
         sr: {
@@ -1116,7 +1233,16 @@
             filter_not_recommended: "Samo Nepreporučeno",
             filter_informational: "Samo Informativno",
             filter_all_but_recommended: "Sve osim Preporučeno",
-            widget_login_required: "Prijavite se na Steam da biste koristili proširenje"
+            widget_login_required: "Prijavite se na Steam da biste koristili proširenje",
+            widget_expand: "Proširi ikonicu",
+            widget_pin: "Zakači prikaz ikonice",
+            surface_mode: "Interfejs:",
+            surface_widget: "Na stranici",
+            surface_popup: "Traka sa alatkama",
+            surface_popup_blocked: "Ispraznite red zadataka ignorisanja da biste premestili interfejs u iskačući prozor trake sa alatkama",
+            surface_ghost_hint: "Režim vidžeta isključen — pritisnite {keys} da ga vratite",
+            popup_stub_message: "Interfejs živi na stranicama Steam prodavnice — potražite ikonicu u gornjem desnom uglu.",
+            popup_stub_switch: "Premesti interfejs u ovaj prozor"
         },
 
         ro: {
@@ -1194,7 +1320,16 @@
             filter_not_recommended: "Doar Nerecomandate",
             filter_informational: "Doar Informative",
             filter_all_but_recommended: "Toate cu excepția celor Recomandate",
-            widget_login_required: "Conectați-vă la Steam pentru a utiliza extensia"
+            widget_login_required: "Conectați-vă la Steam pentru a utiliza extensia",
+            widget_expand: "Extinde pictograma",
+            widget_pin: "Fixează afișarea pictogramei",
+            surface_mode: "Interfață:",
+            surface_widget: "Pe pagină",
+            surface_popup: "Bara de instrumente",
+            surface_popup_blocked: "Goliți coada de sarcini de ignorare pentru a muta interfața în popup-ul barei de instrumente",
+            surface_ghost_hint: "Modul widget dezactivat — apăsați {keys} pentru a-l readuce",
+            popup_stub_message: "Interfața trăiește pe paginile magazinului Steam — căutați pictograma în colțul din dreapta sus.",
+            popup_stub_switch: "Mută interfața în acest popup"
         },
 
         ja: {
@@ -1272,7 +1407,16 @@
             filter_not_recommended: "非推奨のみ",
             filter_informational: "情報提供のみ",
             filter_all_but_recommended: "おすすめ以外すべて",
-            widget_login_required: "拡張機能を使用するにはSteamにログインしてください"
+            widget_login_required: "拡張機能を使用するにはSteamにログインしてください",
+            widget_expand: "アイコンを展開",
+            widget_pin: "アイコンの表示を固定",
+            surface_mode: "インターフェース:",
+            surface_widget: "ページ上",
+            surface_popup: "ツールバー",
+            surface_popup_blocked: "インターフェースをツールバーのポップアップへ移すには、無視タスクのキューを空にしてください",
+            surface_ghost_hint: "ウィジェットモードはオフです — {keys} で元に戻せます",
+            popup_stub_message: "インターフェースはSteamストアのページ上にあります — 右上のアイコンを探してください。",
+            popup_stub_switch: "インターフェースをこのポップアップに移す"
         },
 
         ko: {
@@ -1350,7 +1494,16 @@
             filter_not_recommended: "비추천만",
             filter_informational: "정보성만",
             filter_all_but_recommended: "추천 제외 전체",
-            widget_login_required: "확장 프로그램을 사용하려면 Steam에 로그인하세요"
+            widget_login_required: "확장 프로그램을 사용하려면 Steam에 로그인하세요",
+            widget_expand: "아이콘 펼치기",
+            widget_pin: "아이콘 표시 고정",
+            surface_mode: "인터페이스:",
+            surface_widget: "페이지에",
+            surface_popup: "툴바",
+            surface_popup_blocked: "인터페이스를 툴바 팝업으로 옮기려면 숨김 작업 대기열을 비우세요",
+            surface_ghost_hint: "위젯 모드가 꺼져 있습니다 — {keys}로 되돌리기",
+            popup_stub_message: "인터페이스는 Steam 상점 페이지에 있습니다 — 오른쪽 위의 아이콘을 찾아보세요.",
+            popup_stub_switch: "인터페이스를 이 팝업으로 옮기기"
         },
 
         'zh-TW': {
@@ -1428,7 +1581,16 @@
             filter_not_recommended: "僅限不推薦",
             filter_informational: "僅限資訊性",
             filter_all_but_recommended: "推薦以外全部",
-            widget_login_required: "請登入 Steam 以使用擴充功能"
+            widget_login_required: "請登入 Steam 以使用擴充功能",
+            widget_expand: "展開圖示",
+            widget_pin: "釘選圖示顯示",
+            surface_mode: "介面:",
+            surface_widget: "頁面上",
+            surface_popup: "工具列",
+            surface_popup_blocked: "請先清空忽略任務佇列，才能將介面移至工具列彈出視窗",
+            surface_ghost_hint: "小工具模式已關閉 — 按 {keys} 恢復",
+            popup_stub_message: "介面位於 Steam 商店頁面上 — 請在右上角尋找圖示。",
+            popup_stub_switch: "將介面移至此彈出視窗"
         },
 
         th: {
@@ -1506,7 +1668,16 @@
             filter_not_recommended: "เฉพาะไม่แนะนำ",
             filter_informational: "เฉพาะให้ข้อมูล",
             filter_all_but_recommended: "ทั้งหมดยกเว้นที่แนะนำ",
-            widget_login_required: "ลงชื่อเข้าใช้ Steam เพื่อใช้งานส่วนขยาย"
+            widget_login_required: "ลงชื่อเข้าใช้ Steam เพื่อใช้งานส่วนขยาย",
+            widget_expand: "ขยายไอคอน",
+            widget_pin: "ปักหมุดการแสดงไอคอน",
+            surface_mode: "อินเทอร์เฟซ:",
+            surface_widget: "บนหน้าเว็บ",
+            surface_popup: "แถบเครื่องมือ",
+            surface_popup_blocked: "ล้างคิวงานซ่อนก่อน จึงจะย้ายอินเทอร์เฟซไปยังป๊อปอัปแถบเครื่องมือได้",
+            surface_ghost_hint: "โหมดวิดเจ็ตปิดอยู่ — กด {keys} เพื่อเรียกกลับ",
+            popup_stub_message: "อินเทอร์เฟซอยู่บนหน้าร้านค้า Steam — มองหาไอคอนที่มุมขวาบน",
+            popup_stub_switch: "ย้ายอินเทอร์เฟซมาที่ป๊อปอัปนี้"
         }
     };
 

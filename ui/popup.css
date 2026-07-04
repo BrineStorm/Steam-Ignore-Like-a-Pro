@@ -96,6 +96,25 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
 
 /* === GENERAL UI === */
 .dimmed { opacity: 0.35; pointer-events: none; transition: opacity 0.3s; }
+/* Blocked surface toggle: dim only, and DON'T kill pointer-events — the row must
+   stay hoverable so its "why is this locked" title still shows. The <input> is
+   disabled separately, so nothing toggles even though the row is clickable. */
+#surface-row.surface-blocked { opacity: 0.35; transition: opacity 0.3s; }
+
+/* Widget-mode signpost shown in the toolbar popup window (renderPopupStub in
+   popup_main.js): points at the on-page widget + offers to move the UI here. */
+#ilap-popup-stub {
+    width: 300px; padding: 18px 16px; box-sizing: border-box;
+    background: #16202d; color: #c7d5e0; text-align: center;
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+}
+#ilap-popup-stub img { width: 34px; height: 34px; border-radius: 8px; display: block; margin: 0 auto 10px; }
+#ilap-stub-msg { margin: 0 0 14px; font-size: 13px; line-height: 1.45; }
+#ilap-stub-btnwrap { display: inline-block; }
+#ilap-stub-switch {
+    background: #2a6cc6; color: #fff; border: none; border-radius: 3px;
+    padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
 #ui-wrapper.disabled { filter: grayscale(100%); opacity: 0.5; pointer-events: none; }
 #count-link { color: var(--accent); text-decoration: underline; cursor: pointer; font-weight: 700; }
 
@@ -213,6 +232,58 @@ details[open] summary::after { transform: rotate(90deg); }
 .settings-content { padding: 6px 0 0 0; display: flex; flex-direction: column; gap: 8px; }
 .section-title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
 .section-title { font-size: 11px; color: var(--text); text-transform: uppercase; font-weight: 700; letter-spacing: .5px; }
+
+/* Collapsible feature subcategories inside SETTINGS (Discovery Queue / Manual Ignore). */
+.settings-subcat { margin-top: 8px; interpolate-size: allow-keywords; }
+.settings-subcat > summary { padding: 6px 0 5px 0; color: var(--text); }
+.settings-subcat > summary .section-title { flex: 1; }
+.settings-subcat > summary .switch { margin-right: 2px; }
+.subcat-content { padding: 8px 0 2px 0; display: flex; flex-direction: column; gap: 8px; }
+
+/* Smooth expand/collapse. ::details-content keeps the body rendered while it
+   animates height (0 ↔ auto via interpolate-size), so a close still animates
+   instead of snapping. When two subcats swap (mutual exclusion) the growing and
+   shrinking boxes transition together — no full-height flash. overflow is
+   clipped during the motion for a clean reveal, then restored to visible AFTER
+   the open finishes (0s .26s delay) so the upward-opening shortcut dropdowns
+   aren't clipped while idle-open. Browsers without ::details-content just snap. */
+.settings-subcat::details-content {
+    block-size: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: block-size .26s ease, opacity .2s ease .04s;
+}
+.settings-subcat[open]::details-content {
+    block-size: auto;
+    opacity: 1;
+    overflow: visible;
+    transition: block-size .26s ease, opacity .2s ease, overflow 0s .26s;
+}
+/* Solo collapse (JS-marked): a slower, content-preserving close. The base rule
+   snaps content-visibility to hidden the instant [open] is removed (content
+   vanishes, only the empty box shrinks); keeping content-visibility in the
+   transition with allow-discrete keeps the body rendered for the full 0.5s so
+   the collapse actually animates. Concurrent sibling collapses don't get this
+   class, so their timing is unchanged. */
+.settings-subcat.solo-collapse::details-content {
+    transition: block-size .5s ease, opacity .3s ease, content-visibility .5s allow-discrete;
+}
+
+/* SETTINGS / QUEUE top-level applets: animate the SOLO collapse only. Opening
+   stays instant — the SETTINGS body lazy-renders, so an open animation would
+   jump as content lands. popup_main.js marks .solo-collapse when a panel is
+   closed on its own; a CONCURRENT collapse (opening the sibling) is left
+   unmarked so it snaps shut in the SAME synchronous frame the sibling opens —
+   the panel never flashes to full height first, whatever subcategory is
+   expanded inside SETTINGS. Browsers without ::details-content just snap. */
+#settings-accordion, #queue-accordion { interpolate-size: allow-keywords; }
+#settings-accordion.solo-collapse::details-content,
+#queue-accordion.solo-collapse::details-content {
+    block-size: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: block-size .5s ease, opacity .3s ease, content-visibility .5s allow-discrete;
+}
 
 .click-badge { background: #4a5e73; color: white; padding: 2px 5px; font-size: 10px; border-radius: 3px; font-weight: bold; }
 select {

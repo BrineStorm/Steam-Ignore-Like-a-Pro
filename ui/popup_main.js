@@ -240,6 +240,15 @@
                 });
             }
 
+            // Collapse the sibling SYNCHRONOUSLY on the summary click (shared helper;
+            // see wireExclusiveDetails in popup_settings.js for why in-frame). The
+            // `toggle` handlers above still own persistence + lazy settings.init()
+            // (and the lang-chip open path), so those keep working. The language chip
+            // sits in the SETTINGS summary and owns its own click.
+            const wireExclusive = window.ILAP_Settings.wireExclusiveDetails;
+            wireExclusive(accordion, queueAcc, '.lang-chip');
+            wireExclusive(queueAcc, accordion, '.lang-chip');
+
             root.getElementById('master-toggle').addEventListener('change', (e) => {
                 chrome.storage.local.set({ ilap_master_enabled: e.target.checked });
             });
@@ -271,15 +280,84 @@
 
     window.ILAP_Popup = { init: initPopup };
 
+    // Widget-mode signpost shown in the toolbar popup: the real UI lives on the
+    // store pages, so this is just a pointer at the on-page widget plus a button
+    // that moves the interface into this popup — guarded by the same
+    // "popup mode ⇒ empty curator queue" invariant as the settings toggle.
+    function renderPopupStub(mount) {
+        mount.innerHTML = `
+            <div id="ilap-popup-stub">
+                <img src="${chrome.runtime.getURL('assets/icons/icon48.png')}" alt="">
+                <p id="ilap-stub-msg" data-i18n="popup_stub_message"></p>
+                <span id="ilap-stub-btnwrap">
+                    <button type="button" id="ilap-stub-switch" data-i18n="popup_stub_switch"></button>
+                </span>
+            </div>`;
+        if (window.ILAP && window.ILAP.i18n) window.ILAP.i18n.applyDom(mount);
+
+        const btn = mount.querySelector('#ilap-stub-switch');
+        // A disabled <button> receives no hover events, so its title never shows —
+        // carry the "why is this locked" tooltip on the always-hoverable wrapper.
+        const btnWrap = mount.querySelector('#ilap-stub-btnwrap');
+        const Store = window.ILAP.Curator && window.ILAP.Curator.Store;
+        const syncGuard = () => {
+            if (!Store) return;
+            Store.getQueue().then((queue) => {
+                btn.disabled = queue.length > 0;
+                btn.style.opacity = btn.disabled ? '.55' : '';
+                btn.style.cursor = btn.disabled ? 'default' : 'pointer';
+                if (btn.disabled) btnWrap.title = t('surface_popup_blocked');
+                else btnWrap.removeAttribute('title');
+            });
+        };
+        syncGuard();
+        chrome.storage.onChanged.addListener((changes, area) => {
+            if (area && area !== 'local') return;
+            if (changes.ilap_curator_queue) syncGuard();
+        });
+        btn.addEventListener('click', () => {
+            if (!Store) return;
+            // Disabled covers the common case; re-check for a queue staged
+            // since the last sync before committing the switch.
+            Store.getQueue().then((queue) => {
+                if (queue.length > 0) { syncGuard(); return; }
+                chrome.storage.local.set({ [window.ILAP.Surface.KEY]: 'popup' });
+            });
+        });
+    }
+
     // Browser-popup bootstrap: mount the shared markup into the popup window and
     // wire it against `document`. On a Steam page there is no mount point, so this
     // is a no-op there — the widget mounts and inits its own shadow root instead.
+    // The view depends on the surface mode: in widget mode the popup is only a
+    // signpost (stub) pointing at the on-page widget; in popup mode it hosts the
+    // full UI. A surface flip simply reloads the window — the popup is stateless,
+    // so re-bootstrapping beats swapping live views (and their listeners) in place.
     function bootstrapPopupWindow() {
         const mount = document.getElementById('ilap-popup-mount');
         if (!mount || mount.dataset.ilapMounted) return;
         mount.dataset.ilapMounted = '1';
-        mount.innerHTML = window.ILAP_PopupMarkup;
-        initPopup(document);
+
+        const Surface = window.ILAP.Surface;
+        chrome.storage.local.get({ [Surface.KEY]: 'widget', ilap_lang: null }, (res) => {
+            if (window.ILAP && window.ILAP.i18n && res.ilap_lang) {
+                window.ILAP.i18n.setLang(res.ilap_lang);
+            }
+            const mode = Surface.resolve(res[Surface.KEY], navigator.userAgent);
+            if (mode === 'popup') {
+                mount.innerHTML = window.ILAP_PopupMarkup;
+                initPopup(document);
+            } else {
+                renderPopupStub(mount);
+            }
+            chrome.storage.onChanged.addListener((changes, area) => {
+                if (area && area !== 'local') return;
+                if (!changes[Surface.KEY]) return;
+                if (Surface.resolve(changes[Surface.KEY].newValue, navigator.userAgent) !== mode) {
+                    location.reload();
+                }
+            });
+        });
     }
 
     if (document.readyState === 'loading') {

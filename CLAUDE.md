@@ -95,6 +95,7 @@ Steam-Ignore-Like-a-Pro/
 │   └── firefox/manifest.json    # MV3 manifest for Firefox
 ├── src/
 │   ├── utils.js                 # Shared infrastructure (loaded first)
+│   ├── surface.js               # window.ILAP.Surface: ilap_surface_mode helper (widget|popup mode, Steam-client UA detect, Ctrl+Alt+Shift+I escape-hotkey) — pure, loaded in content scripts AND popup.html
 │   ├── manual-ignore/
 │   │   ├── utils.js             # ConfigService, ContainerStrategyProvider, gesture detectors
 │   │   ├── ui.js                # BadgeFactory, BadgeRenderer, DuplicateDetector
@@ -111,10 +112,11 @@ Steam-Ignore-Like-a-Pro/
 │   ├── curator/
 │   │   ├── enumerate.js         # Phase 2: results_html parser + paged ajax enumerator (pure + fetch)
 │   │   ├── store.js             # Phase 2: retention cache (TTL/LRU), queue CRUD, per-job lease lock
-│   │   ├── main.js              # Phase 2: curator-page "Add to ignore queue" button + droplist; cache-aware enumeration; login-gated (no button when logged out)
+│   │   ├── enqueue-service.js   # Phase 2: window.ILAP.Curator.EnqueueService — injectable stage()/resolve() headless orchestration (store + enumerator + confirmFn injected; Node-unit-tested)
+│   │   ├── main.js              # Phase 2: curator-page "Add to ignore queue" button + droplist (thin UI/wiring layer over EnqueueService); login-gated (no button when logged out) + surface-gated (withheld/live-hidden in popup mode)
 │   │   └── drainer.js           # Phase 2: CuratorQueueDrainer — opportunistic content-script ignore drainer (no SW)
 │   └── widget/
-│       └── main.js              # On-page shadow-DOM widget host (popup surface); login-gated launcher
+│       └── main.js              # On-page shadow-DOM widget host (popup surface); login-gated launcher; collapses to a chevron tab (default) with a shared 60 s idle auto-stash; hover-revealed pin badge disables the auto-stash (goes inert while the extension is master-disabled); parks to a ghost-chevron beacon in popup surface mode (Ctrl+Alt+Shift+I unparks)
 ├── ui/
 │   ├── popup.html
 │   ├── popup_markup.js          # Shared popup body markup (window.ILAP_PopupMarkup)
@@ -130,6 +132,7 @@ Steam-Ignore-Like-a-Pro/
     ├── cross-cutting/
     │   ├── history-cap.spec.js       # ilap_ignored_history capped at 20
     │   ├── i18n.unit.spec.js         # Node unit: DICT completeness/extras per locale, {n}/{type} placeholder integrity, t() fallback ladder
+    │   ├── surface.unit.spec.js      # Node unit: Surface.KEY/hotkey label, isSteamClientUA, resolve (popup only when stored AND not client), isEscapeHotkey
     │   └── sw-restart.spec.js        # Survives chrome.runtime.reload + page reload
     ├── explore-queue/
     │   ├── _helpers.js
@@ -155,42 +158,49 @@ Steam-Ignore-Like-a-Pro/
     │   ├── popup-main.spec.js        # Master toggle, counters, history, XSS, live update
     │   ├── settings.spec.js          # Queue toggles, mode, shortcut selects, mutual exclusion
     │   ├── queue.spec.js             # Curator queue applet: hidden-when-empty, chip count, pause/remove, running indicator, colours, mutual exclusion
+    │   ├── surface-stub.spec.js      # popup.html surface routing: widget mode → signpost stub (button guarded by empty-queue invariant); popup mode → full UI; live flip reloads
     │   └── lang-chip.spec.js         # Language-chip focus-trap: click left of focused chip toggles Settings (not the language list)
     ├── curator/
     │   ├── _helpers.js               # interceptIgnoreApi + routeUserdata stubs (no real ignores)
     │   ├── enumerate.unit.spec.js    # Node unit: parseResults / categorize / filterAppids / buildUrl / paged enumerate
     │   ├── store.unit.spec.js        # Node unit: evictCache (TTL+LRU), lockFree, isFresh + serialized queue RMW / cursor keys (chrome stub)
-    │   ├── enqueue.spec.js           # Curator-page button (live): injection+logo, dropdown, stage job, Added state, switch-in-place, 3-job cap, logged-out no-inject
+    │   ├── enqueue.spec.js           # Curator-page button (live): injection+logo, dropdown, stage job, Added state, switch-in-place, 3-job cap, logged-out no-inject, popup-mode no-inject + live surface flip
     │   └── drain.spec.js             # Drainer E2E (stubbed): ignores un-ignored appids, dedupe-skips already-ignored, respects paused
     └── widget/
-        └── login-lock.spec.js        # Login gate: locked launcher when logged out; stale pre-login page unlocks via live probe on click
+        ├── login-lock.spec.js        # Login gate: locked launcher when logged out; stale pre-login page unlocks via live probe on click
+        ├── collapse.spec.js          # Chevron collapse: default-collapsed mount, chevron expand + persistence, cross-tab sync, idle auto-stash, open panel blocks collapse
+        ├── pin.spec.js               # Pin badge: hover-revealed, pressed pin blocks idle stash + survives stale-timestamp mount, cross-tab unpin sync
+        ├── master-off.spec.js        # Master gate: ilap_master_enabled=false leaves chevron/launcher/panel usable (re-enable from panel toggle) but the pin goes inert (.disabled), revived live on re-enable
+        └── surface-mode.spec.js      # popup mode parks widget to ghost-chevron beacon (escape-hatch tooltip, inert click), live park/restore, Ctrl+Alt+Shift+I unpark (works even while disabled), panel settings toggle locked while curator jobs exist + change-handler queue re-check (race guard)
 ```
 
 ### Script Load Order (manifest content_scripts)
 
 ```
 1.  src/utils.js                → window.ILAP global + shared services
-2.  src/i18n.js                 → window.ILAP.t / window.ILAP.i18n (popup + on-page UI strings)
-3.  src/manual-ignore/utils.js  → window.ILAP.ManualIgnore.*
-4.  src/manual-ignore/ui.js
-5.  src/manual-ignore/main.js
-6.  src/discovery-queue/ui.js
-7.  src/discovery-queue/logic.js → window.ILAP.Discovery.*
-8.  src/discovery-queue/main.js
-9.  src/explore-queue/utils.js   → window.ILAP.Explore.*
-10. src/explore-queue/ui.js
-11. src/explore-queue/automator.js
-12. src/explore-queue/main.js
-13. src/curator/enumerate.js     → window.ILAP.Curator.Enumerator (parser + paged ajax client)
-14. src/curator/store.js         → window.ILAP.Curator.Store (cache + queue + lease lock)
-15. src/curator/main.js          → curator-page "Add to ignore queue" button (Phase 2)
-16. src/curator/drainer.js       → window.ILAP.Curator.CuratorQueueDrainer + boot
-17. ui/popup_markup.js           → window.ILAP_PopupMarkup
-18. ui/popup_settings.js         → window.ILAP_Settings
-19. ui/popup_queue.js            → window.ILAP_Queue (curator queue applet)
-20. ui/popup_main.js             → window.ILAP_Popup.init
-21. src/widget/main.js           → on-page shadow-DOM widget host
-22. styles/styles.css
+2.  src/surface.js              → window.ILAP.Surface (surface-mode helper: mode key, Steam-client UA detect, escape-hotkey)
+3.  src/i18n.js                 → window.ILAP.t / window.ILAP.i18n (popup + on-page UI strings)
+4.  src/manual-ignore/utils.js  → window.ILAP.ManualIgnore.*
+5.  src/manual-ignore/ui.js
+6.  src/manual-ignore/main.js
+7.  src/discovery-queue/ui.js
+8.  src/discovery-queue/logic.js → window.ILAP.Discovery.*
+9.  src/discovery-queue/main.js
+10. src/explore-queue/utils.js   → window.ILAP.Explore.*
+11. src/explore-queue/ui.js
+12. src/explore-queue/automator.js
+13. src/explore-queue/main.js
+14. src/curator/enumerate.js     → window.ILAP.Curator.Enumerator (parser + paged ajax client)
+15. src/curator/store.js         → window.ILAP.Curator.Store (cache + queue + lease lock)
+16. src/curator/enqueue-service.js → window.ILAP.Curator.EnqueueService (injectable stage/resolve; built by main.js)
+17. src/curator/main.js          → curator-page "Add to ignore queue" button (Phase 2; thin UI over EnqueueService; withheld in popup surface mode)
+18. src/curator/drainer.js       → window.ILAP.Curator.CuratorQueueDrainer + boot
+19. ui/popup_markup.js           → window.ILAP_PopupMarkup
+20. ui/popup_settings.js         → window.ILAP_Settings (+ wireExclusiveDetails)
+21. ui/popup_queue.js            → window.ILAP_Queue (curator queue applet)
+22. ui/popup_main.js             → window.ILAP_Popup.init
+23. src/widget/main.js           → on-page shadow-DOM widget host (parks to a ghost-chevron beacon in popup surface mode)
+24. styles/styles.css
 ```
 
 > The Discovery Queue `ui.js` loads before `logic.js`; this works because the classes are only referenced after the window `load` event.
@@ -240,6 +250,8 @@ Each module has a dedicated `main.js` that builds the object graph (adapter obje
 | `ilap_q_master` | local | Queue automator enable |
 | `ilap_q_next` | local | Auto-advance after ignore |
 | `ilap_q_mode` | local | `"bad"` or `"all"` |
+| `ilap_dq_open` | local | SETTINGS panel: "Your Discovery Queue" subcategory expanded (default collapsed). Restored on each settings render, persisted on `<details>` toggle. Mutually exclusive with `ilap_mi_open` — opening one collapses the other |
+| `ilap_mi_open` | local | SETTINGS panel: "Manual Ignore" subcategory expanded (default collapsed); mutually exclusive with `ilap_dq_open` |
 | `ilap_session_map_v2` | session | appid → reason map |
 | `ilap_queue_active` | session | Explore queue ACTIVE intent |
 | `ilap_queue_ff` | session | Explore queue fast-forward intent |
@@ -249,6 +261,9 @@ Each module has a dedicated `main.js` that builds the object graph (adapter obje
 | `ilap_curator_cursor_<jobId>` | local | Drainer-owned per-job progress cursor (single writer = lease holder; removed with the job) |
 | `ilap_curator_lock_<id>` | local | Per-job drain lease `{ owner, expiresAt }` (single-drainer handoff); a live lease is also the UI's derived "running" signal |
 | `ilap_curator_pulse` | local | Timestamp written when a job finishes; widget watches it to blink once (finished jobs are removed, not kept) |
+| `ilap_widget_expanded_ts` | local | Widget launcher state: 0/absent = collapsed to the chevron tab (default); >0 = expanded, value = last-activity timestamp (bumped on widget clicks, throttled 5 s). Any tab's 60 s idle timer stashes the launcher; an open panel re-bumps instead |
+| `ilap_widget_pinned` | local | Widget pin badge (launcher corner, shown on hover): true = launcher pinned out — idle timers re-bump instead of stashing, stale-timestamp mounts stay expanded — until the user unpresses the pin. Gated by `ilap_master_enabled`: while the extension is disabled the pin goes inert (`.ilap-pin.disabled` — greyed + `pointer-events:none` + a click-handler guard), reveals on a launcher hold so its state stays visible but can't be toggled; the rest of the widget (chevron, launcher, panel, master toggle) is NOT master-gated so the extension can always be re-enabled from the panel |
+| `ilap_surface_mode` | local | Which surface hosts the popup UI: `'widget'` (default) = on-page shadow-DOM widget; `'popup'` = the `chrome.action` toolbar popup (`ui/popup.html`, restored — no SW). In popup mode the on-page widget parks to a ghost-chevron beacon and the curator "Add to ignore queue" button is withheld. Invariant: popup mode is only reachable while `ilap_curator_queue` is empty (settings toggle + stub button both re-check `Store.getQueue()`). The Steam desktop client (CEF, no toolbar) forces widget regardless of the stored value via `Surface.resolve(stored, navigator.userAgent)` — the key is never overwritten. Escape hatch: **Ctrl+Alt+Shift+I** on any store page writes `'widget'` |
 
 ---
 

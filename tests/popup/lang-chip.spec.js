@@ -1,6 +1,7 @@
 const { test, expect } = require('../_fixtures.js');
 const {
     getExtensionId,
+    setExtensionStorage,
     clearExtensionStorage,
     popupUrl,
 } = require('../_extension.js');
@@ -29,6 +30,9 @@ async function pointLeftOfChip(page) {
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
+    // popup.html renders the full UI only in popup surface mode (widget mode
+    // shows the signpost stub — covered by surface-stub.spec.js).
+    await setExtensionStorage(context, { ilap_surface_mode: 'popup' });
 });
 
 test.afterEach(async ({ context }) => {

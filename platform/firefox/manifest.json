@@ -16,7 +16,8 @@
       "16": "assets/icons/icon16.png",
       "48": "assets/icons/icon48.png",
       "128": "assets/icons/icon128.png"
-    }
+    },
+    "default_popup": "ui/popup.html"
   },
   "content_scripts": [
     {
@@ -26,6 +27,7 @@
       "js": [
         "src/escape.js",
         "src/utils.js",
+        "src/surface.js",
         "src/i18n.js",
 
         "src/manual-ignore/utils.js",
@@ -44,6 +46,7 @@
         "src/curator/filters.js",
         "src/curator/enumerate.js",
         "src/curator/store.js",
+        "src/curator/enqueue-service.js",
         "src/curator/main.js",
         "src/curator/drainer.js",
 

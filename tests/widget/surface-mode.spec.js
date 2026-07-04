@@ -1,0 +1,216 @@
+// Surface switching on the widget side (ilap_surface_mode). In popup mode the
+// widget is parked: launcher and pin stashed, only a ghost chevron beacon
+// remains (hover reveals it; its tooltip points at the popup settings and the
+// escape hotkey), and clicking it does nothing. The mode flips live via
+// storage.onChanged, and Ctrl+Alt+Shift+I on any store page is the escape hatch
+// back to the widget.
+//
+// Login-agnostic: the panel is never opened and no ignore API is reachable.
+
+const { test, expect, AUTH_FILE } = require('../_fixtures.js');
+const { setExtensionStorage, getExtensionStorage } = require('../_extension.js');
+const fs = require('fs');
+
+const PAGE = '/search/?term=portal&ndl=1';
+const MODE_KEY = 'ilap_surface_mode';
+const STATE_KEY = 'ilap_widget_expanded_ts';
+
+test.describe('on-page widget — surface mode', () => {
+
+    test('popup mode: mounts parked — ghost chevron with the escape-hatch tooltip, inert click', async ({ context, page }) => {
+        await setExtensionStorage(context, { [MODE_KEY]: 'popup' });
+        await page.goto(PAGE);
+
+        const chevron = page.locator('.ilap-chevron');
+        await expect(chevron).toHaveClass(/ghost/);
+        await expect(chevron).toHaveClass(/shown/);
+        await expect(page.locator('.ilap-launcher')).toHaveClass(/stashed/);
+        // Our own tooltip box (not a native browser title) names the hotkey
+        // (English on the default locale) and reveals on hover.
+        const tip = page.locator('.ilap-ghost-tip');
+        await expect(tip).toContainText('Ctrl+Alt+Shift+I');
+        await chevron.hover();
+        await expect(tip).toHaveClass(/shown/);
+
+        // The beacon is informational only: no slide-out, no state write.
+        await chevron.click();
+        await page.waitForTimeout(300);
+        await expect(page.locator('.ilap-launcher')).toHaveClass(/stashed/);
+        const data = await getExtensionStorage(context, [STATE_KEY]);
+        expect(data[STATE_KEY] || 0).toBe(0);
+    });
+
+    test('live switch: widget parks to the ghost, and always comes back collapsed to the chevron', async ({ context, page }) => {
+        await page.goto(PAGE);
+
+        // Expand first — coming back must STILL land on the chevron, not restore this.
+        await page.locator('.ilap-chevron').click();
+        await expect(page.locator('.ilap-launcher')).not.toHaveClass(/stashed/);
+
+        await setExtensionStorage(context, { [MODE_KEY]: 'popup' });
+        await expect(page.locator('.ilap-launcher')).toHaveClass(/stashed/);
+        await expect(page.locator('.ilap-chevron')).toHaveClass(/ghost/);
+
+        await setExtensionStorage(context, { [MODE_KEY]: 'widget' });
+        await expect(page.locator('.ilap-chevron')).not.toHaveClass(/ghost/);
+        // Regardless of the pre-park expanded state, we return to the chevron.
+        await expect(page.locator('.ilap-chevron')).toHaveClass(/shown/);
+        await expect(page.locator('.ilap-launcher')).toHaveClass(/stashed/);
+    });
+
+    test('live switch back to widget collapses to the chevron even when the launcher is pinned', async ({ context, page }) => {
+        await page.goto(PAGE);
+
+        // Pin the launcher out — normally the pin keeps it expanded.
+        await page.locator('.ilap-chevron').click();
+        await page.locator('.ilap-pin').click();
+        await expect(page.locator('.ilap-pin')).toHaveClass(/pinned/);
+        await expect(page.locator('.ilap-launcher')).not.toHaveClass(/stashed/);
+
+        // Park to popup, then return: the switch overrides the pin and shows the chevron.
+        await setExtensionStorage(context, { [MODE_KEY]: 'popup' });
+        await expect(page.locator('.ilap-chevron')).toHaveClass(/ghost/);
+        await setExtensionStorage(context, { [MODE_KEY]: 'widget' });
+
+        await expect(page.locator('.ilap-chevron')).not.toHaveClass(/ghost/);
+        await expect(page.locator('.ilap-chevron')).toHaveClass(/shown/);
+        await expect(page.locator('.ilap-launcher')).toHaveClass(/stashed/);
+    });
+
+    test('switching popup→widget flags the collapsed chevron with a temporary highlight', async ({ context, page }) => {
+        // No stored timestamp → the widget comes back collapsed to the chevron.
+        await setExtensionStorage(context, { [MODE_KEY]: 'popup' });
+        await page.goto(PAGE);
+        const chevron = page.locator('.ilap-chevron');
+        await expect(chevron).toHaveClass(/ghost/);
+
+        await setExtensionStorage(context, { [MODE_KEY]: 'widget' });
+        await expect(chevron).not.toHaveClass(/ghost/);
+        await expect(chevron).toHaveClass(/shown/);    // collapsed → chevron visible
+        await expect(chevron).toHaveClass(/restored/); // welcome-back outline
+        // …which drops after ~10 s, leaving the passive outline-free chevron.
+        await expect(chevron).not.toHaveClass(/restored/, { timeout: 12000 });
+    });
+
+    test('escape hotkey Ctrl+Alt+Shift+I flips the surface back to the widget', async ({ context, page }) => {
+        await setExtensionStorage(context, { [MODE_KEY]: 'popup' });
+        await page.goto(PAGE);
+        await expect(page.locator('.ilap-chevron')).toHaveClass(/ghost/);
+
+        await page.keyboard.press('Control+Alt+Shift+I');
+
+        await expect.poll(async () => {
+            const data = await getExtensionStorage(context, [MODE_KEY]);
+            return data[MODE_KEY];
+        }).toBe('widget');
+        await expect(page.locator('.ilap-chevron')).not.toHaveClass(/ghost/);
+    });
+
+    test('escape hotkey still un-parks while the extension is disabled', async ({ context, page }) => {
+        // The escape hatch is gated only by the parked (ghost) state, never by the
+        // master toggle — so a user who disabled the extension in popup mode can
+        // still hotkey the surface back to the widget and re-enable it there.
+        await setExtensionStorage(context, { [MODE_KEY]: 'popup', ilap_master_enabled: false });
+        await page.goto(PAGE);
+        await expect(page.locator('.ilap-chevron')).toHaveClass(/ghost/);
+
+        await page.keyboard.press('Control+Alt+Shift+I');
+
+        await expect.poll(async () => {
+            const data = await getExtensionStorage(context, [MODE_KEY]);
+            return data[MODE_KEY];
+        }).toBe('widget');
+        await expect(page.locator('.ilap-chevron')).not.toHaveClass(/ghost/);
+    });
+
+    test('settings toggle in the widget panel: popup mode is locked while curator jobs exist', async ({ context, page }) => {
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session'); // panel is login-gated
+
+        // One inert job (paused, no appids) is enough to trip the invariant.
+        await setExtensionStorage(context, {
+            ilap_curator_queue: [{
+                id: 'job_111_1', curatorId: '111', curatorName: 'Curator 111',
+                curatorUrl: 'https://store.steampowered.com/curator/111/',
+                filter: 'not_recommended', appids: [], total: 0,
+                status: 'paused', addedAt: Date.now(),
+            }],
+        });
+        await page.goto(PAGE);
+        await page.locator('.ilap-chevron').click();
+        await page.locator('.ilap-launcher').click();
+        await expect(page.locator('.ilap-panel')).toHaveClass(/open/);
+
+        await page.locator('#settings-accordion > summary').click();
+        const surface = page.locator('#surface-toggle');
+        // The checkbox is a visually-collapsed segmented toggle; wait on its
+        // visible .wide-track surface, then assert against the input itself.
+        await page.locator('#surface-toggle ~ .wide-track').waitFor({ timeout: 5000 });
+
+        // Popup position is locked while the job exists (dimmed row + tooltip),
+        // and clicking the segmented track changes nothing.
+        await expect(surface).toBeDisabled();
+        await expect(page.locator('#surface-row')).toHaveAttribute('title', /queue/i);
+        // Force past the actionability gate (the locked control reports disabled):
+        // even a forced click must not toggle the disabled input or write the key.
+        await page.locator('#surface-toggle ~ .wide-track').click({ force: true });
+        await page.waitForTimeout(400);
+        const stored = await getExtensionStorage(context, [MODE_KEY]);
+        expect(stored[MODE_KEY] || 'widget').toBe('widget');
+
+        // …and unlocks live once the queue empties.
+        await setExtensionStorage(context, { ilap_curator_queue: [] });
+        await expect(surface).toBeEnabled();
+
+        // Now the enable→popup path actually parks the widget: clicking the
+        // segmented track writes 'popup' (via the Store re-check) and the panel
+        // stashes to the ghost beacon in place.
+        await page.locator('#surface-toggle ~ .wide-track').click();
+        await expect.poll(async () => {
+            const data = await getExtensionStorage(context, [MODE_KEY]);
+            return data[MODE_KEY];
+        }).toBe('popup');
+        await expect(page.locator('.ilap-chevron')).toHaveClass(/ghost/);
+        await expect(page.locator('.ilap-launcher')).toHaveClass(/stashed/);
+    });
+
+    test('settings surface toggle: the change handler re-checks the queue (race guard)', async ({ context, page }) => {
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session'); // panel is login-gated
+
+        // The invariant is double-guarded: the guard disables the toggle while a
+        // job exists, AND the change handler re-reads Store.getQueue() before
+        // writing 'popup'. This test isolates the SECOND layer — the narrow race
+        // where a job (added in another tab/window of the same profile) lands after
+        // the guard last synced but before onChanged re-disables the control.
+        await setExtensionStorage(context, {
+            ilap_curator_queue: [{
+                id: 'job_222_1', curatorId: '222', curatorName: 'Curator 222',
+                curatorUrl: 'https://store.steampowered.com/curator/222/',
+                filter: 'not_recommended', appids: [], total: 0,
+                status: 'paused', addedAt: Date.now(),
+            }],
+        });
+        await page.goto(PAGE);
+        await page.locator('.ilap-chevron').click();
+        await page.locator('.ilap-launcher').click();
+        await expect(page.locator('.ilap-panel')).toHaveClass(/open/);
+
+        await page.locator('#settings-accordion > summary').click();
+        const surface = page.locator('#surface-toggle');
+        await page.locator('#surface-toggle ~ .wide-track').waitFor({ timeout: 5000 });
+
+        // Guard has disabled it (job present). Force it back enabled to open the
+        // race window the guard would normally have closed.
+        await expect(surface).toBeDisabled();
+        await surface.evaluate((el) => { el.disabled = false; });
+
+        // Clicking to popup now fires a real change event — the handler's own
+        // Store.getQueue() re-check must revert the toggle and write nothing.
+        await page.locator('#surface-toggle ~ .wide-track').click();
+        await expect(surface).not.toBeChecked();
+        await page.waitForTimeout(400);
+        const stored = await getExtensionStorage(context, [MODE_KEY]);
+        expect(stored[MODE_KEY] || 'widget').toBe('widget');
+        // The widget stayed on-page (never parked to the ghost beacon).
+        await expect(page.locator('.ilap-chevron')).not.toHaveClass(/ghost/);
+    });
+});

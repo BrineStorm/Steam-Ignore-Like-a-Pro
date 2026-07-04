@@ -9,6 +9,33 @@
     // Shared HTML-escaper (src/escape.js, loaded first in popup.html + content_scripts).
     const esc = window.ILAP.Sanitizer.escapeHTML;
 
+    // Surface helper (src/surface.js): ilap_surface_mode + Steam-client detection.
+    const Surface = window.ILAP.Surface;
+
+    // Shared exclusive-<details> wiring, reused by the top-level popup applets
+    // (SETTINGS ↔ QUEUE, popup_main.js) and the settings subcategories (Discovery
+    // Queue ↔ Manual Ignore). Takes over the native summary toggle so opening one
+    // section collapses its sibling in the SAME synchronous frame — the native
+    // `toggle` event fires a frame late, which would flash both open for one paint
+    // (a jump to full height, then a snap). A SOLO collapse (nothing opening in its
+    // place) is marked so it gets the smooth content-preserving animation; the
+    // concurrent collapse triggered by opening the sibling stays unmarked so it
+    // snaps shut together. `skipSelector` names an in-summary control that owns its
+    // own click (the language chip / the DQ master switch) and must not toggle it.
+    const wireExclusiveDetails = (section, sibling, skipSelector) => {
+        if (!section) return;
+        const summary = section.querySelector(':scope > summary');
+        if (!summary) return;
+        summary.addEventListener('click', (e) => {
+            if (skipSelector && e.target.closest(skipSelector)) return;
+            e.preventDefault();
+            const willOpen = !section.open;
+            section.classList.toggle('solo-collapse', !willOpen);
+            if (willOpen && sibling) sibling.open = false;
+            section.open = willOpen;
+        });
+    };
+
     // Mini gradient swoosh (same look as the popup hint, smaller); flipped for a left swipe.
     const miniSwoosh = (isRight, id) => {
         const flip = isRight ? '' : ' style="transform:scaleX(-1)"';
@@ -103,77 +130,100 @@
         render() {
             if (!this.container) return;
 
-            this.container.innerHTML = `
-                <div class="section-title-row">
-                    <div class="section-title" data-i18n="your_discovery_queue">Your Discovery Queue</div>
-                    <label class="switch" data-i18n-title="tooltip_dq_master" title="Master toggle for Discovery Queue automation.">
-                        <input type="checkbox" id="q-master">
-                        <span class="slider"></span>
+            // Surface picker: on-page widget vs toolbar popup. Hidden inside the
+            // Steam desktop client, where there is no toolbar to host a popup —
+            // the widget is forced there and the stored key is left untouched.
+            const surfaceRow = Surface.isSteamClientUA(navigator.userAgent) ? '' : `
+                <div id="surface-row" style="margin-bottom: 10px;">
+                    <span style="font-size: 12px; display: block; margin-bottom: 4px;" data-i18n="surface_mode">Interface:</span>
+                    <label class="wide-switch">
+                        <input type="checkbox" id="surface-toggle">
+                        <div class="wide-track">
+                            <span class="wide-bg"></span>
+                            <span class="wide-label" data-i18n="surface_widget">On page</span>
+                            <span class="wide-label" data-i18n="surface_popup">Toolbar</span>
+                        </div>
                     </label>
-                </div>
+                </div>`;
 
-                <div id="q-sub-settings">
-                    <div class="stat-row" data-i18n-title="tooltip_dq_next" title="Enable automatic transition ONLY when a game is successfully ignored.">
-                        <span data-i18n="click_next_after_ignore">Auto-advance after ignore</span>
-                        <label class="switch">
-                            <input type="checkbox" id="q-next">
+            this.container.innerHTML = `
+                ${surfaceRow}
+                <details id="dq-section" class="settings-subcat">
+                    <summary>
+                        <div class="section-title" data-i18n="your_discovery_queue">Your Discovery Queue</div>
+                        <label class="switch" data-i18n-title="tooltip_dq_master" title="Master toggle for Discovery Queue automation.">
+                            <input type="checkbox" id="q-master">
                             <span class="slider"></span>
                         </label>
-                    </div>
-
-                    <div style="margin-top: 8px;">
-                        <span style="font-size: 12px; display: block; margin-bottom: 4px;" data-i18n="ignore_mode">Ignore Mode:</span>
-                        <label class="wide-switch">
-                            <input type="checkbox" id="q-mode-toggle">
-                            <div class="wide-track">
-                                <span class="wide-bg"></span>
-                                <span class="wide-label" data-i18n="mode_bad_reviews">Bad Reviews</span>
-                                <span class="wide-label" data-i18n="mode_every_game">Every Game</span>
+                    </summary>
+                    <div class="subcat-content">
+                        <div id="q-sub-settings">
+                            <div class="stat-row" data-i18n-title="tooltip_dq_next" title="Enable automatic transition ONLY when a game is successfully ignored.">
+                                <span data-i18n="click_next_after_ignore">Auto-advance after ignore</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="q-next">
+                                    <span class="slider"></span>
+                                </label>
                             </div>
-                        </label>
+
+                            <div style="margin-top: 8px;">
+                                <span style="font-size: 12px; display: block; margin-bottom: 4px;" data-i18n="ignore_mode">Ignore Mode:</span>
+                                <label class="wide-switch">
+                                    <input type="checkbox" id="q-mode-toggle">
+                                    <div class="wide-track">
+                                        <span class="wide-bg"></span>
+                                        <span class="wide-label" data-i18n="mode_bad_reviews">Bad Reviews</span>
+                                        <span class="wide-label" data-i18n="mode_every_game">Every Game</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                </details>
 
-                <div class="section-title-row" style="margin-top: 8px;">
-                    <div class="section-title" data-i18n="section_manual_ignore">Manual Ignore</div>
-                </div>
+                <details id="mi-section" class="settings-subcat">
+                    <summary>
+                        <div class="section-title" data-i18n="section_manual_ignore">Manual Ignore</div>
+                    </summary>
+                    <div class="subcat-content">
+                        <div class="stat-row">
+                            <span data-i18n="blur_ignored_covers">Blur ignored covers</span>
+                            <label class="switch">
+                                <input type="checkbox" id="mask-toggle">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
 
-                <div class="stat-row">
-                    <span data-i18n="blur_ignored_covers">Blur ignored covers</span>
-                    <label class="switch">
-                        <input type="checkbox" id="mask-toggle">
-                        <span class="slider"></span>
-                    </label>
-                </div>
+                        <div class="stat-row">
+                            <span style="flex: 1;" data-i18n="default_ignore">Default Ignore:</span>
+                            <div class="select-shell">
+                                <span class="select-display" id="default-key-display"></span>
+                                <select id="default-key">
+                                    <option value="swipeRight" data-i18n="shortcut_swipe_right">Right-Click + Swipe &rarr;</option>
+                                    <option value="swipeLeft" data-i18n="shortcut_swipe_left">Right-Click + Swipe &larr;</option>
+                                    <option value="ctrlKey" data-i18n="shortcut_ctrl_left">Ctrl + Left-Click</option>
+                                    <option value="shiftKey" data-i18n="shortcut_shift_left">Shift + Left-Click</option>
+                                    <option value="altKey" data-i18n="shortcut_alt_left">Alt + Left-Click</option>
+                                </select>
+                            </div>
+                        </div>
 
-                <div class="stat-row">
-                    <span style="flex: 1;" data-i18n="default_ignore">Default Ignore:</span>
-                    <div class="select-shell">
-                        <span class="select-display" id="default-key-display"></span>
-                        <select id="default-key">
-                            <option value="swipeRight" data-i18n="shortcut_swipe_right">Right-Click + Swipe &rarr;</option>
-                            <option value="swipeLeft" data-i18n="shortcut_swipe_left">Right-Click + Swipe &larr;</option>
-                            <option value="ctrlKey" data-i18n="shortcut_ctrl_left">Ctrl + Left-Click</option>
-                            <option value="shiftKey" data-i18n="shortcut_shift_left">Shift + Left-Click</option>
-                            <option value="altKey" data-i18n="shortcut_alt_left">Alt + Left-Click</option>
-                        </select>
+                        <div class="stat-row">
+                            <span id="p-label" style="flex: 1;" data-i18n="already_played">Already Played:</span>
+                            <div class="select-shell">
+                                <span class="select-display" id="platform-key-display"></span>
+                                <select id="platform-key">
+                                    <option value="off" data-i18n="off">Off</option>
+                                    <option value="swipeRight" data-i18n="shortcut_swipe_right">Right-Click + Swipe &rarr;</option>
+                                    <option value="swipeLeft" data-i18n="shortcut_swipe_left">Right-Click + Swipe &larr;</option>
+                                    <option value="ctrlKey" data-i18n="shortcut_ctrl_left">Ctrl + Left-Click</option>
+                                    <option value="shiftKey" data-i18n="shortcut_shift_left">Shift + Left-Click</option>
+                                    <option value="altKey" data-i18n="shortcut_alt_left">Alt + Left-Click</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
-                </div>
-
-                <div class="stat-row">
-                    <span id="p-label" style="flex: 1;" data-i18n="already_played">Already Played:</span>
-                    <div class="select-shell">
-                        <span class="select-display" id="platform-key-display"></span>
-                        <select id="platform-key">
-                            <option value="off" data-i18n="off">Off</option>
-                            <option value="swipeRight" data-i18n="shortcut_swipe_right">Right-Click + Swipe &rarr;</option>
-                            <option value="swipeLeft" data-i18n="shortcut_swipe_left">Right-Click + Swipe &larr;</option>
-                            <option value="ctrlKey" data-i18n="shortcut_ctrl_left">Ctrl + Left-Click</option>
-                            <option value="shiftKey" data-i18n="shortcut_shift_left">Shift + Left-Click</option>
-                            <option value="altKey" data-i18n="shortcut_alt_left">Alt + Left-Click</option>
-                        </select>
-                    </div>
-                </div>
+                </details>
             `;
 
             if (window.ILAP && window.ILAP.i18n) window.ILAP.i18n.applyDom(this.container);
@@ -188,10 +238,14 @@
                 dSel: this.root.getElementById('default-key'),
                 pSel: this.root.getElementById('platform-key'),
                 pLabel: this.root.getElementById('p-label'),
-                mask: this.root.getElementById('mask-toggle')
+                mask: this.root.getElementById('mask-toggle'),
+                surface: this.root.getElementById('surface-toggle'), // absent in the Steam client
+                dqSection: this.root.getElementById('dq-section'),
+                miSection: this.root.getElementById('mi-section')
             };
 
             this._applyValues(data);
+            this._bindSubcategories(data);
 
             enhanceSelect(els.dSel.closest('.select-shell'), els.dSel, 'def', this.root);
             enhanceSelect(els.pSel.closest('.select-shell'), els.pSel, 'plat', this.root);
@@ -202,6 +256,29 @@
             });
             els.qNext.addEventListener('change', () => chrome.storage.local.set({ ilap_q_next: els.qNext.checked }));
             els.mask.addEventListener('change', () => chrome.storage.local.set({ ilap_mask_enabled: els.mask.checked }));
+
+            if (els.surface) {
+                els.surface.addEventListener('change', () => {
+                    if (!els.surface.checked) {
+                        chrome.storage.local.set({ [Surface.KEY]: 'widget' });
+                        return;
+                    }
+                    // Popup mode requires an empty curator queue (the drainer's
+                    // jobs live on the on-page surface). The control is disabled
+                    // while jobs exist, but the queue can change between the last
+                    // sync and this click — so re-check through the Store.
+                    const Store = window.ILAP.Curator && window.ILAP.Curator.Store;
+                    if (!Store) { els.surface.checked = false; return; }
+                    Store.getQueue().then((queue) => {
+                        if (queue.length > 0) {
+                            els.surface.checked = false;
+                            this._syncSurfaceGuard();
+                            return;
+                        }
+                        chrome.storage.local.set({ [Surface.KEY]: 'popup' });
+                    });
+                });
+            }
 
             els.qMode.addEventListener('change', () => {
                 const val = els.qMode.checked ? 'all' : 'bad';
@@ -218,6 +295,44 @@
             });
         }
 
+        /**
+         * The two feature areas are mutually-exclusive collapsible subcategories:
+         * opening one collapses the other (same rule as the SETTINGS/QUEUE
+         * applets). Each remembers its own open/closed state so reopening the
+         * panel restores exactly what the user last had expanded (e.g. Manual
+         * Ignore open, Discovery Queue closed). The open state is restored BEFORE
+         * the toggle listeners are attached, so the initial programmatic set never
+         * writes back.
+         */
+        _bindSubcategories(data) {
+            const els = this.els;
+            const dqOpen = !!data.ilap_dq_open;
+            els.dqSection.open = dqOpen;
+            els.miSection.open = !!data.ilap_mi_open && !dqOpen; // enforce exclusivity on restore
+
+            // Persist each section's open state. Mutual exclusion is handled in the
+            // click interceptor below — NOT here — because the native `toggle` event
+            // is dispatched asynchronously: collapsing the sibling from it leaves
+            // both sections open for one paint (the panel jumps to full height, then
+            // the sibling snaps shut — the flicker the user reported).
+            els.dqSection.addEventListener('toggle', () =>
+                chrome.storage.local.set({ ilap_dq_open: els.dqSection.open }));
+            els.miSection.addEventListener('toggle', () =>
+                chrome.storage.local.set({ ilap_mi_open: els.miSection.open }));
+
+            // Drive open/close ourselves so opening one and collapsing the other
+            // happen in the SAME synchronous frame (no flash) and their height
+            // transitions run together. The DQ master switch lives inside its
+            // summary, so it's the skip-selector here.
+            wireExclusiveDetails(els.dqSection, els.miSection, '.switch');
+            wireExclusiveDetails(els.miSection, els.dqSection, '.switch');
+
+            // The DQ master switch lives inside the subcategory <summary>; keep a
+            // click on it from also toggling the subcategory open/closed.
+            const dqSwitch = els.qMaster.closest('.switch');
+            if (dqSwitch) dqSwitch.addEventListener('click', (e) => e.stopPropagation());
+        }
+
         _applyValues(data) {
             const els = this.els;
             if (!els) return;
@@ -227,7 +342,35 @@
             els.mask.checked = !!data.ilap_mask_enabled;
             els.dSel.value = normalizeShortcut(data.ilap_shortcut_key) || 'swipeRight';
             els.pSel.value = normalizeShortcut(data.ilap_platform_key) || 'swipeLeft';
+            if (els.surface) {
+                els.surface.checked = (data.ilap_surface_mode === 'popup');
+                this._syncSurfaceGuard();
+            }
             this._updateVisuals();
+        }
+
+        /**
+         * Enforce the "popup mode ⇒ empty curator queue" invariant on the
+         * surface toggle: while jobs exist, switching TO the popup is disabled
+         * (dimmed row + explanatory tooltip). Runs on every _applyValues, so a
+         * queue change in any tab re-evaluates the lock live via syncValues.
+         */
+        _syncSurfaceGuard() {
+            const els = this.els;
+            if (!els || !els.surface) return;
+            const Store = window.ILAP.Curator && window.ILAP.Curator.Store;
+            if (!Store) return;
+            Store.getQueue().then((queue) => {
+                if (this.els !== els) return; // panel re-rendered meanwhile
+                const blocked = queue.length > 0 && !els.surface.checked;
+                els.surface.disabled = blocked;
+                const row = this.root.getElementById('surface-row');
+                if (row) {
+                    row.classList.toggle('surface-blocked', blocked);
+                    if (blocked) row.title = t('surface_popup_blocked');
+                    else row.removeAttribute('title');
+                }
+            });
         }
 
         _updateVisuals() {
@@ -261,6 +404,6 @@
         }
     }
 
-    window.ILAP_Settings = { create: (root) => new SettingsManager(root) };
+    window.ILAP_Settings = { create: (root) => new SettingsManager(root), wireExclusiveDetails };
 
 })();

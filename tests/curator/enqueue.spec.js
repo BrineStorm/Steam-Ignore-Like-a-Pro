@@ -157,6 +157,31 @@ test.describe('Curator — enqueue button', () => {
         expect(queue.some(j => j.curatorId === CURATOR_ID)).toBe(false);
     });
 
+    test('Popup surface mode: the button is not injected; flipping back injects it live', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_surface_mode: 'popup' });
+        await page.goto(CURATOR_PATH);
+
+        // The curator chrome renders, but the surface gate withholds the control.
+        await page.locator('.nav_right_side > .curator_report').waitFor({ timeout: 20000 });
+        await page.waitForTimeout(2500);
+        await expect(page.locator(BTN)).toHaveCount(0);
+
+        // Switching the surface back to the widget injects it in place.
+        await setExtensionStorage(context, { ilap_surface_mode: 'widget' });
+        await expect(page.locator(BTN)).toBeVisible({ timeout: 5000 });
+    });
+
+    test('Live switch to popup mode hides the injected button (and back)', async ({ page, context }) => {
+        await openCurator(page);
+        await expect(page.locator(BTN)).toBeVisible();
+
+        await setExtensionStorage(context, { ilap_surface_mode: 'popup' });
+        await expect(page.locator(BTN)).toBeHidden();
+
+        await setExtensionStorage(context, { ilap_surface_mode: 'widget' });
+        await expect(page.locator(BTN)).toBeVisible();
+    });
+
     test('Logged out: the button is not injected at all', async ({ page, context }) => {
         await context.clearCookies();
         await page.goto(CURATOR_PATH);
