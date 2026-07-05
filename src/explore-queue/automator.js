@@ -12,10 +12,14 @@
             if (!deps.api || typeof deps.api.ignore !== 'function') throw new TypeError("[ILAP] Invalid ApiAdapter provided");
             if (!deps.stats || typeof deps.stats.save !== 'function') throw new TypeError("[ILAP] Invalid StatsAdapter provided");
             if (!deps.nameExtractor || typeof deps.nameExtractor.get !== 'function') throw new TypeError("[ILAP] Invalid NameExtractorAdapter provided");
+            // Gate is optional, but if supplied it must be a valid adapter (the
+            // project's construction-time duck-typing contract).
+            if (deps.gate && typeof deps.gate.reserve !== 'function') throw new TypeError("[ILAP] Invalid GateAdapter provided");
 
             this.settings = deps.settings;
             this.ui = deps.ui;
             this.api = deps.api;
+            this.gate = deps.gate;   // { reserve() } — aggregate rate governor (optional)
             this.stats = deps.stats;
             this.nav = deps.navGuard;
             this.nameExtractor = deps.nameExtractor;
@@ -178,6 +182,12 @@
         }
 
         async _performIgnore(appid, shouldNext, mode) {
+            // Reserve an aggregate rate slot first (paces EQ against the drainer and
+            // any DQ tabs; a stop verdict = master off / dead session → do nothing).
+            if (this.gate) {
+                const slot = await this.gate.reserve();
+                if (!slot.ok) return;
+            }
             const success = await this.api.ignore(appid, 0);
             if (!success) return;
 

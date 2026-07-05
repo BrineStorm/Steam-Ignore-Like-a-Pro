@@ -1,7 +1,7 @@
 # Testing
 
 Playwright E2E tests running against a live Steam session in a real Chromium instance with the extension loaded.  
-Mostly end-to-end, validated against Steam's actual DOM; the pure-logic checks (`DecisionEngine`, `StatsLogic` history cap, `StatsManager` context guard, the i18n dictionary/`t()` contract, the `Surface` mode helper, and the curator enumerator/store/enqueue-service) run as Node unit tests that load the class via `vm` with a stubbed `window`/`chrome`.
+Mostly end-to-end, validated against Steam's actual DOM; the pure-logic checks (`DecisionEngine`, `StatsLogic` history cap, `StatsManager` context guard, the i18n dictionary/`t()` contract, the `Surface` mode helper, the ignore-rate `IgnoreGate`, and the curator enumerator/store/enqueue-service) run as Node unit tests that load the class via `vm` with a stubbed `window`/`chrome`.
 
 Many suites are **login-agnostic** — the popup, unit, and most on-page widget tests do not need a Steam session (they stub storage, intercept the ignore API, or never open the login-gated panel). A saved session is required for the suites that drive the real logged-in flow — Manual Ignore, Discovery Queue, Explore Queue, the live curator-page button, and the widget's logged-in panel tests; the login-gated ones `test.skip` themselves when no session is saved.
 
@@ -62,8 +62,10 @@ Safety (`tests/_cleanup.js`): removes strictly the diff — never the user's pre
 |---|---|
 | `ui.spec.js` | Panel injects into the queue modal; Start activates loop (running class); Stop returns to idle; Keep High Score checkbox toggles; panel unmounts on modal close; **test #6** — Start ignores ~12 real games across a queue boundary (`Continue`), Stop → idle. |
 | `master-off.spec.js` | `ilap_q_master=false` keeps the panel out of the modal; flipping it to false while the modal is open retracts the panel. |
+| `registry.unit.spec.js` | **Unit** — `Discovery.Registry` concurrent-DQ cap: `activeCount`/`prune` pure helpers; `tryAcquire` fills to `CAP`=2 then refuses a new owner (renews an existing one), reclaims expired slots, `release` frees. |
+| `ui.spec.js` (cap test) | Two seeded live `ilap_dq_active` slots fill the cap → Start is refused (flashes "max {n}" message, never enters running, no ignore), then auto-reverts to the idle Start button. |
 
-DQ automator clicks Steam's own in-page Ignore button (no API call), but the ignore still lands on the account. Test #6 deliberately ignores ~12 real games to exercise the queue-boundary `Continue` path; these are removed afterward by the automatic cleanup (see *Test account cleanup* above).
+DQ automator clicks Steam's own in-page Ignore button rather than calling `apiIgnoreGame` itself — but that click makes **Steam's own page JS fire `POST /recommended/ignorerecommendation`** (verified by a network capture during a live DQ run). So DQ is NOT request-free: it is an ignore-POST source like EQ and the curator drainer, just one our code doesn't originate. Test #6 deliberately ignores ~12 real games to exercise the queue-boundary `Continue` path; these are removed afterward by the automatic cleanup (see *Test account cleanup* above).
 
 ### Explore Queue (`tests/explore-queue/`)
 
@@ -102,7 +104,7 @@ The bulk-ignore feature: an enumerate → stage → drain pipeline. Enumeration 
 | `store.unit.spec.js` | **Unit** — `evictCache` (TTL + LRU), `lockFree`/`isFresh` lease helpers, and serialized queue read-modify-write / cursor-key round-trips against an async `chrome.storage` stub (20 concurrent patches, update+remove). |
 | `enqueue-service.unit.spec.js` | **Unit** — `EnqueueService.stage()/resolve()` with injected store + enumerator + `confirmFn` (cache-vs-enumerate, confirm threshold, cursor reset), the headless orchestration extracted out of the UI layer. |
 | `enqueue.spec.js` | Curator-page **button** (live): injection + logo, filter dropdown, stage a job, *Added* state, switch-in-place, 3-job cap; logged-out → no inject; popup surface mode → no inject + live surface flip. |
-| `drain.spec.js` | **Drainer** E2E (stubbed): ignores un-ignored appids, dedupe-skips already-ignored ones (via `dynamicstore/userdata/`), and stops on a paused job. |
+| `drain.spec.js` | **Drainer** E2E (stubbed): ignores un-ignored appids, dedupe-skips already-ignored ones (via `dynamicstore/userdata/`), stops on a paused job; the rate gate paces consecutive POSTs ≥ floor apart; master-off stops the drainer without burning the cursor (audit #1). |
 
 ### On-page widget (`tests/widget/`)
 
@@ -126,6 +128,7 @@ These are **unit** tests (load the module via `vm` with a stubbed `window`/`chro
 | `sw-restart.spec.js` | `StatsManager.save` is a silent no-op when the extension context is invalidated (no `chrome.runtime.id`), and writes normally once it is valid again. |
 | `i18n.unit.spec.js` | Per-locale dictionary completeness (every locale carries every `en` key, no extras), `{n}`/`{type}` placeholder integrity across translations, every picker language has a bundle, and the `t()` locale→en→raw-key fallback ladder. |
 | `surface.unit.spec.js` | `Surface` helper: `KEY`/hotkey label, `isSteamClientUA`, `resolve` (popup only when stored **and** not the Steam client), `isEscapeHotkey`. |
+| `gate.unit.spec.js` | `IgnoreGate` rate governor: `nextSlot` pacing math; `reserve()` STOPS (no slot) on master-off and on a missing sessionid; a granted reservation advances the shared slot monotonically by ≥ `MIN_GAP`. |
 | `sanitize-name.unit.spec.js` | Game-name sanitization at the storage boundary (strips markup/control chars before a name is ever persisted). |
 | `stats-race.unit.spec.js` | `StatsManager.save`'s per-context serialized read-modify-write chain preserves every increment under rapid concurrent saves within one context. |
 

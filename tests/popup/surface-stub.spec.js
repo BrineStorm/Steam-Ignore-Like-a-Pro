@@ -70,7 +70,10 @@ test.describe('Popup — surface stub', () => {
 
         const btn = page.locator('#ilap-stub-switch');
         await expect(btn).toBeDisabled();
-        await expect(btn).toHaveAttribute('title', /queue/i);
+        // A disabled <button> fires no hover events, so its own title never shows;
+        // renderPopupStub carries the "why locked" tooltip on the always-hoverable
+        // wrapper instead. Assert it on the element that actually surfaces it.
+        await expect(page.locator('#ilap-stub-btnwrap')).toHaveAttribute('title', /queue/i);
 
         // …and unlocks live once the queue empties.
         await setExtensionStorage(context, { ilap_curator_queue: [] });

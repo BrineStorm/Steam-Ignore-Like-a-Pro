@@ -27,6 +27,7 @@
       "js": [
         "src/escape.js",
         "src/utils.js",
+        "src/gate.js",
         "src/surface.js",
         "src/i18n.js",
 
@@ -35,6 +36,7 @@
         "src/manual-ignore/main.js",
         
         "src/discovery-queue/ui.js",
+        "src/discovery-queue/registry.js",
         "src/discovery-queue/logic.js",
         "src/discovery-queue/main.js",
 

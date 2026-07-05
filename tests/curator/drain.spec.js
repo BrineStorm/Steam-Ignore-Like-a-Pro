@@ -76,6 +76,50 @@ test.describe('Curator — queue drainer', () => {
         expect(leftover.ilap_curator_cursor_job_drain_1).toBeUndefined();
     });
 
+    test('the rate gate paces consecutive ignore POSTs (>= floor apart)', async ({ page, context }) => {
+        const calls = await interceptIgnoreApi(context);
+        await routeUserdata(context, []); // nothing pre-ignored → every appid POSTs
+
+        // Four un-ignored appids → three inter-POST gaps to measure.
+        await setExtensionStorage(context, {
+            ilap_curator_queue: [makeJob({ appids: ['411', '422', '433', '444'], total: 4 })],
+        });
+        await page.goto(STORE_PAGE);
+
+        await expect.poll(async () => calls.length, { timeout: 20000 }).toBe(4);
+
+        // Every consecutive pair is spaced by at least the gate's defensive floor
+        // (the governor sleeps ~MIN_GAP+jitter before each POST; assert the floor
+        // to stay robust against scheduler noise). This is the aggregate-rate
+        // guarantee the whole governor exists to provide.
+        const FLOOR = 350; // src/gate.js GAP_FLOOR
+        const gaps = calls.slice(1).map((c, i) => c.at - calls[i].at);
+        for (const g of gaps) expect(g).toBeGreaterThanOrEqual(FLOOR - 40); // small tolerance
+    });
+
+    test('master toggle off stops the drainer without burning the cursor (audit #1)', async ({ page, context }) => {
+        const calls = await interceptIgnoreApi(context);
+        await routeUserdata(context, []);
+
+        // Extension globally disabled: the gate refuses every reservation, so the
+        // drainer must emit NO ignores and leave the job intact for when it's
+        // re-enabled — not silently drain it dry in the background.
+        await setExtensionStorage(context, {
+            ilap_master_enabled: false,
+            ilap_curator_queue: [makeJob()],
+        });
+        await page.goto(STORE_PAGE);
+        await page.waitForTimeout(4000); // ample time to (not) drain
+
+        expect(calls).toHaveLength(0);
+        const job = (await readQueue(context))[0];
+        expect(job && job.status).toBe('pending'); // still queued, not removed
+        // The cursor never advanced past the start.
+        const cur = await getExtensionStorage(context, 'ilap_curator_cursor_job_drain_1');
+        const c = cur.ilap_curator_cursor_job_drain_1;
+        expect(c == null || c === 0).toBe(true);
+    });
+
     test('a paused job is never drained', async ({ page, context }) => {
         const calls = await interceptIgnoreApi(context);
         await routeUserdata(context, []);

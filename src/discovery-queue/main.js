@@ -52,6 +52,10 @@
             // init() awaits the read before starting the observer, so this
             // value is only consulted once it has been refreshed.
             this.masterEnabled = true;
+            // Identity + heartbeat handle for this tab's slot in the cross-tab
+            // DQ-automator registry (caps how many DQ loops run per profile).
+            this.ownerId = 'dq_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+            this._beat = null;
         }
 
         init() {
@@ -64,17 +68,21 @@
                 save: (name, source) => window.ILAP.saveStats(name, source)
             };
             const nameExtractorAdapter = { get: (appid, el) => window.ILAP.getGameName(appid, el) };
+            const gateAdapter = { reserve: () => window.ILAP.IgnoreGate.reserve() };
 
             // 2. Instantiate Components
             const AutomatorClass = window.ILAP.Discovery.Automator;
             const UIClass = window.ILAP.Discovery.UI;
 
-            this.automator = new AutomatorClass(apiAdapter, statsAdapter, nameExtractorAdapter);
+            this.automator = new AutomatorClass(apiAdapter, statsAdapter, nameExtractorAdapter, gateAdapter);
             this.ui = new UIClass();
 
-            // 3. Bind UI Updates (Logic -> UI)
+            // 3. Bind UI Updates (Logic -> UI). When the loop stops (Stop click,
+            //    queue done, or a master-off teardown), free this tab's registry
+            //    slot and stop the heartbeat so another tab can start.
             this.automator.setUiObserver((isRunning, count) => {
                 this.ui.updateState(isRunning, count);
+                if (!isRunning) this._releaseSlot();
             });
 
             // 4. Resolve the master flag before observing so the very first
@@ -85,6 +93,36 @@
                 this._subscribeMasterChanges();
                 this.startObserver();
             });
+        }
+
+        // Start/stop the loop, gated by the cross-tab DQ-automator cap. Stopping
+        // needs no registry check; starting claims a slot first and refuses (with
+        // a transient button message) when other tabs already fill the cap.
+        async _toggle() {
+            const Registry = window.ILAP.Discovery.Registry;
+            if (this.automator.isRunning) {
+                this.automator.stop();     // the UI observer frees the slot
+                return;
+            }
+            const ok = await Registry.tryAcquire(this.ownerId);
+            if (!ok) { this.ui.showRefused(Registry.CAP); return; }
+            this._startHeartbeat();
+            this.automator.start();        // observer tracks running; frees on stop
+        }
+
+        _startHeartbeat() {
+            const Registry = window.ILAP.Discovery.Registry;
+            this._stopHeartbeat();
+            this._beat = setInterval(() => Registry.renew(this.ownerId), Registry.HEARTBEAT_MS);
+        }
+
+        _stopHeartbeat() {
+            if (this._beat) { clearInterval(this._beat); this._beat = null; }
+        }
+
+        _releaseSlot() {
+            this._stopHeartbeat();
+            window.ILAP.Discovery.Registry.release(this.ownerId);
         }
 
         _subscribeMasterChanges() {
@@ -126,7 +164,7 @@
                 if (insertion) {
                     // Bind User Events (UI -> Logic)
                     this.ui.mount(insertion, {
-                        onToggle: () => this.automator.toggle(),
+                        onToggle: () => this._toggle(),
                         onCheckboxChange: (val) => this.automator.setSkipPositive(val)
                     });
                 }

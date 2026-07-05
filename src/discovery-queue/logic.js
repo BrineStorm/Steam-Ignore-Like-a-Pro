@@ -190,14 +190,17 @@
     }
 
     class DiscoveryQueueAutomator {
-        constructor(apiAdapter, statsAdapter, nameExtractorAdapter) {
+        constructor(apiAdapter, statsAdapter, nameExtractorAdapter, gateAdapter) {
             if (!apiAdapter || typeof apiAdapter.ignore !== 'function') throw new TypeError("[ILAP] Invalid ApiAdapter passed to DiscoveryQueueAutomator");
             if (!statsAdapter || typeof statsAdapter.save !== 'function') throw new TypeError("[ILAP] Invalid StatsAdapter passed to DiscoveryQueueAutomator");
             if (!nameExtractorAdapter || typeof nameExtractorAdapter.get !== 'function') throw new TypeError("[ILAP] Invalid NameExtractorAdapter passed to DiscoveryQueueAutomator");
+            // Gate is optional, but a supplied one must be a valid adapter.
+            if (gateAdapter && typeof gateAdapter.reserve !== 'function') throw new TypeError("[ILAP] Invalid GateAdapter passed to DiscoveryQueueAutomator");
 
             this.api = apiAdapter;
             this.stats = statsAdapter;
-            this.nameExtractor = nameExtractorAdapter; 
+            this.nameExtractor = nameExtractorAdapter;
+            this.gate = gateAdapter;   // { reserve() } — aggregate rate governor (optional)
             
             this.isRunning = false;
             this.processedCount = 0;
@@ -220,11 +223,20 @@
         }
 
         stop() {
+            // Idempotent: the DOM observer calls stop() on every removed-node batch
+            // (Steam's React pages mutate constantly), and each _notifyUI() now also
+            // triggers the controller's _releaseSlot() → a storage RMW. Skip the
+            // no-op notify when we're already stopped so idle churn stays free.
+            if (!this.isRunning) return;
             this.isRunning = false;
             this._notifyUI();
         }
 
         async start() {
+            // Re-entrancy guard: _toggle() is now async (it awaits the registry
+            // acquire), so a fast double-click could otherwise pass the isRunning
+            // check twice and spin up two concurrent _loop()s in one tab.
+            if (this.isRunning) return;
             this.isRunning = true;
             this.processedCount = 0;
             this._continueStreak = 0;
@@ -281,7 +293,17 @@
 
             const appid = SlideScanner.getAppId(slide);
 
-            // Ignore by a LIVE click on the prohibition icon (no ignore API).
+            // Reserve an aggregate rate slot before the click. Clicking Steam's own
+            // Ignore icon makes the PAGE fire an ignore POST (confirmed),
+            // so DQ is a rate source too — it must pace against the drainer/EQ. A
+            // stop verdict (master off / dead session) ends the loop cleanly.
+            if (this.gate) {
+                const slot = await this.gate.reserve();
+                if (!slot.ok) return false;
+            }
+
+            // Ignore by a LIVE click on the prohibition icon (our code sends no POST;
+            // Steam's page JS does, in response to the click).
             await this._clickWithDelay(ignoreBtn, TIMING.IGNORE_CLICK_MS);
 
             // Confirm before advancing. HARD RULE: no confirmed ignore → no advance.

@@ -1,4 +1,6 @@
 const { test, expect } = require('../_fixtures.js');
+const { setExtensionStorage, getExtensionStorage } = require('../_extension.js');
+const { interceptIgnoreApi } = require('../curator/_helpers.js');
 
 const SEL = {
     // The "Explore Your Discovery Queue" widget on a tag page; clicking it opens
@@ -81,7 +83,7 @@ test.describe('Discovery Queue UI', () => {
     // link (see CLAUDE.local.md). Driving ~12 real ignores also forces the queue
     // to run out at least once, exercising the "Continue" interstitial that spins
     // up a fresh queue (the infinite-feed path).
-    test('Start runs the loop, ignores ~12 games across a queue boundary (Continue), Stop → idle', async ({ page }) => {
+    test('Start runs the loop, ignores ~12 games across a queue boundary (Continue), Stop → idle', async ({ page, context }) => {
         test.setTimeout(120_000);
         await openQueueModal(page);
 
@@ -114,6 +116,41 @@ test.describe('Discovery Queue UI', () => {
         // Stop → back to idle.
         await btn.click();
         await expect(btn).not.toHaveClass(/running/, { timeout: 10000 });
+        await expect(btn).toContainText(/start auto ignore/i);
+
+        // Stopping frees this tab's registry slot (the UI observer's isRunning=false
+        // transition → _releaseSlot), so no live owner should remain in ilap_dq_active.
+        await expect.poll(async () => {
+            const map = (await getExtensionStorage(context, 'ilap_dq_active')).ilap_dq_active || {};
+            const now = Date.now();
+            return Object.values(map).filter(exp => exp > now).length;
+        }, { timeout: 6000 }).toBe(0);
+    });
+
+    // Cross-tab cap: two OTHER live registry slots fill the cap (2), so this tab's
+    // Start is refused — it flashes the "already running" message and never starts
+    // the loop (no ignore fires). Simulating the other tabs via a seeded
+    // ilap_dq_active keeps it a pure UI-path check with zero real ignores.
+    test('Start is refused when the concurrent-DQ cap is already filled by other tabs', async ({ page, context }) => {
+        const calls = await interceptIgnoreApi(context); // guarantee no real ignore even if it slipped
+        await openQueueModal(page);
+
+        const btn = page.locator(SEL.button);
+        await expect(btn).toBeVisible({ timeout: 10000 });
+
+        const future = Date.now() + 60000;
+        await setExtensionStorage(context, { ilap_dq_active: { other1: future, other2: future } });
+
+        await btn.click();
+
+        // Refused look, never entered the running state, and nothing was ignored.
+        await expect(btn).toHaveClass(/refused/, { timeout: 5000 });
+        await expect(btn).not.toHaveClass(/running/);
+        await expect(btn).toContainText(/\d/); // localized "Max {n} …" carries the numeral
+        expect(calls).toHaveLength(0);
+
+        // The message auto-reverts to the idle Start button.
+        await expect(btn).not.toHaveClass(/refused/, { timeout: 6000 });
         await expect(btn).toContainText(/start auto ignore/i);
     });
 

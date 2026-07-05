@@ -33,6 +33,11 @@
                 #${IDS.BUTTON}.running {
                     background-color: #d32f2f; border: 1px solid #b71c1c;
                 }
+                /* Transient "cap reached" state: greyed, non-actionable look while
+                   the message shows, then it reverts to the idle Start button. */
+                #${IDS.BUTTON}.refused {
+                    background-color: #4a4a4a; border: 1px solid #333; cursor: default;
+                }
                 
                 .ilap-checkbox-label {
                     display: flex; align-items: center; font-size: 12px;
@@ -108,8 +113,23 @@
             }
         }
 
+        // Briefly show "already running in N tabs" on the Start button when the
+        // cross-tab cap refuses a start, then revert to the idle label.
+        showRefused(cap) {
+            if (!this.button) return;
+            clearTimeout(this._refuseTimer);
+            this.button.textContent = t('dq_cap_reached', { n: cap });
+            this.button.classList.remove('running');
+            this.button.classList.add('refused');
+            this._refuseTimer = setTimeout(() => {
+                if (this.button) { this.button.classList.remove('refused'); this.updateState(false, 0); }
+            }, 3500);
+        }
+
         updateState(isRunning, processedCount) {
             if (!this.button) return;
+            this.button.classList.remove('refused');
+            clearTimeout(this._refuseTimer);
 
             if (isRunning) {
                 this.button.innerHTML = `<span class="btn-symbol">⏹</span> ${escapeHTML(t('stop_with_count', { count: processedCount }))}`;

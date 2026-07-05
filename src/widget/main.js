@@ -317,7 +317,7 @@
         }, true);
 
         return {
-            applyState, setOpen,
+            applyState, setOpen, writeState,
             isOpen: () => panel.classList.contains('open'),
             isCollapsed: () => !ts,
             reset: () => { ts = 0; applyState(); }, // land collapsed (used by the surface restore)

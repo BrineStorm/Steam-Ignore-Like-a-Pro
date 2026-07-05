@@ -31,7 +31,8 @@
 
         // 5. External Adapters Creation
         const apiAdapter = { ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) };
-        const statsAdapter = { save: (name, source) => window.ILAP.saveStats(name, source) };      
+        const gateAdapter = { reserve: () => window.ILAP.IgnoreGate.reserve() };
+        const statsAdapter = { save: (name, source) => window.ILAP.saveStats(name, source) };
         const nameExtractorAdapter = { get: (appid, el) => window.ILAP.getGameName(appid, el) };
 
         // 6. Automator DI Assembly
@@ -39,6 +40,7 @@
             settings: extSettings,
             ui: uiService,
             api: apiAdapter,
+            gate: gateAdapter,
             stats: statsAdapter,
             navGuard: navGuard,
             nameExtractor: nameExtractorAdapter,

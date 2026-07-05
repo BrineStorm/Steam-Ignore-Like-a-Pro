@@ -19,6 +19,12 @@ const SEARCH_URL = '/search/?term=action';
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
+    // popup.html defaults to the widget-surface SIGNPOST STUB (the surface-switch
+    // feature); the full stats/history UI these tests read (#count-link, history
+    // dropdown) only renders in popup mode. Seed it so the popup hosts the real UI
+    // — same fix the tests under tests/popup/ got; this spec lives elsewhere and
+    // was missed.
+    await setExtensionStorage(context, { ilap_surface_mode: 'popup' });
 });
 
 test.afterEach(async ({ context }) => {

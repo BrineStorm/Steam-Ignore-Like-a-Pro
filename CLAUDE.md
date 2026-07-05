@@ -95,15 +95,17 @@ Steam-Ignore-Like-a-Pro/
 │   └── firefox/manifest.json    # MV3 manifest for Firefox
 ├── src/
 │   ├── utils.js                 # Shared infrastructure (loaded first)
+│   ├── gate.js                  # window.ILAP.IgnoreGate: aggregate ignore-POST rate governor (reserve() a slot before every ignore across drainer/EQ/DQ; ilap_ignore_gate min-gap+jitter; master + dead-session stop) — closes audit #1/#2
 │   ├── surface.js               # window.ILAP.Surface: ilap_surface_mode helper (widget|popup mode, Steam-client UA detect, Ctrl+Alt+Shift+I escape-hotkey) — pure, loaded in content scripts AND popup.html
 │   ├── manual-ignore/
 │   │   ├── utils.js             # ConfigService, ContainerStrategyProvider, gesture detectors
 │   │   ├── ui.js                # BadgeFactory, BadgeRenderer, DuplicateDetector
 │   │   └── main.js              # App bootstrap + IgnoreManager
 │   ├── discovery-queue/
-│   │   ├── logic.js             # SlideScanner, DiscoveryQueueAutomator
-│   │   ├── ui.js                # Queue UI controls
-│   │   └── main.js              # DiscoveryQueueController bootstrap
+│   │   ├── logic.js             # SlideScanner, DiscoveryQueueAutomator (reserves an IgnoreGate slot before each ignore click)
+│   │   ├── ui.js                # Queue UI controls (+ showRefused: transient "cap reached" button message)
+│   │   ├── registry.js          # window.ILAP.Discovery.Registry: cross-tab cap (2) on concurrent DQ automators (ilap_dq_active, heartbeated + TTL-reclaimed lease, like the curator lock)
+│   │   └── main.js              # DiscoveryQueueController bootstrap (owns the registry gate: acquire on Start, heartbeat, release on stop)
 │   ├── explore-queue/
 │   │   ├── utils.js             # QueueContext, ReviewAnalyzer, DecisionEngine, NavigationGuard
 │   │   ├── ui.js                # ActionUI (toast, visuals, badges)
@@ -178,29 +180,31 @@ Steam-Ignore-Like-a-Pro/
 
 ```
 1.  src/utils.js                → window.ILAP global + shared services
-2.  src/surface.js              → window.ILAP.Surface (surface-mode helper: mode key, Steam-client UA detect, escape-hotkey)
-3.  src/i18n.js                 → window.ILAP.t / window.ILAP.i18n (popup + on-page UI strings)
-4.  src/manual-ignore/utils.js  → window.ILAP.ManualIgnore.*
-5.  src/manual-ignore/ui.js
-6.  src/manual-ignore/main.js
-7.  src/discovery-queue/ui.js
-8.  src/discovery-queue/logic.js → window.ILAP.Discovery.*
-9.  src/discovery-queue/main.js
-10. src/explore-queue/utils.js   → window.ILAP.Explore.*
-11. src/explore-queue/ui.js
-12. src/explore-queue/automator.js
-13. src/explore-queue/main.js
-14. src/curator/enumerate.js     → window.ILAP.Curator.Enumerator (parser + paged ajax client)
-15. src/curator/store.js         → window.ILAP.Curator.Store (cache + queue + lease lock)
-16. src/curator/enqueue-service.js → window.ILAP.Curator.EnqueueService (injectable stage/resolve; built by main.js)
-17. src/curator/main.js          → curator-page "Add to ignore queue" button (Phase 2; thin UI over EnqueueService; withheld in popup surface mode)
-18. src/curator/drainer.js       → window.ILAP.Curator.CuratorQueueDrainer + boot
-19. ui/popup_markup.js           → window.ILAP_PopupMarkup
-20. ui/popup_settings.js         → window.ILAP_Settings (+ wireExclusiveDetails)
-21. ui/popup_queue.js            → window.ILAP_Queue (curator queue applet)
-22. ui/popup_main.js             → window.ILAP_Popup.init
-23. src/widget/main.js           → on-page shadow-DOM widget host (parks to a ghost-chevron beacon in popup surface mode)
-24. styles/styles.css
+2.  src/gate.js                 → window.ILAP.IgnoreGate (aggregate ignore-rate governor; needs getSessionID from utils.js)
+3.  src/surface.js              → window.ILAP.Surface (surface-mode helper: mode key, Steam-client UA detect, escape-hotkey)
+4.  src/i18n.js                 → window.ILAP.t / window.ILAP.i18n (popup + on-page UI strings)
+5.  src/manual-ignore/utils.js  → window.ILAP.ManualIgnore.*
+6.  src/manual-ignore/ui.js
+7.  src/manual-ignore/main.js
+8.  src/discovery-queue/ui.js
+9.  src/discovery-queue/registry.js → window.ILAP.Discovery.Registry (concurrent-DQ cap lease)
+10. src/discovery-queue/logic.js → window.ILAP.Discovery.*
+11. src/discovery-queue/main.js
+12. src/explore-queue/utils.js   → window.ILAP.Explore.*
+13. src/explore-queue/ui.js
+14. src/explore-queue/automator.js
+15. src/explore-queue/main.js
+16. src/curator/enumerate.js     → window.ILAP.Curator.Enumerator (parser + paged ajax client)
+17. src/curator/store.js         → window.ILAP.Curator.Store (cache + queue + lease lock)
+18. src/curator/enqueue-service.js → window.ILAP.Curator.EnqueueService (injectable stage/resolve; built by main.js)
+19. src/curator/main.js          → curator-page "Add to ignore queue" button (Phase 2; thin UI over EnqueueService; withheld in popup surface mode)
+20. src/curator/drainer.js       → window.ILAP.Curator.CuratorQueueDrainer + boot (reserves a gate slot before every POST)
+21. ui/popup_markup.js           → window.ILAP_PopupMarkup
+22. ui/popup_settings.js         → window.ILAP_Settings (+ wireExclusiveDetails)
+23. ui/popup_queue.js            → window.ILAP_Queue (curator queue applet)
+24. ui/popup_main.js             → window.ILAP_Popup.init
+25. src/widget/main.js           → on-page shadow-DOM widget host (parks to a ghost-chevron beacon in popup surface mode)
+26. styles/styles.css
 ```
 
 > The Discovery Queue `ui.js` loads before `logic.js`; this works because the classes are only referenced after the window `load` event.
@@ -247,6 +251,8 @@ Each module has a dedicated `main.js` that builds the object graph (adapter obje
 | `ilap_shortcut_key` | local | Default ignore shortcut |
 | `ilap_platform_key` | local | Alternative shortcut |
 | `ilap_master_enabled` | local | Global on/off |
+| `ilap_dq_active` | local | Cross-tab cap on concurrently-active Discovery-Queue automators (`window.ILAP.Discovery.Registry`): a heartbeated owner map `{ ownerId: expiresAt }`, TTL-reclaimed like the curator lease so a closed tab frees its slot. `DiscoveryQueueController` claims a slot on Start (refuses with a transient "max {n} running" button message when ≥`CAP`=2 other live owners fill it), renews every 3 s while running, releases on stop. A UX bound, not a safety one — the `ilap_ignore_gate` governor already caps the aggregate POST rate; this just stops silent stacking of DQ loops. Cross-tab residual: no CAS, so two tabs racing can briefly make 3 active (accepted). Also accepted: Chrome throttles a backgrounded tab's timers, so a hidden DQ tab's heartbeat can lapse and its slot expire while its automator keeps ignoring (background loops run, slower) — the cap can undercount, but the rate gate still bounds the aggregate POST rate |
+| `ilap_ignore_gate` | local | Aggregate ignore-POST rate governor (`window.ILAP.IgnoreGate`): a single last-reserved-slot timestamp. Every ignore SOURCE — curator drainer, EQ automator, and the DQ icon click (which makes Steam's own page JS fire the ignore POST — confirmed, so DQ is NOT request-free) — calls `reserve()` before emitting an ignore; it advances this timestamp by ~500 ms + jitter (350 ms floor) via a per-context serialized RMW, so the aggregate rate across all tabs/sources of a profile stays ≤ ~2/s and stacked sources collapse into one paced stream. `reserve()` also STOPS (no slot) when `ilap_master_enabled=false` (closes audit #1: master vs drainer) or no `sessionid` cookie (closes audit #2: dead session must not burn work). Manual-ignore is intentionally NOT gated (human-paced, negligible). Cross-tab residual: no CAS, so two tabs can rarely share a slot — accepted, same class as the stats/queue RMW races |
 | `ilap_q_master` | local | Queue automator enable |
 | `ilap_q_next` | local | Auto-advance after ignore |
 | `ilap_q_mode` | local | `"bad"` or `"all"` |

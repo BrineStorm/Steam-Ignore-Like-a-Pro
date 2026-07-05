@@ -24,33 +24,21 @@
     window.ILAP.Curator = window.ILAP.Curator || {};
 
     const REASON = 0;              // same as a manual default ignore
-    const GAP_MIN = 300;
-    const GAP_MAX = 800;
-    // Hard lower bound on the inter-request gap. The serial+jittered throttle is
-    // the ONLY thing standing between "ignore a 1000-game curator" and a
-    // rate-limit / Akamai ban on the user's account. GAP_MIN/MAX above are the
-    // intended pacing; GAP_FLOOR is a defensive clamp (applied in jitter()) so a
-    // casual edit to those constants can't drop the extension into spam territory
-    // without ALSO removing this line. It is a guardrail for honest users and our
-    // own future selves — NOT a security control (a determined forker can delete
-    // it, just as they could write their own script against the public endpoint).
-    const GAP_FLOOR = 250;
+    // Inter-request pacing now lives in the shared IgnoreGate (window.ILAP.gate):
+    // one governor budgets the AGGREGATE ignore rate across the drainer, EQ, DQ
+    // and every tab, so per-source jitter here would only double-pace. The gate
+    // also owns the defensive floor and the master/dead-session stop.
     const HEARTBEAT_MS = 3000;     // renew the lease well within its 8 s TTL
     const MAX_FAILS = 3;           // give up on a single appid after N failed POSTs
     const RETRY_TICK_MS = 9000;    // standby poll: steal an expired lease / pick up work
 
-    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    const jitter = () => {
-        const lo = Math.max(GAP_FLOOR, GAP_MIN);          // never faster than the floor
-        const hi = Math.max(lo + 1, GAP_MAX);
-        return lo + Math.floor(Math.random() * (hi - lo));
-    };
     const uuid = () => 'd_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
     class CuratorQueueDrainer {
         constructor(deps) {
             this.store = deps.store;
             this.api = deps.api;                       // { ignore(appid, reason) }
+            this.gate = deps.gate;                     // { reserve() } — aggregate rate governor
             this.fetchUserdata = deps.fetchUserdata;   // () => Promise<Set<string>>
             this.ownerId = deps.ownerId || uuid();
             this.draining = false;
@@ -60,6 +48,7 @@
             this._onChange = (changes, area) => {
                 if (area !== 'local') return;
                 const touched = changes.ilap_curator_queue
+                    || changes.ilap_master_enabled   // re-enabling the master resumes a gate-stopped drain
                     || Object.keys(changes).some(k => k.indexOf('ilap_curator_lock_') === 0);
                 if (touched) this._kick();
             };
@@ -89,11 +78,17 @@
                     if (!job) break;
                     const got = await this.store.acquireLock(job.curatorId, this.ownerId);
                     if (!got) break;   // another tab owns this job → we stay standby
+                    let result;
                     try {
-                        await this._drainJob(job);
+                        result = await this._drainJob(job);
                     } finally {
                         await this.store.releaseLock(job.curatorId, this.ownerId);
                     }
+                    // The gate said stop (master off / no session): the job is still
+                    // drainable, so re-picking it would busy-loop. Break the pass and
+                    // wait for the next kick (a queue/lock/master change, or the retry
+                    // tick) to resume.
+                    if (result === 'stop') break;
                 }
             } finally {
                 this.draining = false;
@@ -130,11 +125,18 @@
 
                 const appid = String(cur.appids[cursor]);
                 if (ignored.has(appid)) {
-                    // Already ignored (dedupe) — count it as done, no request.
+                    // Already ignored (dedupe) — count it as done, no request, no slot.
                     await this.store.setCursor(job.id, cursor + 1);
                     fails = 0;
                     continue;
                 }
+
+                // Reserve an aggregate rate slot before every POST. A stop verdict
+                // (master off / dead session) ends the pass WITHOUT advancing the
+                // cursor — so a logged-out drain can't silently burn the whole job
+                // (audit #2), and a disabled extension emits no ignores (audit #1).
+                const slot = await this.gate.reserve();
+                if (!slot.ok) return 'stop';
 
                 const ok = await this.api.ignore(appid, REASON);
                 if (ok) {
@@ -156,18 +158,20 @@
                     await this.store.renewLock(job.curatorId, this.ownerId);
                     lastBeat = Date.now();
                 }
-                await sleep(jitter());
+                // No local sleep — the gate.reserve() above already paced this pass.
             }
         }
     }
 
     window.ILAP.Curator.CuratorQueueDrainer = CuratorQueueDrainer;
 
-    // Boot only when the storage model is present (it loads before this script).
-    if (window.ILAP.Curator.Store && window.ILAP.apiIgnoreGame) {
+    // Boot only when the storage model + rate gate are present (both load before
+    // this script).
+    if (window.ILAP.Curator.Store && window.ILAP.apiIgnoreGame && window.ILAP.IgnoreGate) {
         const drainer = new CuratorQueueDrainer({
             store: window.ILAP.Curator.Store,
             api: { ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) },
+            gate: { reserve: () => window.ILAP.IgnoreGate.reserve() },
             fetchUserdata: () => window.ILAP.fetchIgnoredApps()
         });
         window.ILAP.Curator.drainer = drainer;

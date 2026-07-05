@@ -61,6 +61,28 @@ test.describe('on-page widget — pin badge', () => {
         expect((await getExtensionStorage(context, [PIN_KEY]))[PIN_KEY]).toBe(false);
     });
 
+    test('clicking the pin bumps the shared expanded timestamp (writeState side-effect regression)', async ({ context, page }) => {
+        // Regression guard for the createCollapse export bug: the pin click handler
+        // ends with ctx.collapse.writeState(Date.now()). When writeState was missing
+        // from the returned object this threw AFTER the PIN_KEY set — so PIN_KEY
+        // still flipped (why the other pin tests stayed green) but the timestamp was
+        // never bumped. Assert the bump directly so the regression can't hide again.
+        await page.goto(PAGE);
+        await page.locator('.ilap-chevron').click();
+        await expect(page.locator('.ilap-launcher')).not.toHaveClass(/stashed/);
+
+        // Force a known-stale timestamp, then verify the pin click refreshes it.
+        const stale = Date.now() - 30000;
+        await setExtensionStorage(context, { [KEY]: stale });
+        await page.waitForTimeout(300);
+
+        await page.locator('.ilap-pin').click();
+        await expect(page.locator('.ilap-pin')).toHaveClass(/pinned/);
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, [KEY]))[KEY]
+        ).toBeGreaterThan(stale);
+    });
+
     test('pinned launcher resists a cross-tab collapse (re-asserts expanded)', async ({ context, page }) => {
         // An idle sibling tab writing 0 must NOT stash a pinned launcher: the
         // onChanged handler re-asserts expanded (a different branch from the

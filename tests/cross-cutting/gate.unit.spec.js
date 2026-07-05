@@ -1,0 +1,108 @@
+const { test, expect } = require('@playwright/test');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+// Aggregate ignore-rate governor (src/gate.js) as a Node unit — no browser. The
+// pacing is pure math (nextSlot) plus a serialized claim over an async
+// chrome.storage stub. Guards the contract the drainer / EQ / DQ rely on:
+//   - the two STOP verdicts (master off, no session) resolve without a slot;
+//   - a granted reservation advances the shared timestamp monotonically by at
+//     least MIN_GAP, so stacked sources stay ≥ MIN_GAP apart.
+
+function loadGate(initial) {
+    const code = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'gate.js'), 'utf8');
+    const clone = (v) => JSON.parse(JSON.stringify(v));
+    let data = clone(initial || {});
+    const local = {
+        // Supports chrome.storage's defaults-OBJECT query form ({ key: default }),
+        // which is the only shape gate.js uses.
+        get: (query, cb) => setTimeout(() => {
+            const out = {};
+            if (query && typeof query === 'object' && !Array.isArray(query)) {
+                for (const k of Object.keys(query)) out[k] = (k in data) ? clone(data[k]) : query[k];
+            } else {
+                for (const k of (Array.isArray(query) ? query : [query])) if (k in data) out[k] = clone(data[k]);
+            }
+            cb(out);
+        }, 0),
+        set: (obj, cb) => setTimeout(() => {
+            for (const k of Object.keys(obj)) data[k] = clone(obj[k]);
+            if (cb) cb();
+        }, 0),
+    };
+    const sandbox = { window: {}, chrome: { storage: { local } }, setTimeout, Date, Math, JSON };
+    vm.createContext(sandbox);
+    vm.runInContext(code, sandbox);
+    return { Gate: sandbox.window.ILAP.IgnoreGate, ILAP: sandbox.window.ILAP, data: () => data };
+}
+
+test.describe('ignore-rate gate (unit)', () => {
+
+    test('nextSlot: at least one gap past the last slot, never in the past', () => {
+        const { Gate } = loadGate();
+        // Fresh (lastAt 0) → clamps to now.
+        expect(Gate.nextSlot(0, 1000, 500)).toBe(1000);
+        // Recent last slot in the future → last + gap.
+        expect(Gate.nextSlot(1000, 900, 500)).toBe(1500);
+        // Stale last slot in the past → now wins.
+        expect(Gate.nextSlot(100, 5000, 500)).toBe(5000);
+    });
+
+    test('reserve STOPS (no slot) when the master toggle is off', async () => {
+        const { Gate, ILAP } = loadGate({ ilap_master_enabled: false });
+        ILAP.getSessionID = () => 'sess';
+        const r = await Gate.reserve();
+        expect(r).toEqual({ ok: false, reason: 'disabled' });
+    });
+
+    test('reserve STOPS (no slot) when there is no sessionid', async () => {
+        const { Gate, ILAP } = loadGate({ ilap_master_enabled: true });
+        ILAP.getSessionID = () => null;
+        const r = await Gate.reserve();
+        expect(r).toEqual({ ok: false, reason: 'no-session' });
+    });
+
+    test('a granted reservation records the slot and returns ok', async () => {
+        const { Gate, ILAP, data } = loadGate({});
+        ILAP.getSessionID = () => 'sess';
+        const r = await Gate.reserve();
+        expect(r).toEqual({ ok: true });
+        expect(typeof data().ilap_ignore_gate).toBe('number');
+        expect(data().ilap_ignore_gate).toBeGreaterThanOrEqual(Date.now() - 50);
+    });
+
+    test('consecutive reservations advance the shared slot by >= MIN_GAP', async () => {
+        const { Gate, ILAP, data } = loadGate({});
+        ILAP.getSessionID = () => 'sess';
+        await Gate.reserve();
+        const first = data().ilap_ignore_gate;
+        await Gate.reserve();
+        const second = data().ilap_ignore_gate;
+        expect(second - first).toBeGreaterThanOrEqual(Gate.MIN_GAP);
+    });
+
+    test('concurrent reservations serialize: three fired at once each get a distinct paced slot', async () => {
+        // This is the whole point of the claim chain: same-context sources firing
+        // at the same instant must NOT all read lastAt=0 and grab the same slot.
+        // If serialized, slot3 ≥ now + 2·MIN_GAP; if they raced, the final stored
+        // slot would stay ≈now.
+        const { Gate, ILAP, data } = loadGate({});
+        ILAP.getSessionID = () => 'sess';
+        const start = Date.now();
+        const results = await Promise.all([Gate.reserve(), Gate.reserve(), Gate.reserve()]);
+        expect(results.every(r => r.ok)).toBe(true);
+        expect(data().ilap_ignore_gate).toBeGreaterThanOrEqual(start + 2 * Gate.MIN_GAP);
+    });
+
+    test('the claim chain survives a throwing reservation (one failure cannot wedge the gate)', async () => {
+        // chain = claim.then(ok, err) must swallow a rejected claim so the next
+        // reservation still runs. Make the session lookup throw once, then recover.
+        const { Gate, ILAP } = loadGate({});
+        let calls = 0;
+        ILAP.getSessionID = () => { calls++; if (calls === 1) throw new Error('boom'); return 'sess'; };
+        await expect(Gate.reserve()).rejects.toThrow('boom');
+        const r = await Gate.reserve();   // chain not wedged → this resolves normally
+        expect(r).toEqual({ ok: true });
+    });
+});

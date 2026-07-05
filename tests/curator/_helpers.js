@@ -8,7 +8,7 @@ async function interceptIgnoreApi(context) {
     const calls = [];
     await context.route('**/recommended/ignorerecommendation/**', async (route) => {
         const params = new URLSearchParams(route.request().postData() || '');
-        calls.push({ appid: params.get('appid'), reason: Number(params.get('ignore_reason')) });
+        calls.push({ appid: params.get('appid'), reason: Number(params.get('ignore_reason')), at: Date.now() });
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: 1 }) });
     });
     return calls;

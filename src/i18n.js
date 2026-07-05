@@ -61,6 +61,7 @@
             keep_high_score: "Keep High Score",
             start_auto_ignore: "Start Auto Ignore",
             stop_with_count: "Stop ({count})",
+            dq_cap_reached: "Max {n} queues running",
 
             queue_helper: "Queue Helper",
             disable: "Disable",
@@ -148,6 +149,7 @@
             keep_high_score: "Top-Bewertete behalten",
             start_auto_ignore: "Auto-Ignorieren starten",
             stop_with_count: "Stopp ({count})",
+            dq_cap_reached: "Max. {n} Warteschlangen",
 
             queue_helper: "Listen-Helfer",
             disable: "Deaktivieren",
@@ -235,6 +237,7 @@
             keep_high_score: "Garder les bien notés",
             start_auto_ignore: "Démarrer auto-ignore",
             stop_with_count: "Arrêter ({count})",
+            dq_cap_reached: "Max {n} files actives",
 
             queue_helper: "Assistant de file",
             disable: "Désactiver",
@@ -322,6 +325,7 @@
             keep_high_score: "Mantener los bien valorados",
             start_auto_ignore: "Iniciar auto-ignorar",
             stop_with_count: "Detener ({count})",
+            dq_cap_reached: "Máx {n} colas activas",
 
             queue_helper: "Asistente de cola",
             disable: "Desactivar",
@@ -409,6 +413,7 @@
             keep_high_score: "Διατήρηση των υψηλά βαθμολογημένων",
             start_auto_ignore: "Έναρξη αυτόματης αγνόησης",
             stop_with_count: "Διακοπή ({count})",
+            dq_cap_reached: "Έως {n} ουρές ενεργές",
 
             queue_helper: "Βοηθός ουράς",
             disable: "Απενεργοποίηση",
@@ -496,6 +501,7 @@
             keep_high_score: "Mantieni i ben valutati",
             start_auto_ignore: "Avvia auto-ignora",
             stop_with_count: "Stop ({count})",
+            dq_cap_reached: "Max {n} code attive",
 
             queue_helper: "Assistente coda",
             disable: "Disabilita",
@@ -583,6 +589,7 @@
             keep_high_score: "Manter os bem avaliados",
             start_auto_ignore: "Iniciar auto-ignorar",
             stop_with_count: "Parar ({count})",
+            dq_cap_reached: "Máx {n} filas ativas",
 
             queue_helper: "Ajudante de fila",
             disable: "Desativar",
@@ -670,6 +677,7 @@
             keep_high_score: "Yüksek puanlıları tut",
             start_auto_ignore: "Otomatik yoksaymayı başlat",
             stop_with_count: "Durdur ({count})",
+            dq_cap_reached: "En fazla {n} kuyruk",
 
             queue_helper: "Sıra Yardımcısı",
             disable: "Devre dışı bırak",
@@ -757,6 +765,7 @@
             keep_high_score: "Оставлять топовые",
             start_auto_ignore: "Старт автоскрытия",
             stop_with_count: "Стоп ({count})",
+            dq_cap_reached: "Максимум {n} очереди",
 
             queue_helper: "Помощник очереди",
             disable: "Отключить",
@@ -844,6 +853,7 @@
             keep_high_score: "Залишати топові",
             start_auto_ignore: "Старт автоприховування",
             stop_with_count: "Стоп ({count})",
+            dq_cap_reached: "Максимум {n} черги",
 
             queue_helper: "Помічник черги",
             disable: "Вимкнути",
@@ -931,6 +941,7 @@
             keep_high_score: "Zachowaj wysoko oceniane",
             start_auto_ignore: "Start auto-ukrywania",
             stop_with_count: "Stop ({count})",
+            dq_cap_reached: "Maks. {n} kolejki",
 
             queue_helper: "Pomocnik kolejki",
             disable: "Wyłącz",
@@ -1018,6 +1029,7 @@
             keep_high_score: "Zachovat vysoce hodnocené",
             start_auto_ignore: "Spustit auto-skrývání",
             stop_with_count: "Stop ({count})",
+            dq_cap_reached: "Max {n} fronty",
 
             queue_helper: "Pomocník fronty",
             disable: "Zakázat",
@@ -1105,6 +1117,7 @@
             keep_high_score: "Magas pontszámúak megtartása",
             start_auto_ignore: "Auto-mellőzés indítása",
             stop_with_count: "Leállítás ({count})",
+            dq_cap_reached: "Max {n} sor aktív",
 
             queue_helper: "Lista-segéd",
             disable: "Letiltás",
@@ -1192,6 +1205,7 @@
             keep_high_score: "Zadrži visoko ocenjene",
             start_auto_ignore: "Pokreni auto-ignorisanje",
             stop_with_count: "Zaustavi ({count})",
+            dq_cap_reached: "Највише {n} реда",
 
             queue_helper: "Pomoćnik reda",
             disable: "Onemogući",
@@ -1279,6 +1293,7 @@
             keep_high_score: "Păstrează cele bine notate",
             start_auto_ignore: "Pornește auto-ignorarea",
             stop_with_count: "Oprește ({count})",
+            dq_cap_reached: "Max {n} cozi active",
 
             queue_helper: "Asistent coadă",
             disable: "Dezactivează",
@@ -1366,6 +1381,7 @@
             keep_high_score: "高評価は残す",
             start_auto_ignore: "自動無視を開始",
             stop_with_count: "停止 ({count})",
+            dq_cap_reached: "最大{n}件まで",
 
             queue_helper: "キューヘルパー",
             disable: "無効化",
@@ -1453,6 +1469,7 @@
             keep_high_score: "고평가는 유지",
             start_auto_ignore: "자동 숨김 시작",
             stop_with_count: "정지 ({count})",
+            dq_cap_reached: "최대 {n}개 실행",
 
             queue_helper: "큐 도우미",
             disable: "비활성화",
@@ -1540,6 +1557,7 @@
             keep_high_score: "保留高評價",
             start_auto_ignore: "開始自動忽略",
             stop_with_count: "停止 ({count})",
+            dq_cap_reached: "最多{n}個佇列",
 
             queue_helper: "佇列助手",
             disable: "停用",
@@ -1627,6 +1645,7 @@
             keep_high_score: "คงเกมเรตติ้งสูง",
             start_auto_ignore: "เริ่มซ่อนอัตโนมัติ",
             stop_with_count: "หยุด ({count})",
+            dq_cap_reached: "สูงสุด {n} คิว",
 
             queue_helper: "ตัวช่วยคิว",
             disable: "ปิดใช้งาน",
