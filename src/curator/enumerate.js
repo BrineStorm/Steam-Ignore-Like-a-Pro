@@ -87,10 +87,13 @@
     // are injectable for tests; defaults hit the live endpoint same-origin.
     async function enumerate(curatorId, opts) {
         opts = opts || {};
-        const doFetch = opts.fetch || ((url) => fetch(url, {
+        // 15 s deadline per page (a 500-row page is a big payload on a slow
+        // link) — a hung read must throw like a network error, not stall the
+        // enumeration forever.
+        const doFetch = opts.fetch || ((url) => window.ILAP.fetchWithTimeout(url, {
             credentials: 'include',
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
-        }));
+        }, 15000));
         const sleep = opts.sleep || ((ms) => new Promise(r => setTimeout(r, ms)));
         const count = opts.count || DEFAULT_COUNT;
         const maxPages = opts.maxPages || MAX_PAGES;

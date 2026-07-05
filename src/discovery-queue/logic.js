@@ -300,6 +300,10 @@
             if (this.gate) {
                 const slot = await this.gate.reserve();
                 if (!slot.ok) return false;
+                // The reservation can wait out several paced slots; a Stop click
+                // (or the master-off teardown) landing during that wait must not
+                // be followed by one more ignore.
+                if (!this.isRunning) return false;
             }
 
             // Ignore by a LIVE click on the prohibition icon (our code sends no POST;

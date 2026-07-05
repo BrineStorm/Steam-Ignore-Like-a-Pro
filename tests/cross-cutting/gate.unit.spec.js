@@ -49,6 +49,16 @@ test.describe('ignore-rate gate (unit)', () => {
         expect(Gate.nextSlot(100, 5000, 500)).toBe(5000);
     });
 
+    test('nextSlot: an implausibly-future last slot (clock skew) is clamped to now', () => {
+        const { Gate } = loadGate();
+        const now = 1000000;
+        // Beyond MAX_AHEAD = skew/corruption → treated as now, not waited out.
+        expect(Gate.nextSlot(now + Gate.MAX_AHEAD + 1, now, 500)).toBe(now + 500);
+        expect(Gate.nextSlot(now + 3600000, now, 500)).toBe(now + 500);
+        // A legitimately-queued near-future slot (within MAX_AHEAD) is respected.
+        expect(Gate.nextSlot(now + 2000, now, 500)).toBe(now + 2500);
+    });
+
     test('reserve STOPS (no slot) when the master toggle is off', async () => {
         const { Gate, ILAP } = loadGate({ ilap_master_enabled: false });
         ILAP.getSessionID = () => 'sess';
@@ -93,6 +103,32 @@ test.describe('ignore-rate gate (unit)', () => {
         const results = await Promise.all([Gate.reserve(), Gate.reserve(), Gate.reserve()]);
         expect(results.every(r => r.ok)).toBe(true);
         expect(data().ilap_ignore_gate).toBeGreaterThanOrEqual(start + 2 * Gate.MIN_GAP);
+    });
+
+    test('a master flip during the pacing wait stops the reservation (no late ignore)', async () => {
+        // The wait can span seconds when sources stack; the stop conditions are
+        // re-checked AFTER the sleep, so a user who disabled the extension while
+        // a slot was pending must not see one more ignore fire.
+        const { Gate, ILAP, data } = loadGate({
+            ilap_master_enabled: true,
+            ilap_ignore_gate: Date.now() + 800, // forces a >0 wait
+        });
+        ILAP.getSessionID = () => 'sess';
+        setTimeout(() => { data().ilap_master_enabled = false; }, 300);
+        const r = await Gate.reserve();
+        expect(r).toEqual({ ok: false, reason: 'disabled' });
+    });
+
+    test('a session death during the pacing wait stops the reservation', async () => {
+        const { Gate, ILAP } = loadGate({
+            ilap_master_enabled: true,
+            ilap_ignore_gate: Date.now() + 800, // forces a >0 wait
+        });
+        let sid = 'sess';
+        ILAP.getSessionID = () => sid;
+        setTimeout(() => { sid = null; }, 300);
+        const r = await Gate.reserve();
+        expect(r).toEqual({ ok: false, reason: 'no-session' });
     });
 
     test('the claim chain survives a throwing reservation (one failure cannot wedge the gate)', async () => {

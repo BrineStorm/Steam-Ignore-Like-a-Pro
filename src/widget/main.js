@@ -171,8 +171,15 @@
         .ilap-launcher img { width: 26px; height: 26px; border-radius: 5px; display: block; pointer-events: none; }
         .ilap-panel { display: none; position: absolute; top: ${ICON + 8}px; right: 0; }
         .ilap-panel.open { display: block; }
-        /* 1px Spared-coloured outline + smoothed corners on the panel itself. */
-        .ilap-panel #popup-root { outline: none; border: 1px solid ${SPARED}; border-radius: 10px; }
+        /* 1px Spared-coloured outline + smoothed corners on the panel itself.
+           The toolbar popup gets scrolling from the browser for free; here the
+           panel must cap itself to the viewport (host top + panel offset +
+           bottom margin) and scroll, or on short screens (≤~768px with the
+           settings accordion open) its lower part would be unreachable. */
+        .ilap-panel #popup-root {
+            outline: none; border: 1px solid ${SPARED}; border-radius: 10px;
+            max-height: calc(100vh - ${TOP + ICON + 8 + 12}px); overflow-y: auto;
+        }
     `;
 
     const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;

@@ -70,6 +70,7 @@
             this.container = null;
             this.button = null;
             this.checkbox = null;
+            this._refuseTimer = null;
             Styles.inject();
         }
 

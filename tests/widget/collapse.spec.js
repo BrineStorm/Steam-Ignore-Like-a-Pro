@@ -77,6 +77,29 @@ test.describe('on-page widget — collapse to chevron', () => {
         expect(data[KEY]).toBe(0);
     });
 
+    test('on a short screen the open panel caps to the viewport and scrolls', async ({ page }) => {
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session'); // panel is login-gated
+
+        // The toolbar popup scrolls via the browser; the shadow panel must cap
+        // itself (max-height + overflow-y) or its lower part is unreachable on
+        // short screens.
+        await page.setViewportSize({ width: 1024, height: 500 });
+        await page.goto(PAGE);
+        await page.locator('.ilap-chevron').click();
+        await page.locator('.ilap-launcher').click();
+        await expect(page.locator('.ilap-panel')).toHaveClass(/open/);
+
+        // Grow the content: open the SETTINGS accordion inside the panel.
+        await page.locator('.ilap-panel #settings-accordion summary').first().click();
+
+        const root = page.locator('.ilap-panel #popup-root');
+        const box = await root.boundingBox();
+        expect(box.y + box.height).toBeLessThanOrEqual(500); // fits the viewport
+        // …and the overflowing content is reachable by scrolling inside the panel.
+        const scrollable = await root.evaluate((el) => el.scrollHeight > el.clientHeight);
+        expect(scrollable).toBe(true);
+    });
+
     test('an open panel counts as activity — idle timer bumps instead of collapsing', async ({ context, page }) => {
         test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session'); // panel is login-gated
 

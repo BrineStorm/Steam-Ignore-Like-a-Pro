@@ -182,11 +182,17 @@
         }
 
         async _performIgnore(appid, shouldNext, mode) {
-            // Reserve an aggregate rate slot first (paces EQ against the drainer and
-            // any DQ tabs; a stop verdict = master off / dead session → do nothing).
+            // Reserve an aggregate rate slot first (paces EQ against the drainer
+            // and any DQ tabs). A stop verdict (master off / dead session) tears
+            // the automation down instead of leaving a zombie "running" toast
+            // behind a silent no-op.
             if (this.gate) {
                 const slot = await this.gate.reserve();
-                if (!slot.ok) return;
+                if (!slot.ok) {
+                    this._stopAutomation();
+                    this.ui.removeToast();
+                    return;
+                }
             }
             const success = await this.api.ignore(appid, 0);
             if (!success) return;

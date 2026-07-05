@@ -120,6 +120,37 @@ test.describe('Curator — queue drainer', () => {
         expect(c == null || c === 0).toBe(true);
     });
 
+    test('a pause landing during the gate wait stops BEFORE the POST', async ({ page, context }) => {
+        const calls = await interceptIgnoreApi(context);
+        await routeUserdata(context, []);
+
+        // Seed the shared gate slot well into the future: the drainer passes its
+        // loop-top status check, then sleeps in gate.reserve() waiting for the
+        // slot. The pause below lands during that wait — the post-reserve status
+        // re-check must stop the pass with zero POSTs and no cursor burn. The
+        // 10 s margin absorbs the page-load time (the seed is consumed from the
+        // moment it's written, not from goto), and stays within MAX_AHEAD so the
+        // clamp treats it as real pacing, not clock skew.
+        const seededSlot = Date.now() + 10000;
+        await setExtensionStorage(context, {
+            ilap_ignore_gate: seededSlot,
+            ilap_curator_queue: [makeJob()],
+        });
+        await page.goto(STORE_PAGE);
+
+        await page.waitForTimeout(500); // drainer is now asleep inside reserve()
+        await setExtensionStorage(context, { ilap_curator_queue: [makeJob({ status: 'paused' })] });
+        // Wait until safely past the reserved slot (+gap +margin), so the
+        // post-reserve re-check has definitely run before we assert.
+        await page.waitForTimeout(Math.max(seededSlot + 2500 - Date.now(), 0));
+
+        expect(calls).toHaveLength(0);
+        const job = (await readQueue(context))[0];
+        expect(job.status).toBe('paused');
+        const cur = await getExtensionStorage(context, 'ilap_curator_cursor_job_drain_1');
+        expect(cur.ilap_curator_cursor_job_drain_1).toBeUndefined();
+    });
+
     test('a paused job is never drained', async ({ page, context }) => {
         const calls = await interceptIgnoreApi(context);
         await routeUserdata(context, []);

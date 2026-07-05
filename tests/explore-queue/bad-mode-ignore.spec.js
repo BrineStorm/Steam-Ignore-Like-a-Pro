@@ -19,8 +19,10 @@ async function readVerdict(page, timeoutMs = 8000) {
     } catch {
         return null;
     }
+    // Labels are past-tense on the badge (BADGE_LABELS in explore-queue/ui.js):
+    // IGNORE renders as "IGNORED", SPARE as "SPARED".
     const text = (await badge.first().textContent().catch(() => '') || '').trim().toUpperCase();
-    if (text === 'IGNORE') return 'IGNORE';
+    if (text === 'IGNORED') return 'IGNORE';
     if (text === 'SPARED') return 'SPARE';
     if (text === 'NO REVIEWS') return 'NO_REVIEWS';
     return null;
@@ -117,6 +119,6 @@ test.describe('Explore Queue — bad mode actually ignores a Mixed/Negative game
 
         // Sanity: the badge that triggered IGNORE is the IGNORE one.
         const badge = page.locator('.ilap-micro-badge').first();
-        await expect(badge).toContainText(/^IGNORE$/);
+        await expect(badge).toContainText(/^IGNORED$/);
     });
 });

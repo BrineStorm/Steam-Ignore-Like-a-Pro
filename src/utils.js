@@ -40,15 +40,30 @@
             .slice(0, maxLen || NAME_MAX_LEN);
     }
 
+    // Every Steam fetch gets a hard deadline: a hung request (server not
+    // answering, half-dead connection) must fail like a network error rather
+    // than hold its caller forever — most critically the curator drainer, whose
+    // `draining` latch a hung ignore POST would otherwise wedge until reload
+    // (the lease would expire and hand off to another tab, but THIS tab would
+    // never drain again). Callers already treat a throw as failure, and an
+    // abort throws, so no call site needs extra handling.
+    const FETCH_TIMEOUT_MS = 10000;
+    function fetchWithTimeout(url, options, timeoutMs) {
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), timeoutMs || FETCH_TIMEOUT_MS);
+        return fetch(url, Object.assign({}, options, { signal: ctl.signal }))
+            .finally(() => clearTimeout(timer));
+    }
+
     // Authoritative ignore-state source: Steam's own dynamic store. Same-origin
     // GET (read-only — NOT an ignore API call); rgIgnoredApps is the map of every
     // ignored appid. Shared by the DQ ignore-confirmation and the curator drainer's
-    // drain-time dedupe. Any failure (network/parse/non-ok) resolves to an empty
-    // Set so callers treat it as "nothing confirmed ignored yet" and carry on.
+    // drain-time dedupe. Any failure (network/parse/non-ok/timeout) resolves to an
+    // empty Set so callers treat it as "nothing confirmed ignored yet" and carry on.
     const USERDATA_URL = 'https://store.steampowered.com/dynamicstore/userdata/';
     async function fetchIgnoredApps() {
         try {
-            const res = await fetch(`${USERDATA_URL}?_=${Date.now()}`, {
+            const res = await fetchWithTimeout(`${USERDATA_URL}?_=${Date.now()}`, {
                 credentials: 'include', cache: 'no-store'
             });
             if (!res.ok) return new Set();
@@ -77,7 +92,7 @@
         // null when the request itself failed (offline) — keep the current state.
         async probeLogin() {
             try {
-                const res = await fetch(ACCOUNT_URL, { credentials: 'include', cache: 'no-store' });
+                const res = await fetchWithTimeout(ACCOUNT_URL, { credentials: 'include', cache: 'no-store' });
                 if (!res.ok) return null;
                 return !res.url.includes('/login');
             } catch (e) { return null; }
@@ -91,10 +106,10 @@
 
             const body = `sessionid=${sessionid}&appid=${appid}&snr=&ignore_reason=${reason}`;
             try {
-                const response = await fetch('https://store.steampowered.com/recommended/ignorerecommendation/', { 
-                    method: 'POST', 
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' }, 
-                    body: body 
+                const response = await fetchWithTimeout('https://store.steampowered.com/recommended/ignorerecommendation/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                    body: body
                 });
                 return response.ok;
             } catch (e) { return false; }
@@ -336,5 +351,6 @@
     window.ILAP.SessionStateService = SessionStateService;
     window.ILAP.ResourceService = ResourceService;
     window.ILAP.sanitizeName = sanitizeName;
+    window.ILAP.fetchWithTimeout = fetchWithTimeout;
 
 })();

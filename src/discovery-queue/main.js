@@ -56,6 +56,8 @@
             // DQ-automator registry (caps how many DQ loops run per profile).
             this.ownerId = 'dq_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
             this._beat = null;
+            this.registry = null;      // bound in init(), like the other adapters
+            this._starting = false;    // latch: a registry acquire is in flight
         }
 
         init() {
@@ -69,6 +71,7 @@
             };
             const nameExtractorAdapter = { get: (appid, el) => window.ILAP.getGameName(appid, el) };
             const gateAdapter = { reserve: () => window.ILAP.IgnoreGate.reserve() };
+            this.registry = window.ILAP.Discovery.Registry;
 
             // 2. Instantiate Components
             const AutomatorClass = window.ILAP.Discovery.Automator;
@@ -97,23 +100,29 @@
 
         // Start/stop the loop, gated by the cross-tab DQ-automator cap. Stopping
         // needs no registry check; starting claims a slot first and refuses (with
-        // a transient button message) when other tabs already fill the cap.
+        // a transient button message) when other tabs already fill the cap. The
+        // _starting latch swallows clicks landing while the acquire is in flight
+        // (isRunning is still false then, so they'd read as a second Start).
         async _toggle() {
-            const Registry = window.ILAP.Discovery.Registry;
+            if (this._starting) return;
             if (this.automator.isRunning) {
                 this.automator.stop();     // the UI observer frees the slot
                 return;
             }
-            const ok = await Registry.tryAcquire(this.ownerId);
-            if (!ok) { this.ui.showRefused(Registry.CAP); return; }
-            this._startHeartbeat();
-            this.automator.start();        // observer tracks running; frees on stop
+            this._starting = true;
+            try {
+                const ok = await this.registry.tryAcquire(this.ownerId);
+                if (!ok) { this.ui.showRefused(this.registry.CAP); return; }
+                this._startHeartbeat();
+                this.automator.start();    // observer tracks running; frees on stop
+            } finally {
+                this._starting = false;
+            }
         }
 
         _startHeartbeat() {
-            const Registry = window.ILAP.Discovery.Registry;
             this._stopHeartbeat();
-            this._beat = setInterval(() => Registry.renew(this.ownerId), Registry.HEARTBEAT_MS);
+            this._beat = setInterval(() => this.registry.renew(this.ownerId), this.registry.HEARTBEAT_MS);
         }
 
         _stopHeartbeat() {
@@ -122,7 +131,7 @@
 
         _releaseSlot() {
             this._stopHeartbeat();
-            window.ILAP.Discovery.Registry.release(this.ownerId);
+            this.registry.release(this.ownerId);
         }
 
         _subscribeMasterChanges() {

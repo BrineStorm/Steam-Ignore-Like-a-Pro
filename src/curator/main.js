@@ -75,6 +75,13 @@
             }
             #${BTN_ID}:hover { background-color: ${BTN_BG_HOVER} !important; background-image: none !important; }
             #${BTN_ID}:disabled { opacity: .7; cursor: default; }
+            /* Popup surface mode: the button stays in place but locked — greyed,
+               flat, not-allowed cursor, tooltip explains how to get it back. */
+            #${BTN_ID}.ilap-locked, #${BTN_ID}.ilap-locked:hover {
+                background-color: #3d4450 !important; color: #8f98a0 !important;
+                cursor: not-allowed; opacity: 1; filter: grayscale(1) !important;
+            }
+            #${BTN_ID}.ilap-locked .ilap-cur-caret { opacity: .35; }
             #${BTN_ID} .ilap-cur-caret { font-size: 9px; opacity: .85; transition: transform .15s ease; }
             .ilap-curator-ctl.open #${BTN_ID} .ilap-cur-caret { transform: rotate(180deg); }
             /* Menu lives on <body> (position:fixed) so no Steam ancestor stacking
@@ -220,7 +227,10 @@
 
     // Wire open/close, option picking, and dismissal (outside click + scroll/resize
     // reposition guard — the fixed menu would otherwise detach from the button).
-    function wireMenu(wrap, btn, menu) {
+    // `isLocked()` is re-checked on every interaction: the surface can flip to popup
+    // mode (in this or another window) while the dropdown is already open, so a pick
+    // must be refused even if the menu is still visibly open at click time.
+    function wireMenu(wrap, btn, menu, isLocked) {
         const close = () => { menu.classList.remove('open'); wrap.classList.remove('open'); };
         const open = () => {
             const r = btn.getBoundingClientRect();
@@ -233,7 +243,7 @@
 
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (btn.disabled) return;
+            if (btn.disabled || isLocked()) return;
             menu.classList.contains('open') ? close() : open();
         });
 
@@ -241,6 +251,7 @@
             const opt = e.target.closest('.ilap-curator-opt');
             if (!opt) return;
             close();
+            if (isLocked()) return; // popup mode flipped in mid-open: refuse the stage
             pick(opt.getAttribute('data-value'), btn);
         });
 
@@ -279,22 +290,42 @@
     // surface, settle login, react to a live surface flip — with no free-floating
     // module state.
     function createButtonController() {
-        let injectedCtl = null; // { wrap, menu } once injected; kept for the live surface switch
+        let injectedCtl = null; // { wrap, btn, menu } once injected; kept for the live surface switch
         let loginOk = false;
         let surfaceOn = true;
+        let locked = false;     // popup surface mode → button visible but not-allowed
+
+        // Reflect the current lock state onto the injected button: greyed + tooltip
+        // + disabled (so the dropdown can't be opened), and force the dropdown shut
+        // so a menu left open across a live flip can't stage a job.
+        function applyLock() {
+            if (!injectedCtl) return;
+            const { wrap, btn, menu } = injectedCtl;
+            if (locked) {
+                menu.classList.remove('open');
+                wrap.classList.remove('open');
+                btn.disabled = true;
+                btn.classList.add('ilap-locked');
+                btn.title = t('curator_locked_popup', { keys: window.ILAP.Surface.ESCAPE_HOTKEY_LABEL });
+            } else {
+                btn.disabled = false;
+                btn.classList.remove('ilap-locked');
+                btn.removeAttribute('title');
+            }
+        }
 
         function inject(report) {
             if (report.querySelector('#' + BTN_ID)) return;
             injectStyle();
             const { wrap, btn } = buildButton(report);
             const { menu, renderMenu } = buildMenu();
-            wireMenu(wrap, btn, menu);
+            wireMenu(wrap, btn, menu, () => locked);
             wireStorageSync(btn, renderMenu);
-            injectedCtl = { wrap, menu };
+            injectedCtl = { wrap, btn, menu };
+            applyLock();
         }
 
         function tryInject() {
-            if (!surfaceOn) return true; // parked surface — stop looking, don't inject
             const report = document.querySelector('.nav_right_side > .curator_report');
             if (!report) return false;
             inject(report);
@@ -311,22 +342,15 @@
 
         return {
             // Seed the effective surface at boot (before login settles) — no side effect.
-            setSurface(on) { surfaceOn = on; },
-            // Login gate settled positive: remember it and inject if the surface allows.
-            onLogin() { loginOk = true; if (surfaceOn) start(); },
-            // Live surface switch: popup mode hides the button in place (fresh
-            // popup-mode pages never inject it at all), widget mode shows/injects it.
+            setSurface(on) { surfaceOn = on; locked = !on; },
+            // Login gate settled positive: remember it and inject (locked in popup mode).
+            onLogin() { loginOk = true; start(); },
+            // Live surface switch: popup mode locks the button in place (greyed +
+            // tooltip, dropdown forced shut), widget mode unlocks/injects it.
             applySurface(on) {
                 surfaceOn = on;
-                if (!on) {
-                    if (injectedCtl) {
-                        injectedCtl.menu.classList.remove('open');
-                        injectedCtl.wrap.classList.remove('open');
-                        injectedCtl.wrap.style.display = 'none';
-                    }
-                    return;
-                }
-                if (injectedCtl) { injectedCtl.wrap.style.display = ''; return; }
+                locked = !on;
+                if (injectedCtl) { applyLock(); return; }
                 if (loginOk) start();
             }
         };
@@ -350,7 +374,8 @@
         const ctl = createButtonController();
 
         // Surface gate: in popup mode the curator queue must stay empty, so the
-        // staging control is withheld; a live mode switch hides/shows it in place.
+        // staging control is locked (greyed + tooltip) rather than removed; a live
+        // mode switch locks/unlocks it in place.
         chrome.storage.onChanged.addListener((changes, area) => {
             if (area === 'local' && changes[Surface.KEY]) {
                 ctl.applySurface(Surface.resolve(changes[Surface.KEY].newValue, navigator.userAgent) === 'widget');

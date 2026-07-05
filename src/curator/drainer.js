@@ -138,6 +138,12 @@
                 const slot = await this.gate.reserve();
                 if (!slot.ok) return 'stop';
 
+                // The reservation can wait out several paced slots; a pause or
+                // remove landing during that wait must stop BEFORE the POST (the
+                // status check at the top of the loop ran before the wait).
+                const fresh = (await this.store.getQueue()).find(j => j.id === job.id);
+                if (!fresh || (fresh.status !== 'pending' && fresh.status !== 'running')) return;
+
                 const ok = await this.api.ignore(appid, REASON);
                 if (ok) {
                     ignored.add(appid);
