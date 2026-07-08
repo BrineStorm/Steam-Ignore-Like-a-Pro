@@ -30,10 +30,8 @@
     const esc = window.ILAP.Sanitizer.escapeHTML;
 
     // /curator/<id>-<slug>/ → numeric id, or null on any other store page.
-    function curatorId() {
-        const m = location.pathname.match(/^\/curator\/(\d+)/);
-        return m ? m[1] : null;
-    }
+    // Shared parser (src/curator/filters.js) so main.js and the popup applet agree.
+    const curatorId = () => Filters.curatorIdFromPath(location.pathname);
 
     // Boundary normalizer: the curator name comes from a third-party page (or a
     // crafted URL slug) and is persisted, so reduce it to bounded plain text
@@ -174,7 +172,13 @@
                 showToast('curator_toast_added', value);
             }
             service.resolve(id, outcome.jobId, outcome.name, value,
-                (n) => window.confirm(t('curator_confirm', { n })));
+                (n) => window.confirm(t('curator_confirm', { n }))
+            ).then((res) => {
+                // Enumeration produced no drainable list (fetch/parse failure, or
+                // nothing under this filter) — the job was dropped, so tell the user
+                // instead of leaving them with a silently vanished button state.
+                if (res && res.error) showToast('curator_toast_error', null, 4500);
+            });
         });
     }
 
@@ -243,11 +247,13 @@
 
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
+            if (!e.isTrusted) return; // real clicks only — a page script can't open the menu
             if (btn.disabled || isLocked()) return;
             menu.classList.contains('open') ? close() : open();
         });
 
         menu.addEventListener('click', (e) => {
+            if (!e.isTrusted) return; // real clicks only — a page script can't stage a bulk job
             const opt = e.target.closest('.ilap-curator-opt');
             if (!opt) return;
             close();

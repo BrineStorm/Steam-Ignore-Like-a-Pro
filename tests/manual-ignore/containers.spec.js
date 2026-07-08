@@ -9,6 +9,7 @@ const {
     waitForContentScript,
 } = require('./_helpers');
 const { clearExtensionStorage } = require('../_extension.js');
+const { searchUrl } = require('../_search.js');
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
@@ -42,7 +43,7 @@ test.describe('Manual Ignore — container strategies across Steam surfaces', ()
 
     test('Swipe lands a badge on: search results — Fallback strategy (grid)', async ({ page, context }) => {
         const calls = await interceptIgnoreApi(context);
-        await page.goto('/search/?term=action');
+        await page.goto(searchUrl());
         await waitForContentScript(page);
 
         // Search rows ARE the /app/ link; the extension resolves them via the

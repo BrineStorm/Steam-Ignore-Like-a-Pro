@@ -24,10 +24,10 @@
     window.ILAP.Curator = window.ILAP.Curator || {};
 
     const REASON = 0;              // same as a manual default ignore
-    // Inter-request pacing now lives in the shared IgnoreGate (window.ILAP.gate):
-    // one governor budgets the AGGREGATE ignore rate across the drainer, EQ, DQ
-    // and every tab, so per-source jitter here would only double-pace. The gate
-    // also owns the defensive floor and the master/dead-session stop.
+    // Inter-request pacing now lives in the shared IgnoreGate (window.ILAP.IgnoreGate,
+    // injected here as deps.gate): one governor budgets the AGGREGATE ignore rate
+    // across the drainer, EQ, DQ and every tab, so per-source jitter here would only
+    // double-pace. The gate also owns the defensive floor and the master/dead-session stop.
     const HEARTBEAT_MS = 3000;     // renew the lease well within its 8 s TTL
     const MAX_FAILS = 3;           // give up on a single appid after N failed POSTs
     const RETRY_TICK_MS = 9000;    // standby poll: steal an expired lease / pick up work

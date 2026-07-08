@@ -90,4 +90,41 @@ test.describe('Popup — surface stub', () => {
         await setExtensionStorage(context, { ilap_surface_mode: 'widget' });
         await page.locator('#ilap-popup-stub').waitFor({ timeout: 5000 });
     });
+
+    test('post-update glow: shown once at the first popup open, consumed, never replayed', async ({ page, context }) => {
+        // The state the migration update writes: popup mode + the armed glow
+        // (the --test build swaps migrate.js out, so seed it the same way).
+        await setExtensionStorage(context, { ilap_surface_mode: 'popup', ilap_update_glow: true });
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+
+        // First open: the gold wash is on, and the flag is consumed right away —
+        // so a close/reopen even within the 5 s window can't replay it.
+        await expect(page.locator('#popup-root')).toHaveClass(/update-glow/);
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, 'ilap_update_glow')).ilap_update_glow
+        ).toBe(false);
+
+        await page.reload();
+        await expect(page.locator('#popup-root')).toBeVisible();
+        await expect(page.locator('#popup-root')).not.toHaveClass(/update-glow/);
+    });
+
+    test('post-update glow: a stale flag in widget mode is retired silently by the stub', async ({ page, context }) => {
+        // The user escaped to widget mode before ever opening the popup — they
+        // have plainly found the extension, so the stub consumes the flag and a
+        // later switch back to popup mode must NOT glow.
+        await setExtensionStorage(context, { ilap_update_glow: true }); // widget mode (default)
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+
+        await expect(page.locator('#ilap-popup-stub')).toBeVisible();
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, 'ilap_update_glow')).ilap_update_glow
+        ).toBe(false);
+
+        await setExtensionStorage(context, { ilap_surface_mode: 'popup' });
+        await page.locator('#popup-root').waitFor({ timeout: 5000 }); // live flip reloads
+        await expect(page.locator('#popup-root')).not.toHaveClass(/update-glow/);
+    });
 });

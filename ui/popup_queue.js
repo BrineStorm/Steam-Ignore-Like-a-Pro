@@ -44,10 +44,8 @@
 
     // Curator id of the page this surface is rendered on (only matches in the on-page
     // widget; the popup window's location isn't a curator page → null → no highlight).
-    function currentCuratorId() {
-        const m = location.pathname.match(/^\/curator\/(\d+)/);
-        return m ? m[1] : null;
-    }
+    // Shared parser (src/curator/filters.js) so this and main.js agree.
+    const currentCuratorId = () => Filters.curatorIdFromPath(location.pathname);
 
     // Inline icons (inherit the button colour via currentColor).
     const ICON_PAUSE = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>';
@@ -69,6 +67,7 @@
         // serialized queue writers, so a click here can't interleave with a
         // concurrent queue write in the same context.
         _onAction(e) {
+            if (!e.isTrusted) return; // real clicks only — not page-synthesized events
             const btn = e.target.closest('.queue-act');
             if (!btn) return;
             const id = btn.dataset.jobId;

@@ -14,8 +14,7 @@ const {
     getExtensionStorage,
     popupUrl,
 } = require('../_extension.js');
-
-const SEARCH_URL = '/search/?term=action';
+const { searchUrl } = require('../_search.js');
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
@@ -38,7 +37,7 @@ test.describe('Manual Ignore — stats reach the popup history', () => {
         //    intercepted, but saveStats / getGameName are NOT — they hit
         //    chrome.storage.local and the real DOM-based name extractor.
         const calls = await interceptIgnoreApi(context);
-        await page.goto(SEARCH_URL);
+        await page.goto(searchUrl());
         await waitForContentScript(page);
 
         const { link, appid } = await pickFirstRow(page);
@@ -103,7 +102,7 @@ test.describe('Manual Ignore — stats reach the popup history', () => {
         });
 
         const calls = await interceptIgnoreApi(context);
-        await page.goto(SEARCH_URL);
+        await page.goto(searchUrl());
         await waitForContentScript(page);
         await page.waitForTimeout(400);
 

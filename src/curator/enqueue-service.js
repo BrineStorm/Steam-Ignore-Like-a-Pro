@@ -62,7 +62,10 @@
         // Resolve a staged job's appids and flip it to `pending` so the drainer can
         // start. Uses the 7-day retention cache when fresh (0 network), otherwise
         // enumerates the curator and caches the result. `confirmFn(count)` gates a
-        // large batch; honours removal mid-enumeration.
+        // large batch; honours removal mid-enumeration. Returns the outcome the UI
+        // reacts to: { ok:true } on success, { error:true } when no drainable list
+        // could be built (enumeration failed, or nothing matched the filter),
+        // undefined when the user themselves cancelled/removed the job.
         async resolve(id, jobId, name, filter, confirmFn) {
             const Enum = this.enumerator, Store = this.store;
             try {
@@ -84,6 +87,14 @@
                     await Store.removeJob(jobId);
                     return;
                 }
+                // An empty list means the enumeration parsed nothing (a Steam markup
+                // change silently yields 0 rows) or the curator has no games under
+                // this filter. Either way there's nothing to drain: drop the job so
+                // it doesn't sit as an invisible "pending 0/—" forever, and report it.
+                if (appids.length === 0) {
+                    await Store.removeJob(jobId);
+                    return { error: true };
+                }
                 // Fresh appid list → progress restarts. The cursor key is reset here,
                 // while the job is still 'enumerating' (not drainable), so the drainer
                 // can't be advancing it concurrently.
@@ -91,10 +102,13 @@
                 await Store.updateJob(jobId, {
                     appids, total: appids.length, status: 'pending'
                 });
+                return { ok: true };
             } catch (e) {
-                // Enumeration failed — leave the job idle (0/0) so the user can remove
-                // or re-add it; never auto-ignore on a half-resolved list.
-                await Store.updateJob(jobId, { status: 'pending', appids: [], total: 0 });
+                // Enumeration failed (network/parse/timeout) — never auto-ignore on a
+                // half-resolved list. Drop the job rather than leaving it idle at 0/0
+                // (an invisible dead row) and let the caller surface the failure.
+                await Store.removeJob(jobId);
+                return { error: true };
             }
         }
     }

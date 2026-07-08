@@ -26,6 +26,14 @@
     // the pin is inert — it's a preference for an active widget, so pinning makes
     // no sense with everything off. Absent = enabled.
     const MASTER_KEY = 'ilap_master_enabled';
+    // New-install beacon, written by src/migrate.js on a FRESH install only: while
+    // set, the collapsed chevron keeps the steady blue rim and radiates the gold
+    // halo in 10 s bursts once a minute — a first-time user has never seen the
+    // on-page surface and the slim tab is easy to miss, but a non-stop pulse would
+    // nag. Retired (across all tabs) by the first chevron click.
+    const INTRO_KEY = 'ilap_intro_glow';
+    const INTRO_BURST_MS = 10000; // gold halo pulses for this long…
+    const INTRO_CYCLE_MS = 60000; // …once every minute
     const IDLE_MS = 60000;            // stash after a minute with the panel closed
     const ACTIVITY_THROTTLE_MS = 5000; // min gap between activity-timestamp writes
 
@@ -83,8 +91,8 @@
             box-shadow: 0 0 7px rgba(69,161,250,.5), 0 2px 8px rgba(0,0,0,.5);
         }
         /* Gold phase: a golden gradient halo radiates outward from the chevron
-           (larger than the chevron, via a scaling ::before), on a steady gold rim. */
-        .ilap-chevron.restored.gold { border-color: #f5c518; }
+           (larger than the chevron, via a scaling ::before). The rim stays the
+           steady blue outline from .restored — no gold border. */
         .ilap-chevron.restored.gold::before {
             content: ''; position: absolute; inset: -8px; border-radius: 12px;
             background: radial-gradient(ellipse at center, rgba(245,197,24,.7) 0%, rgba(245,197,24,.3) 45%, rgba(245,197,24,0) 72%);
@@ -121,6 +129,28 @@
             padding: 4px 8px; font-size: 10px;
             transform: translateY(calc(-50% + 16px));
         }
+        /* The login tooltip hangs off the full-width launcher (ICON px), not the
+           slim chevron — the base right:22px would sit ON TOP of the icon, so push
+           it clear to the left of the launcher's left edge (like the chevron tip
+           clears the chevron). */
+        .ilap-login-tip { right: ${ICON + 8}px; }
+        /* One-shot on-page push shown when the surface flips popup→widget while
+           logged out — styled like the curator's bottom-right toast (icon + text,
+           blue left-accent, slide-up), NOT a tooltip. Copy is the same as the
+           launcher's login tooltip. Lives 10 s; click to dismiss early. */
+        .ilap-push {
+            position: fixed; right: 20px; bottom: 20px; z-index: 2147483000;
+            display: flex; align-items: center; gap: 10px; max-width: 320px;
+            background: #16202d; color: #fff;
+            border: 1px solid ${SPARED}; border-left: 3px solid ${SPARED};
+            border-radius: 8px; padding: 12px 15px; box-shadow: 0 8px 24px rgba(0,0,0,.6);
+            font-size: 13px; font-weight: 600; line-height: 1.4; text-align: left;
+            cursor: pointer;
+            transform: translateY(16px); opacity: 0; pointer-events: none;
+            transition: transform .3s cubic-bezier(.2,.9,.3,1), opacity .3s ease;
+        }
+        .ilap-push.shown { transform: translateY(0); opacity: 1; pointer-events: auto; }
+        .ilap-push img { width: 22px; height: 22px; border-radius: 4px; display: block; flex-shrink: 0; }
         .ilap-chevron.pulse { animation: ilap-launcher-pulse .9s ease-in-out 1; }
         .ilap-chevron svg { display: block; pointer-events: none; opacity: .8; transition: opacity .15s ease; }
         /* Mini pushpin badge sitting as a small rounded square ABOVE the launcher,
@@ -217,20 +247,34 @@
         launcher.innerHTML = `<img src="${chrome.runtime.getURL('assets/icons/icon48.png')}" alt="">`;
         shadow.appendChild(launcher);
 
+        // Our own "sign in" tooltip for the login-locked launcher (styled like the
+        // chevron's), so a locked hover shows our strip instead of a native browser
+        // title. Shown immediately on hover by createLoginGate.
+        const loginTip = document.createElement('div');
+        loginTip.className = 'ilap-ghost-tip ilap-login-tip';
+        shadow.appendChild(loginTip);
+
         const chevron = document.createElement('button');
         chevron.type = 'button';
         chevron.className = 'ilap-chevron';
         chevron.setAttribute('aria-label', 'Show Steam Ignore Like A Pro');
-        // Double chevron in the logo's colours: ribbon-red trailing, dice-white leading.
-        chevron.innerHTML = '<svg width="9" height="11" viewBox="0 0 9 11">'
-            + `<path d="M1 1 L4.4 5.5 L1 10" fill="none" stroke="${LOGO_RED}"`
-            + ' stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
-            + `<path d="M4.6 1 L8 5.5 L4.6 10" fill="none" stroke="${LOGO_WHITE}"`
-            + ' stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        // Small tilted gamepad in the logo's colours: dice-white body, ribbon-red
+        // face buttons showing through the body's cut-outs. Rotated -20° for a
+        // dynamic look. The d-pad reads as a dark cut-out against the body.
+        chevron.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24">'
+            + '<g transform="rotate(-20 12 12)">'
+            + `<circle cx="15" cy="9" r="1.4" fill="${LOGO_RED}"/>`
+            + `<circle cx="17" cy="12" r="1.4" fill="${LOGO_RED}"/>`
+            + '<path fill-rule="evenodd" d="M21.58 16.09l-1.09-7.66C20.21 6.46 18.52 5'
+            + ' 16.53 5H7.47C5.48 5 3.79 6.46 3.51 8.43l-1.09 7.66C2.2 17.63 3.39 19'
+            + ' 4.94 19c.68 0 1.32-.27 1.8-.75L9 16h6l2.25 2.25c.48.48 1.13.75 1.8.75'
+            + ' 1.56 0 2.75-1.37 2.53-2.91zM11 11H9v2H8v-2H6v-1h2V8h1v2h2v1zm4-1c-.55'
+            + ' 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm2 3c-.55 0-1-.45-1-1s.45-1'
+            + ` 1-1 1 .45 1 1-.45 1-1 1z" fill="${LOGO_WHITE}"/></g></svg>`;
         shadow.appendChild(chevron);
 
         const chevronTip = document.createElement('div');
-        chevronTip.className = 'ilap-ghost-tip';
+        chevronTip.className = 'ilap-ghost-tip ilap-chevron-tip';
         shadow.appendChild(chevronTip);
 
         const pin = document.createElement('button');
@@ -242,12 +286,19 @@
             + 'c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>';
         shadow.appendChild(pin);
 
+        const push = document.createElement('div');
+        push.className = 'ilap-push';
+        push.innerHTML = `<img src="${chrome.runtime.getURL('assets/icons/icon48.png')}" alt="">`
+            + '<span class="ilap-push-text"></span>';
+        push.addEventListener('click', () => push.classList.remove('shown')); // dismiss early
+        shadow.appendChild(push);
+
         const panel = document.createElement('div');
         panel.className = 'ilap-panel';
         panel.innerHTML = window.ILAP_PopupMarkup;
         shadow.appendChild(panel);
 
-        return { host, shadow, launcher, chevron, chevronTip, pin, panel };
+        return { host, shadow, launcher, loginTip, chevron, chevronTip, pin, push, panel };
     }
 
     // The collapsed/expanded launcher over STATE_KEY (see top of file). Owns `ts`,
@@ -313,6 +364,7 @@
         chevron.addEventListener('click', (e) => {
             e.stopPropagation();
             if (ctx.isGhost()) return; // the ghost beacon is informational only
+            ctx.surface.endIntro(); // the first chevron click retires the new-install glow
             writeState(Date.now()); // slide the launcher out
         });
         // Collapse when clicking elsewhere on the page. Clicks inside the shadow are
@@ -397,9 +449,19 @@
     // visible ghost chevron; the escape hotkey / a live flip brings it back. Owns the
     // ghost flag, the chevron tooltip, and the "welcome back" restore highlight.
     function createSurface(ctx) {
-        const { chevron, chevronTip } = ctx.els;
+        const { chevron, chevronTip, push } = ctx.els;
         let restoreTimer = null, goldTimer = null; // gold pulse → blue → fade
-        let tipTimer = null;
+        let tipTimer = null, pushTimer = null;
+
+        // A 10 s on-page push (curator-toast style), shown when the surface flips
+        // back to the widget. Write into the text span so the icon survives.
+        const showPush = (text) => {
+            const span = push.querySelector('.ilap-push-text');
+            if (span) span.textContent = text;
+            push.classList.add('shown');
+            clearTimeout(pushTimer);
+            pushTimer = setTimeout(() => push.classList.remove('shown'), 10000);
+        };
 
         const ghostHint = () => t('surface_ghost_hint', { keys: ctx.Surface.ESCAPE_HOTKEY_LABEL });
         // The chevron never uses a native browser title — it shows our own tooltip
@@ -409,9 +471,38 @@
             chevronTip.textContent = ctx.isGhost() ? ghostHint() : t('widget_expand');
             chevronTip.classList.toggle('expand', !ctx.isGhost());
         };
+        let introBurstTimer = null, introCycleTimer = null;
+        const stopIntroCycle = () => {
+            clearTimeout(introBurstTimer); clearInterval(introCycleTimer);
+            introBurstTimer = introCycleTimer = null;
+        };
         const clearRestore = () => {
             clearTimeout(restoreTimer); clearTimeout(goldTimer);
+            stopIntroCycle();
             chevron.classList.remove('restored', 'gold');
+        };
+        // New-install beacon over INTRO_KEY: the steady blue rim (.restored) stays
+        // on, and the gold halo (.gold) radiates in INTRO_BURST_MS bursts every
+        // INTRO_CYCLE_MS, until the first chevron click anywhere retires it. Only
+        // on the visible collapsed chevron; the ghost beacon is deliberately faint
+        // and must stay that way.
+        const applyIntro = () => {
+            if (!ctx._intro || ctx.isGhost()) return;
+            stopIntroCycle();
+            chevron.classList.add('restored');
+            const burst = () => {
+                chevron.classList.add('gold');
+                introBurstTimer = setTimeout(() => chevron.classList.remove('gold'), INTRO_BURST_MS);
+            };
+            burst();
+            introCycleTimer = setInterval(burst, INTRO_CYCLE_MS);
+        };
+        const endIntro = () => {
+            if (!ctx._intro) return;
+            ctx._intro = false;
+            // The classes come off via clearRestore on the expand that follows the
+            // click; the write retires the glow in every other tab through onChanged.
+            chrome.storage.local.set({ [INTRO_KEY]: false });
         };
         chevron.addEventListener('mouseenter', () => {
             applyChevronTip(); // locale loads async — refresh at hover time
@@ -449,16 +540,31 @@
                 // ping-pong with the pinned re-assert branch). Then flag the chevron with
                 // the gold-halo → blue welcome-back highlight.
                 ctx.collapse.reset();
-                chevron.classList.add('restored', 'gold');
-                goldTimer = setTimeout(() => chevron.classList.remove('gold'), 3000); // gold halo → steady blue
-                restoreTimer = setTimeout(() => chevron.classList.remove('restored'), 10000); // then fade out
+                if (ctx._intro) {
+                    applyIntro(); // the new-install burst cycle owns the highlight — no fade timers
+                } else {
+                    chevron.classList.add('restored', 'gold');
+                    goldTimer = setTimeout(() => chevron.classList.remove('gold'), 3000); // gold halo → steady blue
+                    restoreTimer = setTimeout(() => chevron.classList.remove('restored'), 10000); // then fade out
+                }
+                // Logged out: the on-page widget is the login-gated surface, so a
+                // heads-up to sign in (same copy as the launcher tooltip), shown
+                // without needing a hover, lives 10 s.
+                if (ctx._locked) showPush(t('widget_login_required'));
             }
         };
         return {
-            applySurface, clearRestore,
+            applySurface, clearRestore, endIntro,
+            // INTRO_KEY changed (retired by a chevron click here or in another tab).
+            mirrorIntro: (v) => {
+                ctx._intro = !!v;
+                if (ctx._intro) applyIntro();
+                else clearRestore();
+            },
             applyInitial: () => {
                 chevron.classList.toggle('ghost', ctx.isGhost());
                 applyChevronTip();
+                applyIntro();
             }
         };
     }
@@ -469,19 +575,24 @@
     // while locked re-probes the LIVE cookies, because a page opened before the user
     // signed in (in another tab) still reads logged-out in its own DOM.
     function createLoginGate(ctx) {
-        const { launcher, pin } = ctx.els;
+        const { launcher, loginTip, pin } = ctx.els;
         const Auth = window.ILAP.SteamAuth;
         let locked = false, probing = false, lastProbe = 0;
         const setLocked = (v) => {
             locked = v;
+            ctx._locked = v; // read by createSurface to gate the sign-in push
             launcher.classList.toggle('locked', v);
             pin.classList.toggle('locked', v);
-            if (v) launcher.title = t('widget_login_required');
-            else launcher.removeAttribute('title');
+            if (v) loginTip.textContent = t('widget_login_required');
+            else loginTip.classList.remove('shown'); // hide our tooltip once unlocked
         };
+        // Our own tooltip (not a native browser title), revealed immediately on hover.
         launcher.addEventListener('mouseenter', () => {
-            if (locked) launcher.title = t('widget_login_required'); // locale loads async
+            if (!locked) return;
+            loginTip.textContent = t('widget_login_required'); // locale loads async
+            loginTip.classList.add('shown');
         });
+        launcher.addEventListener('mouseleave', () => loginTip.classList.remove('shown'));
         launcher.addEventListener('click', (e) => {
             e.stopPropagation();
             if (locked) {
@@ -512,7 +623,7 @@
     // Assemble the widget: build the DOM, wire the four single-concern controllers
     // over a shared ctx (each owns one storage key), then a single onChanged
     // dispatcher routes each changed key to its controller.
-    function mount(initialTs, initialPinned, initialMode, initialMaster) {
+    function mount(initialTs, initialPinned, initialMode, initialMaster, initialIntro) {
         const els = buildDom();
         const ctx = {
             els,
@@ -520,6 +631,8 @@
             _ghost: (initialMode === 'popup'),
             _pinned: !!initialPinned,
             _masterOn: initialMaster !== false,
+            _locked: false,
+            _intro: !!initialIntro,
             isGhost() { return this._ghost; },
             isPinned() { return this._pinned; }
         };
@@ -559,6 +672,7 @@
                 ctx.surface.applySurface(ctx.Surface.resolve(changes[ctx.Surface.KEY].newValue, navigator.userAgent));
             }
             if (changes[STATE_KEY]) ctx.collapse.mirror(changes[STATE_KEY].newValue || 0);
+            if (changes[INTRO_KEY]) ctx.surface.mirrorIntro(changes[INTRO_KEY].newValue);
         });
 
         ctx.collapse.applyState(); // arm the idle timer if we mounted expanded
@@ -566,13 +680,13 @@
 
     function boot() {
         const Surface = window.ILAP.Surface;
-        chrome.storage.local.get({ [STATE_KEY]: 0, [PIN_KEY]: false, [Surface.KEY]: 'widget', [MASTER_KEY]: true }, (data) => {
+        chrome.storage.local.get({ [STATE_KEY]: 0, [PIN_KEY]: false, [Surface.KEY]: 'widget', [MASTER_KEY]: true, [INTRO_KEY]: false }, (data) => {
             const v = data[STATE_KEY] || 0;
             const pinned = !!data[PIN_KEY];
             const mode = Surface.resolve(data[Surface.KEY], navigator.userAgent);
             // A stale timestamp (browser closed while expanded) reads as collapsed —
             // unless pinned, which keeps the launcher out regardless of age.
-            mount(pinned ? (v || Date.now()) : (Date.now() - v < IDLE_MS ? v : 0), pinned, mode, data[MASTER_KEY] !== false);
+            mount(pinned ? (v || Date.now()) : (Date.now() - v < IDLE_MS ? v : 0), pinned, mode, data[MASTER_KEY] !== false, !!data[INTRO_KEY]);
         });
     }
 

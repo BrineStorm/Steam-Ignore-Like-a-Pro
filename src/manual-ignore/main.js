@@ -126,6 +126,7 @@
 
         setupInteractions() {
             document.body.addEventListener('click', (e) => {
+                if (!e.isTrusted) return; // ignore only real user input, not page-synthesized clicks
                 const intent = this.eventParser.parseClick(e);
                 if (intent) {
                     e.preventDefault();

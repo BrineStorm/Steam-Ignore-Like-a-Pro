@@ -7,7 +7,7 @@
 const { test, expect } = require('../_fixtures.js');
 const { setExtensionStorage, getExtensionStorage } = require('../_extension.js');
 
-const PAGE = '/search/?term=portal&ndl=1';
+const { searchUrl } = require('../_search.js'); // random search term per navigation
 const KEY = 'ilap_widget_expanded_ts';
 const PIN_KEY = 'ilap_widget_pinned';
 const IDLE_MS = 60000;
@@ -15,7 +15,7 @@ const IDLE_MS = 60000;
 test.describe('on-page widget — pin badge', () => {
 
     test('hidden by default; launcher hold reveals after a delay; pin hover reveals instantly', async ({ page }) => {
-        await page.goto(PAGE);
+        await page.goto(searchUrl());
         await page.locator('.ilap-chevron').click();
 
         const pin = page.locator('.ilap-pin');
@@ -37,7 +37,7 @@ test.describe('on-page widget — pin badge', () => {
     });
 
     test('pressed pin blocks the idle stash; unpress re-enables it', async ({ context, page }) => {
-        await page.goto(PAGE);
+        await page.goto(searchUrl());
         await page.locator('.ilap-chevron').click();
 
         await page.locator('.ilap-pin').click();
@@ -67,7 +67,7 @@ test.describe('on-page widget — pin badge', () => {
         // from the returned object this threw AFTER the PIN_KEY set — so PIN_KEY
         // still flipped (why the other pin tests stayed green) but the timestamp was
         // never bumped. Assert the bump directly so the regression can't hide again.
-        await page.goto(PAGE);
+        await page.goto(searchUrl());
         await page.locator('.ilap-chevron').click();
         await expect(page.locator('.ilap-launcher')).not.toHaveClass(/stashed/);
 
@@ -87,7 +87,7 @@ test.describe('on-page widget — pin badge', () => {
         // An idle sibling tab writing 0 must NOT stash a pinned launcher: the
         // onChanged handler re-asserts expanded (a different branch from the
         // same-tab idle re-bump covered above).
-        await page.goto(PAGE);
+        await page.goto(searchUrl());
         await page.locator('.ilap-chevron').click();
         await page.locator('.ilap-pin').click();
         await expect(page.locator('.ilap-pin')).toHaveClass(/pinned/);
@@ -104,7 +104,7 @@ test.describe('on-page widget — pin badge', () => {
     test('pinned mounts expanded even with a stale timestamp; external unpin syncs live', async ({ context, page }) => {
         // Stale timestamp normally reads as collapsed at mount — pinned overrides.
         await setExtensionStorage(context, { [KEY]: Date.now() - IDLE_MS * 5, [PIN_KEY]: true });
-        await page.goto(PAGE);
+        await page.goto(searchUrl());
         await expect(page.locator('.ilap-launcher')).not.toHaveClass(/stashed/);
         await expect(page.locator('.ilap-pin')).toHaveClass(/pinned/);
 

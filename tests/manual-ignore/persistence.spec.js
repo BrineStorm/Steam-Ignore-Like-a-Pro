@@ -8,8 +8,8 @@ const {
     waitForContentScript,
 } = require('./_helpers');
 const { clearExtensionStorage } = require('../_extension.js');
+const { searchUrl } = require('../_search.js');
 
-const SEARCH_URL = '/search/?term=action';
 const SESSION_KEY = 'ilap_session_map_v2';
 
 test.beforeEach(async ({ context }) => {
@@ -26,7 +26,7 @@ test.describe('Manual Ignore — session persistence across reload', () => {
         const calls = await interceptIgnoreApi(context);
 
         // 1. Ignore a game so the session map records [appid → reason].
-        await page.goto(SEARCH_URL);
+        await page.goto(searchUrl());
         // Start with a clean sessionStorage so a stray entry from another test
         // can't fake a passing reload-render.
         await page.evaluate(() => sessionStorage.clear());

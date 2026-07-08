@@ -19,6 +19,9 @@
     },
     "default_popup": "ui/popup.html"
   },
+  "background": {
+    "service_worker": "src/migrate.js"
+  },
   "content_scripts": [
     {
       "matches": [

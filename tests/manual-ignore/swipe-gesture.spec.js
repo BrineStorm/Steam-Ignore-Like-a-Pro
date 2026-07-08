@@ -10,15 +10,16 @@ const {
     waitForContentScript,
 } = require('./_helpers');
 const { clearExtensionStorage, setExtensionStorage } = require('../_extension.js');
+const { searchUrl } = require('../_search.js');
 
 // Search results give us a stable list of rows — easiest surface to land a swipe
-// on without fighting React layouts. Each row is itself the /app/ link.
-const SEARCH_URL = '/search/?term=action';
+// on without fighting React layouts. Each row is itself the /app/ link. The term
+// is randomized per navigation (see _search.js) — any of them returns game rows.
 
 // Sets up network interception, navigates, and returns the live calls array.
 async function gotoSearch(page, context) {
     const calls = await interceptIgnoreApi(context);
-    await page.goto(SEARCH_URL);
+    await page.goto(searchUrl());
     await waitForContentScript(page);
     await installContextMenuSpy(page);
     return calls;

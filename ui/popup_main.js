@@ -139,7 +139,12 @@
     }
 
     // Populate + wire the language chip sitting inside the SETTINGS summary bar.
-    // Clicking it opens the native language list without toggling the accordion.
+    // The native <select> stays as the inert value store (opacity 0, no pointer
+    // events — same pattern as the settings shortcut selects, and the element the
+    // language tests drive); the visible list is our own styled .select-menu, so
+    // the OS-rendered dropdown (white flash, unstylable edges) never shows. This
+    // also retires the old focus-trap workaround: the select no longer widens on
+    // focus, so it can never overlap the SETTINGS bar and swallow its clicks.
     function setupLangChip(root) {
         const chip = root.getElementById('lang-quick');
         const code = root.getElementById('lang-quick-code');
@@ -157,47 +162,46 @@
         chip.value = cur;
         if (code) code.textContent = langCode(cur);
 
-        // Stop the summary's click from toggling <details>; the select still opens on mousedown.
-        chip.addEventListener('mousedown', (e) => e.stopPropagation());
-        chip.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); });
         chip.addEventListener('change', (e) => {
             if (code) code.textContent = langCode(e.target.value);
             chrome.storage.local.set({ ilap_lang: e.target.value });
-            chip.blur(); // shrink back so it stops overlapping the settings bar
         });
 
-        // The select widens on :focus (anchored right, extending LEFT) so its native
-        // dropdown renders wider — but that transparent overflow then covers the
-        // SETTINGS bar to its left and swallows clicks meant for the accordion,
-        // re-opening the language list instead (focus-trap bug). Capture mousedown
-        // BEFORE the chip's own stopPropagation and route off-chip clicks back to the
-        // settings bar: shrink the select, and if the click landed on the overflow
-        // (still the select element, but outside the visible chip), toggle the
-        // accordion ourselves instead of re-opening the dropdown.
-        root.addEventListener('mousedown', (e) => {
-            const active = (root.activeElement || document.activeElement);
-            if (active !== chip) return; // not focused/widened → behave normally
+        const wrap = chip.parentElement; // .lang-chip (position:relative anchor)
+        const menu = document.createElement('div');
+        menu.className = 'select-menu lang-menu';
+        wrap.appendChild(menu);
 
-            const box = chip.parentElement.getBoundingClientRect();
-            const onChip = e.clientX >= box.left && e.clientX <= box.right
-                        && e.clientY >= box.top && e.clientY <= box.bottom;
-            if (onChip) return; // genuine click on the visible chip → open/close as usual
+        // The chip lives inside the SETTINGS <summary>: preventDefault stops the
+        // native accordion toggle, stopPropagation keeps the exclusive-collapse
+        // logic and the outside-click menu closer (SettingsManager) out of it.
+        wrap.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.target.closest('.select-opt')) return; // picks are handled below
+            const wasOpen = menu.classList.contains('open');
+            root.querySelectorAll('.select-menu.open').forEach(m => m.classList.remove('open'));
+            if (wasOpen) return;
+            menu.innerHTML = Array.from(chip.options).map(opt =>
+                `<div class="select-opt${opt.value === chip.value ? ' selected' : ''}" data-value="${Sanitizer.escapeHTML(opt.value)}">${Sanitizer.escapeHTML(opt.textContent)}</div>`
+            ).join('');
+            menu.classList.add('open');
+            // Centre the current language in the scrollable list (menu.scrollTop,
+            // NOT scrollIntoView — that would also scroll the popup body).
+            const sel = menu.querySelector('.select-opt.selected');
+            if (sel) menu.scrollTop = sel.offsetTop - (menu.clientHeight - sel.offsetHeight) / 2;
+        });
 
-            if (e.target === chip) {
-                // The click hit the focus-widened overflow sitting over the SETTINGS
-                // bar — treat it as a bar click: suppress the dropdown and toggle the
-                // accordion ourselves. The blur is DEFERRED on purpose: shrinking the
-                // select now would move it off the cursor before the click hit-tests,
-                // so that click would land on the summary and natively toggle right
-                // back. Keeping it widened lets the chip's click handler swallow the
-                // native toggle, leaving only our single toggle here.
-                e.preventDefault();
-                e.stopPropagation();
-                const acc = root.getElementById('settings-accordion');
-                if (acc) acc.open = !acc.open;
+        menu.addEventListener('click', (e) => {
+            const item = e.target.closest('.select-opt');
+            if (!item) return;
+            menu.classList.remove('open');
+            const val = item.getAttribute('data-value');
+            if (val !== chip.value) {
+                chip.value = val;
+                chip.dispatchEvent(new Event('change', { bubbles: true }));
             }
-            setTimeout(() => chip.blur(), 0); // shrink the select back, after the click
-        }, true);
+        });
     }
 
     // Wire the popup UI against a query root: `document` for the browser popup
@@ -259,12 +263,29 @@
 
         chrome.storage.onChanged.addListener((changes, area) => {
             if (area && area !== 'local') return;
+            // The queue applet derives progress from the drainer-owned cursor/lock
+            // keys (and the pulse), so it must re-render on those; the rest of the
+            // popup (stats, hints, history, settings) does not. During a bulk drain
+            // those are written 1–3×/s — rebuilding all of that innerHTML each time
+            // is pure waste, so skip it when ONLY drain-progress keys changed.
+            // ilap_curator_queue itself is NOT a drain-progress key: it feeds the
+            // settings surface-guard and job list, so it stays on the full path.
+            const isDrainKey = (k) => k === 'ilap_curator_pulse'
+                || k.indexOf('ilap_curator_cursor_') === 0
+                || k.indexOf('ilap_curator_lock_') === 0;
+            const heavyNeeded = Object.keys(changes || {}).some(k => !isDrainKey(k));
             chrome.storage.local.get(null, (current) => {
+                if (!heavyNeeded) {
+                    if (queue) queue.render(current);
+                    return;
+                }
                 if (window.ILAP && window.ILAP.i18n && current.ilap_lang) {
                     window.ILAP.i18n.setLang(current.ilap_lang);
                 }
-                updateBasicUI(root, current);
+                // Queue renders AFTER the locale switch — its labels go through t(),
+                // so rendering first would leave them in the previous language.
                 if (queue) queue.render(current);
+                updateBasicUI(root, current);
                 // Reflect external setting changes (e.g. EQ "Disable" → q_master=false)
                 // onto the open settings panel. Value-only, preserves CSS transitions.
                 settings.syncValues(current);
@@ -339,7 +360,7 @@
         mount.dataset.ilapMounted = '1';
 
         const Surface = window.ILAP.Surface;
-        chrome.storage.local.get({ [Surface.KEY]: 'widget', ilap_lang: null }, (res) => {
+        chrome.storage.local.get({ [Surface.KEY]: 'widget', ilap_lang: null, ilap_update_glow: false }, (res) => {
             if (window.ILAP && window.ILAP.i18n && res.ilap_lang) {
                 window.ILAP.i18n.setLang(res.ilap_lang);
             }
@@ -347,9 +368,20 @@
             if (mode === 'popup') {
                 mount.innerHTML = window.ILAP_PopupMarkup;
                 initPopup(document);
+                // One-shot post-update welcome (armed by src/migrate.js on the
+                // popup-migration update only): a 5 s gold wash over the popup.
+                if (res.ilap_update_glow) {
+                    const rootEl = document.getElementById('popup-root');
+                    if (rootEl) rootEl.classList.add('update-glow'); // animation ends transparent; no cleanup needed
+                }
             } else {
                 renderPopupStub(mount);
             }
+            // Consume the flag on the FIRST bootstrap, whatever it rendered: a
+            // reopen (even within the 5 s) must not replay the glow, and a user
+            // who reached widget mode before ever opening the popup has plainly
+            // found the extension — their stale flag is retired silently here.
+            if (res.ilap_update_glow) chrome.storage.local.set({ ilap_update_glow: false });
             chrome.storage.onChanged.addListener((changes, area) => {
                 if (area && area !== 'local') return;
                 if (!changes[Surface.KEY]) return;

@@ -62,6 +62,17 @@ body {
 
 .no-transition * { transition: none !important; }
 
+/* One-shot “just updated” welcome (ilap_update_glow, armed by src/migrate.js on
+   the popup-migration update, consumed at the first popup bootstrap): a light
+   gold inset wash that fades out over 5 s. `forwards` ends it transparent, so
+   the class needs no JS cleanup. */
+#popup-root.update-glow { animation: ilap-update-glow 5s ease-out forwards; }
+@keyframes ilap-update-glow {
+    0%   { box-shadow: inset 0 0 26px rgba(245, 197, 24, .38); }
+    70%  { box-shadow: inset 0 0 22px rgba(245, 197, 24, .26); }
+    100% { box-shadow: inset 0 0 0 rgba(245, 197, 24, 0); }
+}
+
 /* === SCROLLBAR STYLING === */
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
@@ -202,10 +213,11 @@ summary::after {
     border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid var(--muted);
     transition: transform 0.2s ease-in-out; margin-left: 10px;
 }
-details[open] summary::after { transform: rotate(90deg); }
+details[open] > summary::after { transform: rotate(90deg); }
 
 /* Quick language picker living inside the SETTINGS bar (left of the caret).
-   Compact code shown as a span; the native-name <select> sits on top, transparent. */
+   Compact code shown as a span; the native <select> is the inert value store
+   (keyboard/tests), the visible list is the styled .select-menu below. */
 .lang-chip {
     position: relative; margin-left: auto;
     display: inline-flex; align-items: center; justify-content: center;
@@ -217,17 +229,20 @@ details[open] summary::after { transform: rotate(90deg); }
 .lang-chip:hover { border-color: #3f5169; background: #15212e; }
 .lang-chip-code { font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--text); pointer-events: none; }
 .lang-chip:hover .lang-chip-code { color: #fff; }
-/* Idle: sized to the chip (so it doesn't overlap / steal clicks on the settings bar).
-   On focus it widens (anchored to the chip's right edge, extending left) so the native
-   dropdown list renders wider — without changing the visible chip. */
-.lang-chip select {
-    position: absolute; top: 0; bottom: 0; right: 0; left: auto;
-    width: 100%; height: 100%;
-    opacity: 0; border: 0; outline: none; margin: 0; padding: 0;
-    cursor: pointer; font-family: inherit; font-weight: 700;
+/* Inert value store: never rendered, never hit-tested (clicks land on the chip,
+   which opens the styled menu). Still keyboard-reachable — Tab + arrows change
+   the value and fire `change` like any select. */
+.lang-chip select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
+.lang-chip:focus-within { border-color: var(--accent); }
+/* 19 languages don't fit the popup — cap the menu and scroll inside it. The cap
+   must also fit ABOVE the chip (the menu opens upward and the popup document is
+   ~300px tall in the empty state — taller caps get clipped by the window edge).
+   The summary bar's uppercase/letter-spacing must not leak into the names. */
+.lang-chip .select-menu {
+    max-height: 232px; overflow-y: auto;
+    text-transform: none; letter-spacing: normal;
 }
-.lang-chip select:focus { width: 140px; }
-.lang-chip select option { font-weight: 700; }
+.lang-chip .select-opt { padding: 6px 10px; font-size: 11px; }
 
 .settings-content { padding: 6px 0 0 0; display: flex; flex-direction: column; gap: 8px; }
 .section-title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }

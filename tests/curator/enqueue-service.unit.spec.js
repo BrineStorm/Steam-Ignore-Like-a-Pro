@@ -127,8 +127,9 @@ test.describe('EnqueueService.resolve (unit)', () => {
         const store = makeStore([seedJob()]);
         store.state.cache = { apps }; store.state.cacheFresh = true;
         const enumerator = makeEnum(apps);
-        await build(store, enumerator).resolve('123', 'j1', 'Cur', 'not_recommended', () => true);
+        const res = await build(store, enumerator).resolve('123', 'j1', 'Cur', 'not_recommended', () => true);
 
+        expect(res).toEqual({ ok: true });
         expect(enumerator.calls).toBe(0); // served from cache
         expect(store.state.cursors.j1).toBe(0);
         const last = store.state.updates.at(-1);
@@ -150,8 +151,9 @@ test.describe('EnqueueService.resolve (unit)', () => {
         const big = Array.from({ length: 30 }, (_, i) => ({ appid: 100 + i, type: 'not_recommended' }));
         const store = makeStore([seedJob()]);
         store.state.cache = { apps: big }; store.state.cacheFresh = true;
-        await build(store, makeEnum(big)).resolve('123', 'j1', 'Cur', 'not_recommended', () => false);
+        const res = await build(store, makeEnum(big)).resolve('123', 'j1', 'Cur', 'not_recommended', () => false);
 
+        expect(res).toBeUndefined();                 // a deliberate user cancel is NOT an error → no toast
         expect(store.state.removed).toContain('j1');
         expect(store.state.updates).toHaveLength(0); // never flipped to pending
     });
@@ -165,13 +167,26 @@ test.describe('EnqueueService.resolve (unit)', () => {
         expect(store.state.cursors.j1).toBeUndefined();
     });
 
-    test('enumeration failure leaves the job idle (0/0 pending), never auto-ignores', async () => {
+    test('enumeration failure drops the job and reports { error:true } (never auto-ignores)', async () => {
         const store = makeStore([seedJob()]);
         store.state.cache = null; store.state.cacheFresh = false;
         const enumerator = { calls: 0, async enumerate() { this.calls++; throw new Error('boom'); }, filterAppids: () => [] };
-        await build(store, enumerator).resolve('123', 'j1', 'Cur', 'not_recommended', () => true);
+        const res = await build(store, enumerator).resolve('123', 'j1', 'Cur', 'not_recommended', () => true);
 
         expect(enumerator.calls).toBe(1);
-        expect(store.state.updates.at(-1).patch).toMatchObject({ status: 'pending', appids: [], total: 0 });
+        expect(res).toEqual({ error: true });
+        expect(store.state.removed).toContain('j1'); // dead job removed, not left at pending 0/—
+        expect(store.state.updates).toHaveLength(0);  // never flipped to drainable
+    });
+
+    test('empty list (parsed 0 / nothing under filter) drops the job and reports { error:true }', async () => {
+        const store = makeStore([seedJob()]);
+        // Fresh cache with apps, but the requested filter matches none of them.
+        store.state.cache = { apps: [{ appid: 10, type: 'informational' }] }; store.state.cacheFresh = true;
+        const res = await build(store, makeEnum([])).resolve('123', 'j1', 'Cur', 'not_recommended', () => true);
+
+        expect(res).toEqual({ error: true });
+        expect(store.state.removed).toContain('j1');
+        expect(store.state.updates).toHaveLength(0);
     });
 });

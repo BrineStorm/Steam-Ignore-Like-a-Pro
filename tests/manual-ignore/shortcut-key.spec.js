@@ -9,8 +9,7 @@ const {
     waitForContentScript,
 } = require('./_helpers');
 const { clearExtensionStorage, setExtensionStorage } = require('../_extension.js');
-
-const SEARCH_URL = '/search/?term=action';
+const { searchUrl } = require('../_search.js');
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
@@ -29,7 +28,7 @@ test.describe('Manual Ignore — alternative shortcut (Ctrl+Click)', () => {
         });
 
         const calls = await interceptIgnoreApi(context);
-        await page.goto(SEARCH_URL);
+        await page.goto(searchUrl());
         await waitForContentScript(page);
         // ConfigService.listen() picks up storage changes asynchronously.
         await page.waitForTimeout(400);
@@ -54,7 +53,7 @@ test.describe('Manual Ignore — alternative shortcut (Ctrl+Click)', () => {
         });
 
         const calls = await interceptIgnoreApi(context);
-        await page.goto(SEARCH_URL);
+        await page.goto(searchUrl());
         await waitForContentScript(page);
         await page.waitForTimeout(400);
 
@@ -73,7 +72,7 @@ test.describe('Manual Ignore — alternative shortcut (Ctrl+Click)', () => {
         });
 
         const calls = await interceptIgnoreApi(context);
-        await page.goto(SEARCH_URL);
+        await page.goto(searchUrl());
         await waitForContentScript(page);
         await page.waitForTimeout(400);
 

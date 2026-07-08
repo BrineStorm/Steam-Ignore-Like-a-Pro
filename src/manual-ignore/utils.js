@@ -66,6 +66,11 @@
         listen() {
             chrome.storage.onChanged.addListener((changes, area) => {
                 if (area !== 'local') return;
+                // Only react to the config keys we read. Without this filter every
+                // open Steam tab re-read config and swept the whole DOM
+                // (refreshAll + syncMasks) on ANY local write — e.g. the curator
+                // drainer's cursor, written 1–3×/s for the length of a bulk drain.
+                if (!Object.keys(changes).some(k => CONFIG_STORAGE_KEYS.includes(k))) return;
                 this.refreshFn().then(config => {
                     this.listeners.forEach(cb => cb(config));
                 });
@@ -267,7 +272,8 @@
         }
 
         onMouseDown(e) {
-            if (e.button !== 2) return; 
+            if (!e.isTrusted) return; // real pointer input only, not synthesized events
+            if (e.button !== 2) return;
             
             this.startX = e.clientX;
             this.startY = e.clientY;
@@ -276,6 +282,7 @@
         }
 
         onMouseUp(e) {
+            if (!e.isTrusted) return; // a synthetic mouseup must not complete a gesture
             if (!this.isSwiping || e.button !== 2) return;
             this.isSwiping = false;
 

@@ -12,7 +12,7 @@
 const { test, expect, AUTH_FILE } = require('../_fixtures.js');
 const fs = require('fs');
 
-const PAGE = '/search/?term=portal&ndl=1';
+const { searchUrl } = require('../_search.js'); // random search term per navigation
 
 // The widget mounts collapsed to the chevron tab on fresh storage — slide the
 // launcher out first (see collapse.spec.js for the collapse behaviour itself).
@@ -25,12 +25,16 @@ test.describe('on-page widget — login lock', () => {
 
     test('logged out: launcher locked (grey + tooltip), click does not open the panel', async ({ context, page }) => {
         await context.clearCookies();
-        await page.goto(PAGE);
+        await page.goto(searchUrl());
         await expandWidget(page);
 
         const launcher = page.locator('.ilap-launcher');
         await expect(launcher).toHaveClass(/locked/);
-        await expect(launcher).toHaveAttribute('title', /Steam/);
+        // Our own tooltip (not a native browser title), shown immediately on hover.
+        await expect(launcher).not.toHaveAttribute('title');
+        await launcher.hover();
+        const tip = page.locator('.ilap-login-tip.shown');
+        await expect(tip).toContainText(/Steam/);
 
         await launcher.click();
         // The click fires a live probe against logged-out cookies — it must
@@ -44,7 +48,7 @@ test.describe('on-page widget — login lock', () => {
         test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session');
 
         await context.clearCookies();
-        await page.goto(PAGE);
+        await page.goto(searchUrl());
         await expandWidget(page);
         const launcher = page.locator('.ilap-launcher');
         await expect(launcher).toHaveClass(/locked/);
@@ -63,7 +67,7 @@ test.describe('on-page widget — login lock', () => {
     test('logged in: launcher unlocked, click opens the panel', async ({ page }) => {
         test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session');
 
-        await page.goto(PAGE);
+        await page.goto(searchUrl());
         await expandWidget(page);
         const launcher = page.locator('.ilap-launcher');
         await expect(launcher).not.toHaveClass(/locked/);

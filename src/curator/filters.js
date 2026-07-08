@@ -2,11 +2,18 @@
 (function() {
     'use strict';
 
-    // Single source of truth for the curator ignore-filter vocabulary — shared by
-    // the curator-page control (src/curator/main.js, content script) and the popup
-    // /widget queue applet (ui/popup_queue.js). Deliberately self-contained: the
-    // popup window does NOT load src/utils.js, so this module must not depend on the
-    // window.ILAP facade. Loaded in both the content_scripts list and popup.html.
+    // Shared curator-page helpers — the ignore-filter vocabulary plus the curator-id
+    // path parser — used by the curator-page control (src/curator/main.js, content
+    // script) and the popup/widget queue applet (ui/popup_queue.js). Deliberately
+    // self-contained: the popup window does NOT load src/utils.js, so this module
+    // must not depend on the window.ILAP facade. Loaded in both the content_scripts
+    // list and popup.html.
+
+    // /curator/<id>-<slug>/ → numeric id string, or null on any other store page.
+    function curatorIdFromPath(pathname) {
+        const m = (pathname || '').match(/^\/curator\/(\d+)/);
+        return m ? m[1] : null;
+    }
 
     // Ordered list drives the curator-page dropdown; the value→key map is derived
     // from it so the two can never drift apart.
@@ -41,6 +48,6 @@
         return `${bold}color:${COLORS[value] || opts.fallback || '#45A1FA'};`;
     }
 
-    window.ILAP_Filters = { FILTERS, labelKey, colorStyle };
+    window.ILAP_Filters = { FILTERS, labelKey, colorStyle, curatorIdFromPath };
 
 })();

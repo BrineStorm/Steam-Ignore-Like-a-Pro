@@ -12,7 +12,7 @@ const { test, expect, AUTH_FILE } = require('../_fixtures.js');
 const { setExtensionStorage, getExtensionStorage } = require('../_extension.js');
 const fs = require('fs');
 
-const PAGE = '/search/?term=portal&ndl=1';
+const { searchUrl } = require('../_search.js'); // random search term per navigation
 const MASTER_KEY = 'ilap_master_enabled';
 const PIN_KEY = 'ilap_widget_pinned';
 
@@ -22,7 +22,7 @@ test.describe('on-page widget — master gate', () => {
         // Login-agnostic: the chevron is never login-gated, and the pin is a
         // visibility preference (not a Steam action), so this holds logged out too.
         await setExtensionStorage(context, { [MASTER_KEY]: false });
-        await page.goto(PAGE);
+        await page.goto(searchUrl());
 
         // The master toggle does not gate the chevron/launcher slide-out.
         await page.locator('.ilap-chevron').click();
@@ -51,7 +51,7 @@ test.describe('on-page widget — master gate', () => {
         test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session'); // panel is login-gated
 
         await setExtensionStorage(context, { [MASTER_KEY]: false });
-        await page.goto(PAGE);
+        await page.goto(searchUrl());
 
         await page.locator('.ilap-chevron').click();
         const launcher = page.locator('.ilap-launcher');

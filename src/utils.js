@@ -6,7 +6,9 @@
 
     const SessionService = {
         getID() {
-            if (window.g_sessionID) return window.g_sessionID;
+            // Content scripts run in the isolated world, so the page's
+            // window.g_sessionID is never visible here — the cookie is the only
+            // readable source. (An earlier g_sessionID fast-path was dead code.)
             const match = document.cookie.match(/sessionid=([^;]+)/);
             return match ? match[1] : null;
         }
@@ -104,7 +106,12 @@
             const sessionid = SessionService.getID();
             if (!sessionid) return false;
 
-            const body = `sessionid=${sessionid}&appid=${appid}&snr=&ignore_reason=${reason}`;
+            // URLSearchParams encodes each field, so the cookie-sourced sessionid
+            // can't break the body's key=value&… structure (it's hex today, but
+            // this closes the injection question at the boundary regardless).
+            const body = new URLSearchParams({
+                sessionid, appid, snr: '', ignore_reason: reason
+            }).toString();
             try {
                 const response = await fetchWithTimeout('https://store.steampowered.com/recommended/ignorerecommendation/', {
                     method: 'POST',
