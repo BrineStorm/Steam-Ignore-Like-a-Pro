@@ -35,8 +35,8 @@
 
             if (this.sessionMap.has(appid)) return;
 
-            const success = await this.api.ignore(appid, reason);
-            if (success) this._onIgnoreSuccess(intent);
+            const res = await this.api.ignore(appid, reason);
+            if (res && res.ok) this._onIgnoreSuccess(intent);
         }
 
         _onIgnoreSuccess(intent) {
@@ -66,8 +66,17 @@
         }
 
         refreshAll() {
-            for (const [appid, reason] of this.sessionMap.entries()) {
-                this.refreshBadgesForGame(appid);
+            if (this.sessionMap.size === 0) return;
+            // ONE document pass keyed against the session map — not one
+            // document-wide query PER session-ignored appid. This runs on every
+            // debounced mutation batch of Steam's continuously-mutating React
+            // storefront, so N per-appid sweeps compounded into hundreds of
+            // whole-DOM scans per second late in a session.
+            const links = document.querySelectorAll('a[href*="/app/"]');
+            for (const link of links) {
+                const m = (link.getAttribute('href') || '').match(/\/app\/(\d+)([/?]|$)/);
+                if (!m || !this.sessionMap.has(m[1])) continue;
+                this.renderer.render(link, m[1], this.sessionMap.get(m[1]) || 0);
             }
         }
 

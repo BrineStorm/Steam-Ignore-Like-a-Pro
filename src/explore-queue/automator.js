@@ -171,8 +171,13 @@
             this.ui.clearStartPrompt();
 
             if (decision === 'SHOULD_IGNORE') {
+                // Pre-mark to keep the in-flight re-entrancy dedupe (run() skips
+                // a marked appid), but un-mark when the ignore did NOT land
+                // (gate stop / failed POST) — otherwise the game is silently
+                // skipped for the rest of the session after a re-enable.
                 this.processedSession.add(appid);
-                await this._performIgnore(appid, autoNext, mode);
+                const ignored = await this._performIgnore(appid, autoNext, mode);
+                if (!ignored) this.processedSession.delete(appid);
             } else {
                 // Game is SPARED. 
                 // Apply visual badge and STOP. Do not show start prompt. Do not auto-next.
@@ -181,6 +186,8 @@
             }
         }
 
+        // Resolves true only when the ignore actually landed — the caller keeps
+        // the appid session-marked on true and un-marks it on false.
         async _performIgnore(appid, shouldNext, mode) {
             // Reserve an aggregate rate slot first (paces EQ against the drainer
             // and any DQ tabs). A stop verdict (master off / dead session) tears
@@ -191,11 +198,18 @@
                 if (!slot.ok) {
                     this._stopAutomation();
                     this.ui.removeToast();
-                    return;
+                    return false;
                 }
             }
-            const success = await this.api.ignore(appid, 0);
-            if (!success) return;
+            const res = await this.api.ignore(appid, 0);
+            if (!res || !res.ok) {
+                // A 429 is account-level throttling: escalate the shared gate
+                // penalty so the drainer and every other tab go quiet too.
+                if (res && res.rateLimited && this.gate && this.gate.reportRateLimited) {
+                    await this.gate.reportRateLimited(res.retryAfterMs);
+                }
+                return false;
+            }
 
             const gameContainer = this.context.getGameContainer();
             const name = this.nameExtractor.get(appid, gameContainer);
@@ -210,6 +224,7 @@
                 this.ui.showIgnoredToast(name, () => { this._stopAutomation(); });
                 this._scheduleNextClick(nextBtn, TIMING.IGNORE_ADVANCE_DELAY_MS);
             }
+            return true;
         }
 
         _scheduleNextClick(buttonElement, delay) {

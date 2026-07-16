@@ -47,7 +47,7 @@ test.describe('i18n — dictionary integrity (unit)', () => {
     test('placeholders ({n}, {type}, …) survive verbatim in every translation', () => {
         // Derived from en, so a new placeholder key is guarded automatically.
         const keysWithPh = enKeys.filter(k => placeholders(DICT.en[k]).length > 0);
-        expect(keysWithPh.length).toBeGreaterThan(0); // sanity: curator_confirm & toasts
+        expect(keysWithPh.length).toBeGreaterThan(0); // sanity: dq_cap_reached & toasts
         for (const key of keysWithPh) {
             const want = placeholders(DICT.en[key]);
             for (const loc of Object.keys(DICT)) {
@@ -93,13 +93,34 @@ test.describe('i18n — t() contract (unit)', () => {
         expect(t('total_ignored')).toBe(i18n.DICT.en.total_ignored);
     });
 
+    test('onLangChange fires only on an effective change, with the new code', () => {
+        // The live-redraw mechanism for content-script UIs (curator button, DQ
+        // panel): subscribers re-render when the effective language changes.
+        const { i18n } = loadI18n();
+        const seen = [];
+        i18n.onLangChange((code) => seen.push(code));
+        i18n.setLang('ru');
+        i18n.setLang('ru');   // same effective language → no notification
+        i18n.setLang('xx');   // unknown → en, which IS a change from ru
+        expect(seen).toEqual(['ru', 'en']);
+    });
+
+    test('a throwing subscriber does not block the others', () => {
+        const { i18n } = loadI18n();
+        const seen = [];
+        i18n.onLangChange(() => { throw new Error('boom'); });
+        i18n.onLangChange((code) => seen.push(code));
+        i18n.setLang('de');
+        expect(seen).toEqual(['de']);
+    });
+
     test('params substitution replaces every occurrence and leaves no braces', () => {
         const { t, i18n } = loadI18n();
         for (const loc of ['en', 'ru', 'ja']) {
             i18n.setLang(loc);
-            const confirm = t('curator_confirm', { n: 42 });
-            expect(confirm, `${loc} curator_confirm`).toContain('42');
-            expect(confirm, `${loc} curator_confirm`).not.toContain('{n}');
+            const cap = t('dq_cap_reached', { n: 42 });
+            expect(cap, `${loc} dq_cap_reached`).toContain('42');
+            expect(cap, `${loc} dq_cap_reached`).not.toContain('{n}');
             const toast = t('curator_toast_added', { type: 'XKindX' });
             expect(toast, `${loc} curator_toast_added`).toContain('XKindX');
             expect(toast, `${loc} curator_toast_added`).not.toContain('{type}');

@@ -54,7 +54,7 @@
             this.masterEnabled = true;
             // Identity + heartbeat handle for this tab's slot in the cross-tab
             // DQ-automator registry (caps how many DQ loops run per profile).
-            this.ownerId = 'dq_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+            this.ownerId = window.ILAP.newOwnerId('dq_');
             this._beat = null;
             this.registry = null;      // bound in init(), like the other adapters
             this._starting = false;    // latch: a registry acquire is in flight

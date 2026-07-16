@@ -14,7 +14,9 @@ const { interceptIgnoreApi, routeUserdata } = require('./_helpers.js');
 // content-script drainer boots, and assert it ignores the right games (skipping
 // the one already in userdata) and drives the cursor to done.
 
-const STORE_PAGE = '/app/730/'; // any store.steampowered.com page boots the drainer
+// Any store.steampowered.com page boots the drainer — picked at random per
+// test so runs don't hammer one fixed game page (see tests/_app-pool.js).
+const { randomAppPage } = require('../_app-pool.js');
 
 function makeJob(over = {}) {
     return Object.assign({
@@ -57,7 +59,7 @@ test.describe('Curator — queue drainer', () => {
         await routeUserdata(context, ['222']); // 222 already ignored → dedupe-skip
 
         await setExtensionStorage(context, { ilap_curator_queue: [makeJob()] });
-        await page.goto(STORE_PAGE);
+        await page.goto(randomAppPage());
 
         // A finished job leaves NO record behind — it's removed, not marked "done".
         await expect.poll(async () => (await readQueue(context)).length, { timeout: 20000 }).toBe(0);
@@ -84,7 +86,7 @@ test.describe('Curator — queue drainer', () => {
         await setExtensionStorage(context, {
             ilap_curator_queue: [makeJob({ appids: ['411', '422', '433', '444'], total: 4 })],
         });
-        await page.goto(STORE_PAGE);
+        await page.goto(randomAppPage());
 
         await expect.poll(async () => calls.length, { timeout: 20000 }).toBe(4);
 
@@ -108,7 +110,7 @@ test.describe('Curator — queue drainer', () => {
             ilap_master_enabled: false,
             ilap_curator_queue: [makeJob()],
         });
-        await page.goto(STORE_PAGE);
+        await page.goto(randomAppPage());
         await page.waitForTimeout(4000); // ample time to (not) drain
 
         expect(calls).toHaveLength(0);
@@ -136,7 +138,7 @@ test.describe('Curator — queue drainer', () => {
             ilap_ignore_gate: seededSlot,
             ilap_curator_queue: [makeJob()],
         });
-        await page.goto(STORE_PAGE);
+        await page.goto(randomAppPage());
 
         await page.waitForTimeout(500); // drainer is now asleep inside reserve()
         await setExtensionStorage(context, { ilap_curator_queue: [makeJob({ status: 'paused' })] });
@@ -156,7 +158,7 @@ test.describe('Curator — queue drainer', () => {
         await routeUserdata(context, []);
 
         await setExtensionStorage(context, { ilap_curator_queue: [makeJob({ status: 'paused' })] });
-        await page.goto(STORE_PAGE);
+        await page.goto(randomAppPage());
 
         // Give the drainer ample time to (not) act.
         await page.waitForTimeout(4000);

@@ -1,4 +1,5 @@
-﻿const { defineConfig, devices } = require('@playwright/test');
+﻿// SPDX-License-Identifier: GPL-3.0-or-later
+const { defineConfig, devices } = require('@playwright/test');
 const path = require('path');
 
 // Target the test-flavor Chromium extension (built via `node build.js --test`).

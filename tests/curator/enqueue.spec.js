@@ -9,10 +9,10 @@ const { interceptIgnoreApi } = require('./_helpers.js');
 // Phase-2 curator "Add to ignore queue" button (src/curator/main.js), driven on
 // a LIVE curator page. Curator pages are public; picking a filter stages a job
 // into chrome.storage.local and kicks off enumeration (read-only ajax). The
-// drainer then runs — so we intercept the ignore endpoint (interceptIgnoreApi)
-// and auto-accept the over-threshold confirm dialog: no real game is ever
-// ignored. Covers injection + logo, the drop-out filter menu, staging a job,
-// the already-added state, switch-in-place, and the 3-job cap restriction.
+// drainer then runs — so we intercept the ignore endpoint (interceptIgnoreApi):
+// no real game is ever ignored. Covers injection + logo, the drop-out filter
+// menu, staging a job, the already-added state, switch-in-place, and the 3-job
+// cap restriction.
 
 // Known public anti-AI curators. Steam redirects the
 // bare /curator/<id>/ to the full slug URL; curatorId() matches either form.
@@ -40,8 +40,21 @@ async function readQueue(context) {
     return Array.isArray(res.ilap_curator_queue) ? res.ilap_curator_queue : [];
 }
 
+// Steam intermittently answers this public page with a transient 5xx under
+// bursty test traffic (verified: reproduced during back-to-back
+// full-spec runs, then 200s anonymously via curl minutes later — a server-side
+// throttle, NOT an account signal; all test ignores are route-intercepted and
+// never reach Steam). Retry with a backoff so a one-off 500 doesn't fail a spec.
+async function gotoCurator(page) {
+    for (let attempt = 0; ; attempt++) {
+        const resp = await page.goto(CURATOR_PATH);
+        if (!resp || resp.status() < 500 || attempt >= 2) return;
+        await page.waitForTimeout(3000 * (attempt + 1));
+    }
+}
+
 async function openCurator(page) {
-    await page.goto(CURATOR_PATH);
+    await gotoCurator(page);
     // The button injects on load or once the curator chrome renders (MutationObserver
     // up to 10s in src/curator/main.js) — give it room.
     await page.locator(BTN).waitFor({ timeout: 20000 });
@@ -50,9 +63,8 @@ async function openCurator(page) {
 test.beforeEach(async ({ context, page }) => {
     await clearExtensionStorage(context);
     // The staged job auto-enumerates and the drainer starts — keep every ignore
-    // faked, and accept the "ignore N games?" confirm so staging completes.
+    // faked so no real game is ignored.
     await interceptIgnoreApi(context);
-    page.on('dialog', (d) => d.accept().catch(() => {}));
 });
 
 test.afterEach(async ({ context }) => {
@@ -97,12 +109,17 @@ test.describe('Curator — enqueue button', () => {
         await openCurator(page);
 
         await page.locator(BTN).click();
-        await page.locator('.ilap-curator-menu.open [data-value="not_recommended"]').click();
+        // all_but_recommended, NOT not_recommended: a job that resolves to ZERO
+        // appids is legitimately removed as already-finished by the drainer,
+        // which empties the queue mid-poll. This curator flipped its marking
+        // style to informational-only (0 not_recommended rows at the time of writing),
+        // and the broad filter stays valid whichever negative style it uses.
+        await page.locator('.ilap-curator-menu.open [data-value="all_but_recommended"]').click();
 
         await expect.poll(async () => await readQueue(context)).toHaveLength(1);
         const [job] = await readQueue(context);
         expect(job.curatorId).toBe(CURATOR_ID);
-        expect(job.filter).toBe('not_recommended');
+        expect(job.filter).toBe('all_but_recommended');
         // Staged as 'enumerating', then resolved → leaves the transient state.
         await expect.poll(async () => (await readQueue(context))[0].status)
             .not.toBe('enumerating');
@@ -140,6 +157,75 @@ test.describe('Curator — enqueue button', () => {
         await expect(page.locator('.ilap-curator-toast')).toContainText(/switched to/i);
     });
 
+    test('Added state: the droplist carries Pause/Resume — toggling flips the stored job intent', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_curator_queue: [makeJob(CURATOR_ID, 'informational')] });
+        await openCurator(page);
+
+        // Post-add variant: the filter options gain the job-action rows.
+        await page.locator(BTN).click();
+        const menu = page.locator('.ilap-curator-menu.open');
+        await expect(menu.locator('[data-act="pause"]')).toContainText(/pause/i);
+        await expect(menu.locator('[data-act="remove"]')).toBeVisible();
+        const w0 = (await page.locator(BTN).boundingBox()).width;
+
+        // Pause flips the stored intent (paused — same write as the applet).
+        await menu.locator('[data-act="pause"]').click();
+        await expect.poll(async () => (await readQueue(context))[0].status).toBe('paused');
+
+        // Reopen: the same row now offers Resume; clicking returns to pending.
+        await page.locator(BTN).click();
+        await expect(menu.locator('[data-act="pause"]')).toContainText(/resume/i);
+        await menu.locator('[data-act="pause"]').click();
+        await expect.poll(async () => (await readQueue(context))[0].status).toBe('pending');
+
+        // Back in the exact starting state, the button width must be back to
+        // its starting value: every open→sync cycle used to feed the menu's
+        // min-width (button-derived, +2px of borders) back into the button,
+        // ratcheting both wider on each toggle.
+        await expect.poll(async () => (await page.locator(BTN).boundingBox()).width).toBe(w0);
+    });
+
+    test('Added state: Remove in the droplist drops the job and the button returns to the Add state', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_curator_queue: [makeJob(CURATOR_ID, 'informational')] });
+        await openCurator(page);
+
+        await page.locator(BTN).click();
+        await page.locator('.ilap-curator-menu.open [data-act="remove"]').click();
+
+        await expect.poll(async () => await readQueue(context)).toHaveLength(0);
+        // The button falls back to the add-variant everywhere the queue is watched.
+        await expect(page.locator(`${BTN} .ilap-cur-label`)).toHaveText(/add to ignore queue/i);
+    });
+
+    test('Cross-window sync: an OPEN droplist swaps add-/added-variant live when the queue changes elsewhere', async ({ page, context }) => {
+        await openCurator(page);
+
+        // Open the menu in its add-variant (filters only, no job actions).
+        await page.locator(BTN).click();
+        const menu = page.locator('.ilap-curator-menu.open');
+        await expect(menu.locator('.ilap-curator-opt')).toHaveCount(3);
+        await expect(menu.locator('[data-act]')).toHaveCount(0);
+
+        // Another window stages a job for this curator (external storage write):
+        // the OPEN menu re-renders in place to the post-add variant — no window
+        // can keep showing the add-droplist next to another's added-droplist.
+        await setExtensionStorage(context, { ilap_curator_queue: [makeJob(CURATOR_ID, 'informational')] });
+        await expect(menu.locator('[data-act="pause"]')).toBeVisible();
+        await expect(menu.locator('[data-act="remove"]')).toBeVisible();
+        await expect(menu.locator('.ilap-curator-opt.active')).toHaveAttribute('data-value', 'informational');
+
+        // A pause landed elsewhere (the applet in another window): the open
+        // menu's action row flips to Resume without reopening.
+        const paused = Object.assign(makeJob(CURATOR_ID, 'informational'), { status: 'paused' });
+        await setExtensionStorage(context, { ilap_curator_queue: [paused] });
+        await expect(menu.locator('[data-act="pause"]')).toContainText(/resume/i);
+
+        // And the job removed elsewhere: the same open menu drops the action rows.
+        await setExtensionStorage(context, { ilap_curator_queue: [] });
+        await expect(menu.locator('[data-act]')).toHaveCount(0);
+        await expect(menu.locator('.ilap-curator-opt.active')).toHaveCount(0);
+    });
+
     test('3-job cap: a 4th curator is refused with a "queue full" toast', async ({ page, context }) => {
         // Fill the queue with three OTHER curators.
         await setExtensionStorage(context, {
@@ -162,12 +248,22 @@ test.describe('Curator — enqueue button', () => {
         await openCurator(page);
 
         // In popup mode the control stays in place but is locked: visible, greyed
-        // (.ilap-locked), disabled, with an explanatory tooltip. It is NOT removed.
+        // (.ilap-locked), disabled, with our own inline tooltip (not the browser
+        // title). It is NOT removed.
         const btn = page.locator(BTN);
         await expect(btn).toBeVisible();
         await expect(btn).toHaveClass(/ilap-locked/);
         await expect(btn).toBeDisabled();
-        await expect(btn).toHaveAttribute('title', /.+/);
+        await expect(btn).not.toHaveAttribute('title');
+        // The tip must actually REVEAL on hover (hover the wrap — the locked
+        // button is pointer-events:none), not merely carry hidden text.
+        const tip = page.locator('.ilap-curator-ctl.ilap-locked-ctl .ilap-locked-tip');
+        await expect(tip).toBeHidden();
+        await page.locator('.ilap-curator-ctl.ilap-locked-ctl').hover();
+        await expect(tip).toBeVisible();
+        await expect(tip).toHaveText(/.+/);
+        // Screen readers reach the same text through the aria link.
+        await expect(btn).toHaveAttribute('aria-describedby', 'ilap-locked-tip');
 
         // A locked button can't open its dropdown.
         await btn.click({ force: true });
@@ -215,9 +311,25 @@ test.describe('Curator — enqueue button', () => {
         expect(await readQueue(context)).toHaveLength(0);
     });
 
+    test('Live language switch relabels the injected button in place', async ({ page, context }) => {
+        // The i18n onLangChange subscriber (audit altitude finding):
+        // a live ilap_lang change must redraw the content-script UI's labels,
+        // not just the popup's.
+        await openCurator(page);
+        const label = page.locator(`${BTN} .ilap-cur-label`);
+        await expect(label).toHaveText('Add to ignore queue');
+
+        await setExtensionStorage(context, { ilap_lang: 'ru' });
+        await expect(label).toHaveText('Добавить в очередь скрытия');
+
+        // And back — the subscriber keeps firing, not a one-shot.
+        await setExtensionStorage(context, { ilap_lang: 'en' });
+        await expect(label).toHaveText('Add to ignore queue');
+    });
+
     test('Logged out: the button is not injected at all', async ({ page, context }) => {
         await context.clearCookies();
-        await page.goto(CURATOR_PATH);
+        await gotoCurator(page); // same transient-5xx retry as openCurator
 
         // Curator pages are public, so the page itself renders; boot() must bail
         // on the login gate before ever reaching tryInject. Injection is

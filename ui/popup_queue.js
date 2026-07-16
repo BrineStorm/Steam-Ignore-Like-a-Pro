@@ -148,7 +148,7 @@
                     <div class="queue-job-sub" style="${filterStyle(job.filter)}">${filter}</div>
                     <div class="queue-bar"><div class="queue-bar-fill" style="width:${pct}%"></div></div>
                     <div class="queue-job-foot">
-                        <span class="queue-job-count">${count}</span>
+                        <span class="queue-job-count">${count}${total > 0 ? ` <b class="queue-job-pct">${pct}%</b>` : ''}</span>
                         <span class="queue-job-actions">
                             <button type="button" class="queue-act ${paused ? 'is-play' : 'is-pause'}" data-act="pause" data-job-id="${jobId}" title="${pauseTitle}" aria-label="${pauseTitle}">${pauseIcon}</button>
                             <button type="button" class="queue-act queue-act-del" data-act="remove" data-job-id="${jobId}" title="${removeTitle}" aria-label="${removeTitle}">${ICON_TRASH}</button>

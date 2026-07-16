@@ -18,9 +18,7 @@
         NEGATIVE: 'rgb(200, 94, 45)',
         RED_BG: '#d32f2f',
         BLUE_BG: '#45A1FA',
-        BADGE_BLUE_BG: '#2a6cc6',
-        OFF_BG: '#888888',
-        YELLOW_BG: '#c1a50a' 
+        BADGE_BLUE_BG: '#2a6cc6'
     };
 
     const KEYS = {
@@ -176,6 +174,8 @@
     // --- Infrastructure Services ---
 
     class ExtensionSettingsService {
+        // Deliberately duplicated storage shim — see the world-isolation note
+        // in src/curator/store.js (the canonical copy of that decision).
         async getSettings(keys) {
             return new Promise(resolve => chrome.storage.local.get(keys, resolve));
         }

@@ -24,6 +24,7 @@
     // stop, not silently burn work) — both are enforced at this one chokepoint.
 
     const GATE_KEY = 'ilap_ignore_gate';       // last reserved slot (bare epoch-ms number)
+    const PENALTY_KEY = 'ilap_ignore_gate_penalty'; // rate-limit backoff ({ until, level })
     const MASTER_KEY = 'ilap_master_enabled';  // global on/off (widget master toggle)
 
     // Minimum gap between consecutive ignores across ALL sources. ~500 ms + up to
@@ -36,12 +37,27 @@
     const MIN_GAP = 500;
     const JITTER = 300;
     const GAP_FLOOR = 350;
+
+    // Rate-limit backoff. When the ignore endpoint answers 429, the reporting
+    // source pushes a shared penalty here and every source in every tab goes
+    // quiet together (the penalty deadline folds into the next reserved slot).
+    // The wait doubles from PENALTY_BASE up to the PENALTY_MAX cap; a server
+    // Retry-After is honoured up to the same cap. Consecutive 429s escalate as
+    // long as each lands within PENALTY_DECAY of the previous penalty's end; a
+    // quiet spell resets the level. Sources that already HOLD a reserved slot
+    // still fire it — the penalty gates the NEXT reservation (accepted
+    // residual: at most one in-flight ignore per source after a 429).
+    const PENALTY_BASE = 5000;
+    const PENALTY_MAX = 300000;
+    const PENALTY_DECAY = 60000;
+
     // Legitimate queueing can only push the stored slot a few source-counts ×
-    // gap into the future (~seconds). A slot further ahead than this is clock
-    // skew or corruption (manual clock change, resumed VM, a tab with a fast
-    // clock) — without the clamp every source would silently wait it out and
-    // the extension would look dead until that far-future time.
-    const MAX_AHEAD = 30000;
+    // gap into the future (~seconds), plus up to a full rate-limit penalty
+    // (PENALTY_MAX). A slot further ahead than this is clock skew or corruption
+    // (manual clock change, resumed VM, a tab with a fast clock) — without the
+    // clamp every source would silently wait it out and the extension would
+    // look dead until that far-future time.
+    const MAX_AHEAD = 30000 + PENALTY_MAX;
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -56,6 +72,29 @@
         return Math.max(GAP_FLOOR, MIN_GAP) + Math.floor(Math.random() * JITTER);
     }
 
+    // Pure penalty math (unit-tested): each report escalates the level while
+    // the previous penalty is still warm (within PENALTY_DECAY of its end) and
+    // resets to level 1 after a quiet spell. An implausibly-future stored
+    // penalty (corruption/skew — same rationale as MAX_AHEAD) is treated as
+    // absent.
+    function nextPenalty(prev, now, retryAfterMs) {
+        const p = (prev && typeof prev.until === 'number' && prev.until <= now + PENALTY_MAX)
+            ? prev : null;
+        const level = (p && now < p.until + PENALTY_DECAY) ? (p.level || 0) + 1 : 1;
+        const backoff = Math.min(PENALTY_BASE * Math.pow(2, level - 1), PENALTY_MAX);
+        const wait = Math.min(Math.max(backoff, retryAfterMs || 0), PENALTY_MAX);
+        return { until: now + wait, level };
+    }
+
+    // The active penalty deadline, or 0 — same corruption rule as nextPenalty.
+    function penaltyUntil(p, now) {
+        if (!p || typeof p.until !== 'number') return 0;
+        if (p.until > now + PENALTY_MAX) return 0;
+        return p.until;
+    }
+
+    // Deliberately duplicated shim — see the world-isolation note in
+    // src/curator/store.js (the canonical copy of that decision).
     const get = (query) => new Promise(r => chrome.storage.local.get(query, r));
     const set = (obj) => new Promise(r => chrome.storage.local.set(obj, r));
 
@@ -90,8 +129,15 @@
         const claim = chain.then(async () => {
             const stop = await stopVerdict();
             if (stop) return { stop };
-            const data = await get({ [GATE_KEY]: 0 });
-            const slot = nextSlot(data[GATE_KEY], Date.now(), nextGap());
+            const data = await get({ [GATE_KEY]: 0, [PENALTY_KEY]: null });
+            const now = Date.now();
+            // An active rate-limit penalty folds into the slot: the first
+            // reservation lands at the penalty's end, later ones queue past it
+            // with normal gap spacing.
+            const slot = Math.max(
+                nextSlot(data[GATE_KEY], now, nextGap()),
+                penaltyUntil(data[PENALTY_KEY], now)
+            );
             await set({ [GATE_KEY]: slot });
             return { slot };
         });
@@ -114,5 +160,25 @@
         });
     }
 
-    window.ILAP.IgnoreGate = { reserve, nextSlot, GATE_KEY, MIN_GAP, GAP_FLOOR, MAX_AHEAD };
+    // A gated source calls this when the ignore endpoint answered 429: escalate
+    // the shared penalty so every source in every tab backs off together.
+    // Serialized on the same chain as reserve() so a same-context report/claim
+    // can't interleave their read-modify-writes (cross-tab still races — same
+    // accepted residual as the slot claim).
+    function reportRateLimited(retryAfterMs) {
+        const claim = chain.then(async () => {
+            const data = await get({ [PENALTY_KEY]: null });
+            const p = nextPenalty(data[PENALTY_KEY], Date.now(), retryAfterMs);
+            await set({ [PENALTY_KEY]: p });
+            return p;
+        });
+        chain = claim.then(() => {}, () => {});
+        return claim;
+    }
+
+    window.ILAP.IgnoreGate = {
+        reserve, reportRateLimited, nextSlot, nextPenalty,
+        GATE_KEY, PENALTY_KEY, MIN_GAP, GAP_FLOOR, MAX_AHEAD,
+        PENALTY_BASE, PENALTY_MAX, PENALTY_DECAY
+    };
 })();

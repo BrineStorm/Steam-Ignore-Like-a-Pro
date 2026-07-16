@@ -82,17 +82,6 @@ async function rightClickSwipe(page, locator, dx, dy = 0) {
     await page.mouse.up({ button: 'right' });
 }
 
-// Pick the first /app/<id> link inside a given container selector. Returns
-// both the locator and the parsed appid so tests can assert against it.
-async function pickFirstAppLink(page, containerSelector) {
-    const link = page.locator(`${containerSelector} a[href*="/app/"]`).first();
-    await link.waitFor({ state: 'attached', timeout: 15000 });
-    const href = await link.getAttribute('href');
-    const m = href && href.match(/\/app\/(\d+)/);
-    if (!m) throw new Error(`pickFirstAppLink: no /app/<id> in href "${href}"`);
-    return { link, appid: m[1], href };
-}
-
 // On /search/, each result row IS the /app/ link (<a class="search_result_row">),
 // so there is no nested anchor to query. Pick the row element directly. The
 // extension resolves these rows via its Fallback strategy → 'grid' badge.
@@ -129,7 +118,6 @@ module.exports = {
     installContextMenuSpy,
     readContextMenuSpy,
     rightClickSwipe,
-    pickFirstAppLink,
     pickFirstRow,
     searchRow,
     SEARCH_ROW,

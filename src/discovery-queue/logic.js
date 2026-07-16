@@ -23,8 +23,8 @@
         IGNORE_CLICK_MS: 150,           // wait after clicking the Ignore button
         ACTIVE_STATE_TIMEOUT_MS: 2500,  // max wait for the Ignore button to flip to active
         CONFIRM_PRIMARY_MS: 1000,       // primary: wait for the button to reflect "ignored" before any request
-        CONFIRM_FALLBACK_MS: 4000,      // fallback: max wait for dynamicstore userdata to reflect the ignore
-        CONFIRM_POLL_MS: 600            // gap between userdata polls in the fallback
+        CONFIRM_POLL_MS: 600,           // fallback: settle delay before the FIRST userdata read; doubles per miss
+        CONFIRM_MAX_GETS: 3             // fallback: hard cap on userdata GETs per unconfirmed ignore
     };
 
     // Safety valve: if we click "Continue" this many times in a row without a
@@ -245,16 +245,28 @@
         }
 
         async _loop() {
-            while (this.isRunning) {
-                const dialog = document.querySelector('div[role="dialog"]');
-                if (!dialog) break; 
-                
-                const result = await this._processCurrentSlide(dialog);
-                if (!result) break;
+            // Any throw mid-iteration (a Steam DOM change breaking a selector)
+            // must still land in stop(): without it isRunning stays true, the
+            // button sticks on "Stop", and the controller's heartbeat keeps
+            // renewing this tab's registry slot — one zombie tab would eat half
+            // of the cross-tab cap (2) until the tab closes.
+            try {
+                while (this.isRunning) {
+                    const dialog = document.querySelector('div[role="dialog"]');
+                    if (!dialog) break;
 
-                await new Promise(r => setTimeout(r, TIMING.LOOP_PAUSE_MS));
+                    const result = await this._processCurrentSlide(dialog);
+                    if (!result) break;
+
+                    await new Promise(r => setTimeout(r, TIMING.LOOP_PAUSE_MS));
+                }
+            } catch (e) {
+                // start() is deliberately not awaited by the controller, so a
+                // rethrow would only surface as an unhandled rejection.
+                console.warn('[ILAP] DQ loop aborted:', e);
+            } finally {
+                this.stop();
             }
-            this.stop();
         }
 
         async _processCurrentSlide(dialog) {
@@ -319,6 +331,12 @@
             this._notifyUI();
             this.stats.save(gameInfo.name, "Queue");
 
+            // The confirm poll above can span seconds; a Stop click landing in
+            // that window must not be followed by one more queue advance. (The
+            // ignore itself already happened and is counted — only the advance
+            // is refused.)
+            if (!this.isRunning) return false;
+
             await this._clickWithDelay(nextBtn, TIMING.NEXT_CLICK_MS);
             return true;
         }
@@ -335,11 +353,15 @@
         }
 
         // Two-tier confirmation, in order of cheapness:
-        //   1) PRIMARY — the in-page button reflects the ignored state. Free, no
-        //      request. (Currently a no-op: Steam's web button renders no pressed
-        //      state, so this times out and we fall through.)
-        //   2) FALLBACK — authoritative read of dynamicstore userdata. One GET per
-        //      unconfirmed ignore, keeping requests at "one click → at most one GET".
+        //   1) PRIMARY — the in-page button reflects the ignored state via the
+        //      ≥2-hashed-classes signal (live-verified: Steam adds a
+        //      second hashed class within ~400 ms of the click). Free, no
+        //      request — this is what confirms the typical ignore.
+        //   2) FALLBACK — insurance for a Steam markup change breaking the
+        //      button signal: authoritative read of dynamicstore userdata,
+        //      paced (settle delay + doubling backoff, hard-capped at
+        //      CONFIRM_MAX_GETS reads) so an unconfirmed ignore costs typically
+        //      one GET and never a fixed-rate poll hammer.
         async _confirmIgnored(ignoreBtn, appid) {
             if (await this._waitForActiveState(ignoreBtn, TIMING.CONFIRM_PRIMARY_MS)) return true;
             if (!appid) return false;
@@ -348,14 +370,19 @@
 
         async _verifyIgnoredViaUserdata(appid) {
             const key = String(appid);
-            const deadline = Date.now() + TIMING.CONFIRM_FALLBACK_MS;
-            while (Date.now() < deadline) {
-                // Shared reader (window.ILAP.fetchIgnoredApps) resolves to a Set of
-                // ignored appids, or an empty Set on any transient failure — either
-                // way we just keep polling until the deadline.
+            // The ignore POST fired at the click, and the primary wait already
+            // burned ~1 s — so give Steam a settle delay BEFORE the first read
+            // (reading immediately all but guarantees a miss + re-poll), then
+            // double the gap per miss up to the GET cap.
+            let delay = TIMING.CONFIRM_POLL_MS;
+            for (let i = 0; i < TIMING.CONFIRM_MAX_GETS; i++) {
+                await new Promise(r => setTimeout(r, delay));
+                // Shared reader resolves to a Set of ignored appids, or an empty
+                // Set on any transient failure — a failed read just spends one
+                // attempt from the cap.
                 const ignored = await window.ILAP.fetchIgnoredApps();
                 if (ignored.has(key)) return true;
-                await new Promise(r => setTimeout(r, TIMING.CONFIRM_POLL_MS));
+                delay *= 2;
             }
             return false;
         }

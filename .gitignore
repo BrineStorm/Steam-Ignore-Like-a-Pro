@@ -1,5 +1,5 @@
 .vscode/
-CLAUDE.local.md
+docs/internal/
 test-results/
 playwright-report/
 blob-report/

@@ -609,14 +609,13 @@
             ctx.collapse.setOpen(!ctx.collapse.isOpen());
         });
 
-        const domState = Auth.isLoggedInDom();
-        if (domState === false) {
+        // Shared login-gate policy (SteamAuth.resolveLogin): header DOM first,
+        // live probe only when there is no header to read. Lock immediately on
+        // anything but a confirmed-logged-in header, then let the resolution
+        // unlock (a false header resolves false without a probe).
+        if (Auth.isLoggedInDom() !== true) {
             setLocked(true);
-        } else if (domState === null) {
-            // No store header to read (e.g. a stripped surface) — lock until a live
-            // probe settles the real state.
-            setLocked(true);
-            Auth.probeLogin().then((ok) => { if (ok) setLocked(false); });
+            Auth.resolveLogin().then((ok) => { if (ok) setLocked(false); });
         }
     }
 

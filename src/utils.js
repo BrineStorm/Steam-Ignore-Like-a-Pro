@@ -53,8 +53,13 @@
     function fetchWithTimeout(url, options, timeoutMs) {
         const ctl = new AbortController();
         const timer = setTimeout(() => ctl.abort(), timeoutMs || FETCH_TIMEOUT_MS);
+        // The timer is deliberately NOT cleared when fetch() resolves: fetch()
+        // resolves at HEADERS, while body reads (res.json()) run afterwards
+        // under the same signal — a server that sends headers then stalls the
+        // body must hit the same deadline. Once the body has been consumed the
+        // late abort() is a no-op (at worst it cancels an unread body).
         return fetch(url, Object.assign({}, options, { signal: ctl.signal }))
-            .finally(() => clearTimeout(timer));
+            .catch(err => { clearTimeout(timer); throw err; });
     }
 
     // Authoritative ignore-state source: Steam's own dynamic store. Same-origin
@@ -98,13 +103,32 @@
                 if (!res.ok) return null;
                 return !res.url.includes('/login');
             } catch (e) { return null; }
+        },
+        // The login-gate policy shared by the widget launcher and the curator
+        // button: trust the header DOM when it rendered (true/false — a false
+        // header never triggers a probe), fall back to the live probe only when
+        // there is no header to read. Resolves true only on a confirmed session;
+        // a failed/offline probe resolves false (callers keep their locked default).
+        async resolveLogin() {
+            const dom = this.isLoggedInDom();
+            if (dom !== null) return dom;
+            return (await this.probeLogin()) === true;
         }
     };
 
     const SteamAPI = {
+        // Resolves { ok, rateLimited, retryAfterMs }:
+        //   ok          — the ignore landed;
+        //   rateLimited — the server answered 429 (throttling the ACCOUNT, not
+        //                 this appid). Gated callers report it to the IgnoreGate
+        //                 so every source in every tab backs off together;
+        //   retryAfterMs — parsed Retry-After when the 429 carried one, else 0
+        //                 (an HTTP-date Retry-After parses to 0 and the gate's
+        //                 own exponential backoff decides).
+        // A network failure / dead session is { ok:false, rateLimited:false }.
         async ignore(appid, reason) {
             const sessionid = SessionService.getID();
-            if (!sessionid) return false;
+            if (!sessionid) return { ok: false, rateLimited: false, retryAfterMs: 0 };
 
             // URLSearchParams encodes each field, so the cookie-sourced sessionid
             // can't break the body's key=value&… structure (it's hex today, but
@@ -118,8 +142,12 @@
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
                     body: body
                 });
-                return response.ok;
-            } catch (e) { return false; }
+                if (response.status === 429) {
+                    const ra = parseInt(response.headers.get('Retry-After'), 10);
+                    return { ok: false, rateLimited: true, retryAfterMs: ra > 0 ? ra * 1000 : 0 };
+                }
+                return { ok: response.ok, rateLimited: false, retryAfterMs: 0 };
+            } catch (e) { return { ok: false, rateLimited: false, retryAfterMs: 0 }; }
         }
     };
 
@@ -345,6 +373,11 @@
         new GenericTextStrategy()
     ]);
 
+    // Collision-resistant per-context owner id for storage leases/slots (the
+    // curator drain lease, the DQ registry slot); the prefix names the subsystem.
+    const newOwnerId = (prefix) =>
+        prefix + Math.random().toString(36).slice(2) + Date.now().toString(36);
+
     // === Public Facade ===
     window.ILAP = window.ILAP || {};
     window.ILAP.SESSION_IGNORED_KEY = 'ilap_session_ignored_games';
@@ -359,5 +392,6 @@
     window.ILAP.ResourceService = ResourceService;
     window.ILAP.sanitizeName = sanitizeName;
     window.ILAP.fetchWithTimeout = fetchWithTimeout;
+    window.ILAP.newOwnerId = newOwnerId;
 
 })();

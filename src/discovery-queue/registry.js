@@ -45,6 +45,10 @@
         return out;
     }
 
+    // Deliberately duplicated shim/lease math — see the world-isolation note in
+    // src/curator/store.js (the canonical copy of that decision). NB the lease
+    // constants here (TTL 8 s / heartbeat 3 s) intentionally mirror the curator
+    // lease pair (store.js LOCK_TTL / drainer.js HEARTBEAT_MS) — keep them in step.
     const get = (k) => new Promise(r => chrome.storage.local.get(k, r));
     const set = (o) => new Promise(r => chrome.storage.local.set(o, r));
 

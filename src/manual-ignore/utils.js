@@ -15,7 +15,7 @@
         LINK: 'a[href*="/app/"]',
         LIST_ITEM: '.tab_item',
         DIRECT_IMG: `[class*="CapsuleImageCtn"], [class*="HeroCapsuleImageContainer"], .spotlight_img, .capsule_image, .main_capsule`,
-        WRAPPER: `.game_capsule, .dailydeal_cap, .small_cap, .bundle_base_discount, [class*="ImpressionTrackedElement"], div[class*="StoreSaleWidget"], [class*="LibraryAssetExpandedDisplay"], .store_main_capsule, [class*="SaleSectionCtn"], .contenthubmaincarousel`
+        WRAPPER: `.game_capsule, .dailydeal_cap, .small_cap, .bundle_base_discount, [class*="ImpressionTrackedElement"], div[class*="StoreSaleWidget"], [class*="LibraryAssetExpandedDisplay"], .store_main_capsule, [class*="SaleSectionCtn"], .contenthubmaincarousel, .hero_capsule`
     };
 
     const CONFIG_KEYS = {
@@ -149,7 +149,10 @@
                 match: (el) => el.closest(SELECTORS.WRAPPER),
                 resolve: (el) => {
                     const wrapper = el.closest(SELECTORS.WRAPPER);
-                    let innerImage = wrapper.querySelector(`[class*="CapsuleImageCtn"], [class*="HeroCapsuleImageContainer"], .capsule_image, .main_capsule, img[class*="Capsule"]`);
+                    // .hero_capsule_img: the seasonal-sale hero capsule keeps its art as a
+                    // SIBLING of an empty overlay anchor, so the ancestor-based strategies
+                    // and the inside-the-link fallbacks all miss it.
+                    let innerImage = wrapper.querySelector(`[class*="CapsuleImageCtn"], [class*="HeroCapsuleImageContainer"], .capsule_image, .main_capsule, .hero_capsule_img, img[class*="Capsule"]`);
 
                     if (!innerImage) {
                         const link = el.tagName === 'A' ? el : wrapper.querySelector('a');
@@ -160,7 +163,7 @@
                     }
 
                     if (innerImage) {
-                        const isHero = wrapper.classList.contains('store_main_capsule') || wrapper.classList.contains('contenthubmaincarousel');
+                        const isHero = wrapper.classList.contains('store_main_capsule') || wrapper.classList.contains('contenthubmaincarousel') || wrapper.classList.contains('hero_capsule');
                         return { element: innerImage, type: isHero ? 'hero' : 'grid' };
                     }
                     return { element: wrapper, type: 'standard' };

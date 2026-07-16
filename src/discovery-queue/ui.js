@@ -71,11 +71,29 @@
             this.button = null;
             this.checkbox = null;
             this._refuseTimer = null;
+            this._labelText = null;   // the checkbox label's text node, for live relabel
+            this._lastRunning = false;
+            this._lastCount = 0;
             Styles.inject();
+            // Live language switch: re-render the mounted panel's labels in place
+            // (the panel otherwise only gets its strings at mount/updateState time).
+            if (window.ILAP && window.ILAP.i18n && window.ILAP.i18n.onLangChange) {
+                window.ILAP.i18n.onLangChange(() => this._relabel());
+            }
+        }
+
+        _relabel() {
+            if (!this.container || !this.container.isConnected) return;
+            if (this._labelText) this._labelText.nodeValue = t('keep_high_score');
+            // Re-render the button from the last known state. A transient
+            // "cap reached" message reverts early — acceptable for a 3.5 s flash.
+            this.updateState(this._lastRunning, this._lastCount);
         }
 
         mount(insertionPoint, events) {
-            if (this.container) return;
+            // isConnected, not truthiness: a stale ref to a container the closed
+            // modal took down with it must not block mounting into the new modal.
+            if (this.container && this.container.isConnected) return;
 
             this.container = document.createElement('div');
             this.container.className = 'ilap-controls-container';
@@ -90,7 +108,8 @@
             this.checkbox.addEventListener('change', (e) => events.onCheckboxChange(e.target.checked));
 
             label.appendChild(this.checkbox);
-            label.appendChild(document.createTextNode(t('keep_high_score')));
+            this._labelText = document.createTextNode(t('keep_high_score'));
+            label.appendChild(this._labelText);
 
             this.button = document.createElement('button');
             this.button.id = IDS.BUTTON;
@@ -106,6 +125,8 @@
         }
 
         unmount() {
+            clearTimeout(this._refuseTimer);
+            this._refuseTimer = null;
             if (this.container) {
                 this.container.remove();
                 this.container = null;
@@ -129,6 +150,8 @@
 
         updateState(isRunning, processedCount) {
             if (!this.button) return;
+            this._lastRunning = isRunning;
+            this._lastCount = processedCount;
             this.button.classList.remove('refused');
             clearTimeout(this._refuseTimer);
 

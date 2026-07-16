@@ -189,7 +189,9 @@ test.describe('Popup — ignore-queue applet', () => {
             ['ilap_curator_cursor_' + job.id]: 4,
         });
         await openPopup(page, context);
-        await expect(page.locator('.queue-job-count')).toHaveText('4 / 10');
+        // The count carries the inline percent badge (.queue-job-pct).
+        await expect(page.locator('.queue-job-count')).toHaveText('4 / 10 40%');
+        await expect(page.locator('.queue-job-pct')).toHaveText('40%');
     });
 
     test('Filter label uses the Steam category colour (orange for Not Recommended)', async ({ page, context }) => {

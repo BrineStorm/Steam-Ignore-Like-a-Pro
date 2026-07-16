@@ -10,7 +10,8 @@
     // worker, NO service worker. The ignore POST only succeeds from a live
     // store.steampowered.com content-script context (Akamai 400s it elsewhere),
     // so draining runs in whatever Steam tab happens to be open. Boots on every
-    // store page; idle (one storage read) when the queue is empty.
+    // store page; with an empty queue it is fully idle after the one boot read
+    // (the standby interval only ticks while a job exists; onChanged wakes it).
     //
     // Safety contract:
     //  - serial POSTs only, ~300–800 ms jittered gap, NEVER parallel;
@@ -32,7 +33,7 @@
     const MAX_FAILS = 3;           // give up on a single appid after N failed POSTs
     const RETRY_TICK_MS = 9000;    // standby poll: steal an expired lease / pick up work
 
-    const uuid = () => 'd_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const uuid = () => window.ILAP.newOwnerId('d_');
 
     class CuratorQueueDrainer {
         constructor(deps) {
@@ -42,6 +43,7 @@
             this.fetchUserdata = deps.fetchUserdata;   // () => Promise<Set<string>>
             this.ownerId = deps.ownerId || uuid();
             this.draining = false;
+            this._timer = null;
         }
 
         start() {
@@ -53,12 +55,26 @@
                 if (touched) this._kick();
             };
             chrome.storage.onChanged.addListener(this._onChange);
-            // Standby retry: lets a tab steal a lease orphaned by a closed holder.
-            this._timer = setInterval(() => this._kick(), RETRY_TICK_MS);
+            // The standby retry interval is armed by drain() only while the queue
+            // holds a job (see _syncStandbyTimer) — with a permanently empty queue
+            // every store tab would otherwise pay one storage read per tick
+            // forever, while onChanged already catches new jobs the moment they
+            // are staged.
             this._kick();
         }
 
         _kick() { this.drain().catch(() => {}); }
+
+        // Standby retry: lets a tab steal a lease orphaned by a closed holder,
+        // and retries a gate-stopped pass. Only worth ticking while a job exists.
+        _syncStandbyTimer(hasWork) {
+            if (hasWork && !this._timer) {
+                this._timer = setInterval(() => this._kick(), RETRY_TICK_MS);
+            } else if (!hasWork && this._timer) {
+                clearInterval(this._timer);
+                this._timer = null;
+            }
+        }
 
         // A job is drainable if it's meant to run and still has work left.
         _pickJob(queue) {
@@ -74,7 +90,9 @@
             this.draining = true;
             try {
                 while (true) {
-                    const job = this._pickJob(await this.store.getQueue());
+                    const queue = await this.store.getQueue();
+                    this._syncStandbyTimer(queue.length > 0);
+                    const job = this._pickJob(queue);
                     if (!job) break;
                     const got = await this.store.acquireLock(job.curatorId, this.ownerId);
                     if (!got) break;   // another tab owns this job → we stay standby
@@ -84,9 +102,10 @@
                     } finally {
                         await this.store.releaseLock(job.curatorId, this.ownerId);
                     }
-                    // The gate said stop (master off / no session): the job is still
-                    // drainable, so re-picking it would busy-loop. Break the pass and
-                    // wait for the next kick (a queue/lock/master change, or the retry
+                    // The gate said stop (master off / no session), or a 429
+                    // backoff was just reported: the job is still drainable, so
+                    // re-picking it would busy-loop. Break the pass and wait for
+                    // the next kick (a queue/lock/master change, or the retry
                     // tick) to resume.
                     if (result === 'stop') break;
                 }
@@ -111,6 +130,15 @@
                 // 'running' is a legacy stored value from the pre-cursor-key model.
                 if (cur.status !== 'pending' && cur.status !== 'running') return;
                 if (!(await this.store.holdsLock(job.curatorId, this.ownerId))) return; // lost lease
+
+                // Renew the lease on EVERY loop path, not just after a POST: a
+                // long run of dedupe-skips (typical re-run over a mostly-ignored
+                // list) would otherwise advance the cursor past the 8 s TTL with
+                // no heartbeat, letting a standby tab steal the lock mid-drain.
+                if (Date.now() - lastBeat > HEARTBEAT_MS) {
+                    await this.store.renewLock(job.curatorId, this.ownerId);
+                    lastBeat = Date.now();
+                }
 
                 const keyCursor = await this.store.getCursor(job.id);
                 // Legacy records (pre-cursor-key) kept the cursor inline.
@@ -143,12 +171,23 @@
                 // status check at the top of the loop ran before the wait).
                 const fresh = (await this.store.getQueue()).find(j => j.id === job.id);
                 if (!fresh || (fresh.status !== 'pending' && fresh.status !== 'running')) return;
+                // The lease can be stolen during the same wait (e.g. this tab was
+                // backgrounded and its heartbeat lapsed): the single-drainer
+                // invariant needs a live lease at POST time, not just at loop top.
+                if (!(await this.store.holdsLock(job.curatorId, this.ownerId))) return;
 
-                const ok = await this.api.ignore(appid, REASON);
-                if (ok) {
+                const res = await this.api.ignore(appid, REASON);
+                if (res && res.ok) {
                     ignored.add(appid);
                     await this.store.setCursor(job.id, cursor + 1);
                     fails = 0;
+                } else if (res && res.rateLimited) {
+                    // 429: the server is throttling the ACCOUNT, not this appid —
+                    // charging it against fails would skip innocent games. Push
+                    // the shared gate into backoff and end the pass; the standby
+                    // tick / next kick retries, and reserve() waits the penalty out.
+                    await this.gate.reportRateLimited(res.retryAfterMs);
+                    return 'stop';
                 } else {
                     // Don't advance on failure (cursor only moves on confirmed
                     // ignore); retry a few times, then skip so one bad appid can't
@@ -158,11 +197,6 @@
                         await this.store.setCursor(job.id, cursor + 1);
                         fails = 0;
                     }
-                }
-
-                if (Date.now() - lastBeat > HEARTBEAT_MS) {
-                    await this.store.renewLock(job.curatorId, this.ownerId);
-                    lastBeat = Date.now();
                 }
                 // No local sleep — the gate.reserve() above already paced this pass.
             }
@@ -177,7 +211,10 @@
         const drainer = new CuratorQueueDrainer({
             store: window.ILAP.Curator.Store,
             api: { ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) },
-            gate: { reserve: () => window.ILAP.IgnoreGate.reserve() },
+            gate: {
+                reserve: () => window.ILAP.IgnoreGate.reserve(),
+                reportRateLimited: (ms) => window.ILAP.IgnoreGate.reportRateLimited(ms)
+            },
             fetchUserdata: () => window.ILAP.fetchIgnoredApps()
         });
         window.ILAP.Curator.drainer = drainer;

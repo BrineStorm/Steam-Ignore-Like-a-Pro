@@ -31,7 +31,10 @@
 
         // 5. External Adapters Creation
         const apiAdapter = { ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) };
-        const gateAdapter = { reserve: () => window.ILAP.IgnoreGate.reserve() };
+        const gateAdapter = {
+            reserve: () => window.ILAP.IgnoreGate.reserve(),
+            reportRateLimited: (ms) => window.ILAP.IgnoreGate.reportRateLimited(ms)
+        };
         const statsAdapter = { save: (name, source) => window.ILAP.saveStats(name, source) };
         const nameExtractorAdapter = { get: (appid, el) => window.ILAP.getGameName(appid, el) };
 

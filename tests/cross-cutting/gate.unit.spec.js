@@ -8,7 +8,9 @@ const vm = require('vm');
 // chrome.storage stub. Guards the contract the drainer / EQ / DQ rely on:
 //   - the two STOP verdicts (master off, no session) resolve without a slot;
 //   - a granted reservation advances the shared timestamp monotonically by at
-//     least MIN_GAP, so stacked sources stay ≥ MIN_GAP apart.
+//     least MIN_GAP, so stacked sources stay ≥ MIN_GAP apart;
+//   - a reported 429 escalates a shared penalty (nextPenalty) that the next
+//     reservation waits out, so every source backs off together.
 
 function loadGate(initial) {
     const code = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'gate.js'), 'utf8');
@@ -57,6 +59,61 @@ test.describe('ignore-rate gate (unit)', () => {
         expect(Gate.nextSlot(now + 3600000, now, 500)).toBe(now + 500);
         // A legitimately-queued near-future slot (within MAX_AHEAD) is respected.
         expect(Gate.nextSlot(now + 2000, now, 500)).toBe(now + 2500);
+    });
+
+    test('nextPenalty: escalates while warm, resets after a quiet spell, honours Retry-After', () => {
+        const { Gate } = loadGate();
+        const now = 1000000;
+        // First 429 → base backoff, level 1.
+        const p1 = Gate.nextPenalty(null, now, 0);
+        expect(p1).toEqual({ until: now + Gate.PENALTY_BASE, level: 1 });
+        // Another 429 shortly after the penalty's end (within PENALTY_DECAY) → doubled.
+        const t2 = p1.until + 1000;
+        const p2 = Gate.nextPenalty(p1, t2, 0);
+        expect(p2).toEqual({ until: t2 + 2 * Gate.PENALTY_BASE, level: 2 });
+        // The backoff is hard-capped at PENALTY_MAX no matter the level.
+        expect(Gate.nextPenalty({ until: t2, level: 20 }, t2, 0).until - t2).toBe(Gate.PENALTY_MAX);
+        // A quiet spell (past PENALTY_DECAY) resets the escalation.
+        const t3 = p2.until + Gate.PENALTY_DECAY + 1;
+        expect(Gate.nextPenalty(p2, t3, 0).level).toBe(1);
+        // A server Retry-After larger than the backoff wins — capped at PENALTY_MAX.
+        expect(Gate.nextPenalty(null, now, 60000).until).toBe(now + 60000);
+        expect(Gate.nextPenalty(null, now, Gate.PENALTY_MAX * 2).until).toBe(now + Gate.PENALTY_MAX);
+        // A corrupt (implausibly-future) stored penalty is treated as absent.
+        expect(Gate.nextPenalty({ until: now + Gate.PENALTY_MAX + 1, level: 5 }, now, 0).level).toBe(1);
+    });
+
+    test('reportRateLimited escalates the shared penalty across consecutive reports', async () => {
+        const { Gate, data } = loadGate({});
+        const start = Date.now();
+        await Gate.reportRateLimited(0);
+        await Gate.reportRateLimited(0);
+        const p = data().ilap_ignore_gate_penalty;
+        expect(p.level).toBe(2);
+        expect(p.until).toBeGreaterThanOrEqual(start + 2 * Gate.PENALTY_BASE);
+    });
+
+    test('reserve honours an active penalty: the granted slot lands past penalty.until', async () => {
+        const until = Date.now() + 400;
+        const { Gate, ILAP, data } = loadGate({
+            ilap_master_enabled: true,
+            ilap_ignore_gate_penalty: { until, level: 1 },
+        });
+        ILAP.getSessionID = () => 'sess';
+        const r = await Gate.reserve();
+        expect(r).toEqual({ ok: true });
+        expect(data().ilap_ignore_gate).toBeGreaterThanOrEqual(until); // slot folded past the penalty
+        expect(Date.now()).toBeGreaterThanOrEqual(until);              // and the wait actually happened
+    });
+
+    test('a corrupt far-future penalty is ignored, not waited out', async () => {
+        const { Gate, ILAP } = loadGate({
+            ilap_master_enabled: true,
+            ilap_ignore_gate_penalty: { until: Date.now() + 3600000, level: 3 },
+        });
+        ILAP.getSessionID = () => 'sess';
+        const r = await Gate.reserve(); // must resolve promptly, not in an hour
+        expect(r).toEqual({ ok: true });
     });
 
     test('reserve STOPS (no slot) when the master toggle is off', async () => {

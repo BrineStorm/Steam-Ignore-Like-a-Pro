@@ -62,6 +62,19 @@
     }
 
     // --- chrome.storage.local wrappers ------------------------------------
+    //
+    // DELIBERATELY DUPLICATED (decided when triaging the reuse
+    // findings — this comment is the canonical copy). The promisified
+    // get/set shim, the serialized-RMW promise chain and the TTL-lease math
+    // each exist in more than one module (gate.js, discovery-queue/registry.js,
+    // explore-queue/utils.js, utils.js StatsManager, and here). They can NOT
+    // simply move to utils.js: this file also runs inside popup.html, which
+    // deliberately does not load utils.js — the popup and content-script worlds
+    // share only small self-contained files (escape.js, surface.js, filters.js).
+    // Consolidating would mean a new cross-world module + manifest/popup churn
+    // to save ~40 stable lines whose copies each sit beside their only consumer.
+    // Accepted as the price of world isolation. If you CHANGE one of the copies'
+    // semantics (not cosmetics), visit its siblings.
 
     function get(keys) {
         return new Promise(resolve => chrome.storage.local.get(keys, resolve));
@@ -144,8 +157,18 @@
         return Number.isFinite(v) ? v : null;
     }
 
+    // Refuses (returns false) when the job is no longer in the queue: a remove
+    // can interleave between a caller's own membership check and this write
+    // (resolve()'s bail check, the drainer's loop-top check), and a cursor
+    // written after removeJob already ran would leak the key in storage
+    // forever — removeJob is the key's only cleanup path. Residual: no CAS,
+    // so a cross-context remove can still slip between the read and the write
+    // here — same accepted class as the other cross-tab races, but the window
+    // shrinks from the caller's whole iteration to one adjacent get→set.
     async function setCursor(jobId, value) {
+        if (!(await getQueue()).some(j => j.id === jobId)) return false;
         await set({ [CURSOR_PREFIX + jobId]: value });
+        return true;
     }
 
     // Fire-and-forget signal that a job just finished draining. Surfaces (the

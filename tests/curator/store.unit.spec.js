@@ -163,9 +163,21 @@ test.describe('Curator storage — serialized queue writes (unit)', () => {
     });
 
     test('cursor keys: setCursor/getCursor roundtrip, null when unset', async () => {
-        const { Store } = loadStoreWithChrome({});
+        const { Store } = loadStoreWithChrome({ ilap_curator_queue: [{ id: 'j1' }] });
         expect(await Store.getCursor('j1')).toBeNull();
-        await Store.setCursor('j1', 7);
+        expect(await Store.setCursor('j1', 7)).toBe(true);
         expect(await Store.getCursor('j1')).toBe(7);
+    });
+
+    test('setCursor refuses for a job not in the queue — a removed job cannot leak its key', async () => {
+        const { Store, data } = loadStoreWithChrome({ ilap_curator_queue: [{ id: 'j1' }] });
+        await Store.setCursor('j1', 3);
+        // removeJob is the cursor key's ONLY cleanup path; a cursor write
+        // landing after it (remove/resolve or remove/drain race) must not
+        // recreate the key.
+        await Store.removeJob('j1');
+        expect(await Store.setCursor('j1', 4)).toBe(false);
+        expect(data()['ilap_curator_cursor_j1']).toBeUndefined();
+        expect(await Store.getCursor('j1')).toBeNull();
     });
 });

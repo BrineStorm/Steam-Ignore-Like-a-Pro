@@ -6,8 +6,8 @@ const vm = require('vm');
 // EnqueueService (src/curator/enqueue-service.js) as a Node unit — no browser.
 // This is the logic that had ZERO coverage while it lived as free functions in
 // curator/main.js reaching into the Store/Enumerator singletons: staging outcomes
-// (add / switch / no-op / full) and resolution (cache-vs-enumerate, the confirm
-// threshold, the mid-enumeration removal bail, and the enumerate-failure fallback).
+// (add / switch / no-op / full) and resolution (cache-vs-enumerate, the
+// mid-enumeration removal bail, and the enumerate-failure fallback).
 
 function loadService() {
     const code = fs.readFileSync(
@@ -44,10 +44,14 @@ function makeStore(initialQueue = []) {
             state.queue = state.queue.filter(j => j.id !== jobId);
         },
         async setCursor(jobId, n) { state.cursors[jobId] = n; },
+        // Mirrors the real Store: `patch` may be an object or a (job)=>partial fn,
+        // and a vanished job is a no-op.
         async updateJob(jobId, patch) {
-            state.updates.push({ jobId, patch });
             const j = state.queue.find(x => x.id === jobId);
-            if (j) Object.assign(j, patch);
+            if (!j) return null;
+            const resolved = typeof patch === 'function' ? patch(j) : patch;
+            state.updates.push({ jobId, patch: resolved });
+            Object.assign(j, resolved);
         }
     };
     return store;
@@ -63,9 +67,7 @@ function makeEnum(apps, total) {
     };
 }
 
-const build = (store, enumerator, opts) => new EnqueueService(Object.assign(
-    { store, enumerator, maxJobs: 3, confirmThreshold: 25 }, opts || {}
-));
+const build = (store, enumerator) => new EnqueueService({ store, enumerator, maxJobs: 3 });
 
 test.describe('EnqueueService.stage (unit)', () => {
     test('adds a new job as enumerating and reports kind:added', async () => {
@@ -108,7 +110,7 @@ test.describe('EnqueueService.stage (unit)', () => {
             { id: 'b', curatorId: '2', filter: 'all_but_recommended' },
             { id: 'c', curatorId: '3', filter: 'all_but_recommended' }
         ]);
-        const svc = build(store, makeEnum([]), { maxJobs: 3 });
+        const svc = build(store, makeEnum([]));
         const outcome = await svc.stage('9', 'New', 'url', 'not_recommended');
         expect(outcome).toEqual({ kind: 'full' });
         expect(store.state.queue).toHaveLength(3); // nothing added
@@ -127,7 +129,7 @@ test.describe('EnqueueService.resolve (unit)', () => {
         const store = makeStore([seedJob()]);
         store.state.cache = { apps }; store.state.cacheFresh = true;
         const enumerator = makeEnum(apps);
-        const res = await build(store, enumerator).resolve('123', 'j1', 'Cur', 'not_recommended', () => true);
+        const res = await build(store, enumerator).resolve('123', 'j1', 'Cur', 'not_recommended');
 
         expect(res).toEqual({ ok: true });
         expect(enumerator.calls).toBe(0); // served from cache
@@ -140,28 +142,17 @@ test.describe('EnqueueService.resolve (unit)', () => {
         const store = makeStore([seedJob()]);
         store.state.cache = null; store.state.cacheFresh = false;
         const enumerator = makeEnum(apps, 3);
-        await build(store, enumerator).resolve('123', 'j1', 'Cur', 'not_recommended', () => true);
+        await build(store, enumerator).resolve('123', 'j1', 'Cur', 'not_recommended');
 
         expect(enumerator.calls).toBe(1);
         expect(store.state.cachePut).toMatchObject({ total: 3, name: 'Cur', apps });
         expect(store.state.updates.at(-1).patch).toMatchObject({ status: 'pending', total: 2 });
     });
 
-    test('confirm-reject on a large batch removes the job instead of queueing it', async () => {
-        const big = Array.from({ length: 30 }, (_, i) => ({ appid: 100 + i, type: 'not_recommended' }));
-        const store = makeStore([seedJob()]);
-        store.state.cache = { apps: big }; store.state.cacheFresh = true;
-        const res = await build(store, makeEnum(big)).resolve('123', 'j1', 'Cur', 'not_recommended', () => false);
-
-        expect(res).toBeUndefined();                 // a deliberate user cancel is NOT an error → no toast
-        expect(store.state.removed).toContain('j1');
-        expect(store.state.updates).toHaveLength(0); // never flipped to pending
-    });
-
     test('job removed mid-enumeration: bail without writing cursor or status', async () => {
         const store = makeStore([]); // job no longer present
         store.state.cache = { apps }; store.state.cacheFresh = true;
-        await build(store, makeEnum(apps)).resolve('123', 'j1', 'Cur', 'not_recommended', () => true);
+        await build(store, makeEnum(apps)).resolve('123', 'j1', 'Cur', 'not_recommended');
 
         expect(store.state.updates).toHaveLength(0);
         expect(store.state.cursors.j1).toBeUndefined();
@@ -171,7 +162,7 @@ test.describe('EnqueueService.resolve (unit)', () => {
         const store = makeStore([seedJob()]);
         store.state.cache = null; store.state.cacheFresh = false;
         const enumerator = { calls: 0, async enumerate() { this.calls++; throw new Error('boom'); }, filterAppids: () => [] };
-        const res = await build(store, enumerator).resolve('123', 'j1', 'Cur', 'not_recommended', () => true);
+        const res = await build(store, enumerator).resolve('123', 'j1', 'Cur', 'not_recommended');
 
         expect(enumerator.calls).toBe(1);
         expect(res).toEqual({ error: true });
@@ -179,14 +170,69 @@ test.describe('EnqueueService.resolve (unit)', () => {
         expect(store.state.updates).toHaveLength(0);  // never flipped to drainable
     });
 
+    test('a pause landed mid-enumeration survives resolve (status stays paused)', async () => {
+        // The droplist/applet Pause is clickable while the job is still
+        // 'enumerating' — resolve must not clobber that intent back to pending.
+        const store = makeStore([seedJob({ status: 'paused' })]);
+        store.state.cache = { apps }; store.state.cacheFresh = true;
+        const res = await build(store, makeEnum(apps)).resolve('123', 'j1', 'Cur', 'not_recommended');
+
+        expect(res).toEqual({ ok: true });
+        expect(store.state.queue[0]).toMatchObject({ status: 'paused', total: 2, appids: [10, 11] });
+        expect(store.state.cursors.j1).toBe(0); // list still resolved + cursor reset
+    });
+
     test('empty list (parsed 0 / nothing under filter) drops the job and reports { error:true }', async () => {
         const store = makeStore([seedJob()]);
         // Fresh cache with apps, but the requested filter matches none of them.
         store.state.cache = { apps: [{ appid: 10, type: 'informational' }] }; store.state.cacheFresh = true;
-        const res = await build(store, makeEnum([])).resolve('123', 'j1', 'Cur', 'not_recommended', () => true);
+        const res = await build(store, makeEnum([])).resolve('123', 'j1', 'Cur', 'not_recommended');
 
         expect(res).toEqual({ error: true });
         expect(store.state.removed).toContain('j1');
         expect(store.state.updates).toHaveLength(0);
+    });
+});
+
+// Post-add droplist actions (curator-page button parity with the queue applet's
+// Pause/Remove): keyed by curatorId, routed through the same serialized Store
+// writers, and a null no-op when the job vanished from another window while
+// the droplist was open (the stale-menu cross-window race).
+test.describe('EnqueueService job actions (unit)', () => {
+    test('togglePause pauses a drainable job (kind:paused)', async () => {
+        const store = makeStore([{ id: 'j1', curatorId: '123', filter: 'not_recommended', status: 'pending' }]);
+        const outcome = await build(store, makeEnum([])).togglePause('123');
+        expect(outcome).toEqual({ kind: 'paused' });
+        expect(store.state.queue[0].status).toBe('paused');
+    });
+
+    test('togglePause resumes a paused job back to pending (kind:resumed)', async () => {
+        const store = makeStore([{ id: 'j1', curatorId: '123', filter: 'not_recommended', status: 'paused' }]);
+        const outcome = await build(store, makeEnum([])).togglePause('123');
+        expect(outcome).toEqual({ kind: 'resumed' });
+        expect(store.state.queue[0].status).toBe('pending');
+    });
+
+    test('togglePause with no job queued for this curator is a null no-op', async () => {
+        const store = makeStore([{ id: 'j1', curatorId: '999', filter: 'not_recommended', status: 'pending' }]);
+        const outcome = await build(store, makeEnum([])).togglePause('123');
+        expect(outcome).toBeNull();
+        expect(store.state.queue[0].status).toBe('pending'); // untouched
+    });
+
+    test('remove drops the job through Store.removeJob (cursor-key cleanup path)', async () => {
+        const store = makeStore([{ id: 'j1', curatorId: '123', filter: 'not_recommended', status: 'pending' }]);
+        const outcome = await build(store, makeEnum([])).remove('123');
+        expect(outcome).toEqual({ kind: 'removed' });
+        expect(store.state.removed).toEqual(['j1']); // via removeJob, not a raw filter
+        expect(store.state.queue).toHaveLength(0);
+    });
+
+    test('remove with no job queued for this curator is a null no-op', async () => {
+        const store = makeStore([{ id: 'j1', curatorId: '999', filter: 'not_recommended', status: 'pending' }]);
+        const outcome = await build(store, makeEnum([])).remove('123');
+        expect(outcome).toBeNull();
+        expect(store.state.removed).toHaveLength(0);
+        expect(store.state.queue).toHaveLength(1); // untouched
     });
 });

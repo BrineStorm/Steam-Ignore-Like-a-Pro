@@ -6,17 +6,16 @@
     window.ILAP.Curator = window.ILAP.Curator || {};
 
     // Headless orchestration for staging + resolving a curator ignore job. All the
-    // I/O (queue store, curator enumerator) and the confirm prompt are injected, so
-    // the branching that mattered — cache-vs-enumerate, the confirm threshold, the
-    // mid-enumeration removal bail, the cursor reset — is unit-testable with plain
-    // stubs. No DOM, no window.confirm, no window.ILAP reach-through: the curator
-    // page's main.js builds this with real deps and only does DOM + wiring + toasts.
+    // I/O (queue store, curator enumerator) is injected, so the branching that
+    // mattered — cache-vs-enumerate, the mid-enumeration removal bail, the cursor
+    // reset — is unit-testable with plain stubs. No DOM, no window.ILAP
+    // reach-through: the curator page's main.js builds this with real deps and only
+    // does DOM + wiring + toasts.
     class EnqueueService {
-        constructor({ store, enumerator, maxJobs, confirmThreshold }) {
+        constructor({ store, enumerator, maxJobs }) {
             this.store = store;
             this.enumerator = enumerator;
             this.maxJobs = maxJobs;
-            this.confirmThreshold = confirmThreshold;
         }
 
         // Stage (or re-target) a job in the queue via the serialized RMW so a click
@@ -61,12 +60,12 @@
 
         // Resolve a staged job's appids and flip it to `pending` so the drainer can
         // start. Uses the 7-day retention cache when fresh (0 network), otherwise
-        // enumerates the curator and caches the result. `confirmFn(count)` gates a
-        // large batch; honours removal mid-enumeration. Returns the outcome the UI
-        // reacts to: { ok:true } on success, { error:true } when no drainable list
-        // could be built (enumeration failed, or nothing matched the filter),
-        // undefined when the user themselves cancelled/removed the job.
-        async resolve(id, jobId, name, filter, confirmFn) {
+        // enumerates the curator and caches the result. Honours removal
+        // mid-enumeration. Returns the outcome the UI reacts to: { ok:true } on
+        // success, { error:true } when no drainable list could be built (enumeration
+        // failed, or nothing matched the filter), undefined when the user themselves
+        // removed the job while it was enumerating.
+        async resolve(id, jobId, name, filter) {
             const Enum = this.enumerator, Store = this.store;
             try {
                 let apps;
@@ -83,10 +82,6 @@
                 if (!(await Store.getQueue()).some(j => j.id === jobId)) return;
 
                 const appids = Enum.filterAppids(apps, filter);
-                if (appids.length > this.confirmThreshold && !confirmFn(appids.length)) {
-                    await Store.removeJob(jobId);
-                    return;
-                }
                 // An empty list means the enumeration parsed nothing (a Steam markup
                 // change silently yields 0 rows) or the curator has no games under
                 // this filter. Either way there's nothing to drain: drop the job so
@@ -99,9 +94,13 @@
                 // while the job is still 'enumerating' (not drainable), so the drainer
                 // can't be advancing it concurrently.
                 await Store.setCursor(jobId, 0);
-                await Store.updateJob(jobId, {
-                    appids, total: appids.length, status: 'pending'
-                });
+                // Function patch: the droplist/applet Pause is live while the job is
+                // still 'enumerating', so a pause landed mid-enumeration must survive
+                // — a blind status:'pending' here would silently clobber it.
+                await Store.updateJob(jobId, (j) => ({
+                    appids, total: appids.length,
+                    status: j.status === 'paused' ? 'paused' : 'pending'
+                }));
                 return { ok: true };
             } catch (e) {
                 // Enumeration failed (network/parse/timeout) — never auto-ignore on a
@@ -110,6 +109,41 @@
                 await Store.removeJob(jobId);
                 return { error: true };
             }
+        }
+
+        // --- post-add droplist actions ---------------------------------------
+        // Curator-page parity with the queue applet's Pause/Remove row buttons
+        // (ui/popup_queue.js). Keyed by curatorId — the button knows the page's
+        // curator, not the job id — and routed through the SAME serialized Store
+        // writers the applet uses, so this is a second caller, not a second
+        // implementation. Both re-read the job inside the mutation, so a stale
+        // menu (the job changed or vanished from another window while the
+        // droplist was open) degrades to a null no-op instead of acting blind.
+
+        // Flip the queued job's pause intent (paused ↔ pending — 'running' is
+        // never stored; it's derived from the live drain lease). Returns
+        // { kind: 'paused' | 'resumed' }, or null when no job is queued.
+        async togglePause(id) {
+            let outcome = null;
+            await this.store.mutateQueue((queue) => {
+                const idx = queue.findIndex(j => j.curatorId === id);
+                if (idx < 0) return null;
+                const resuming = queue[idx].status === 'paused';
+                outcome = { kind: resuming ? 'resumed' : 'paused' };
+                queue[idx] = Object.assign({}, queue[idx], { status: resuming ? 'pending' : 'paused' });
+                return queue;
+            });
+            return outcome;
+        }
+
+        // Drop the queued job. Goes through Store.removeJob (not a raw queue
+        // filter) so the per-job cursor key dies with the job. Returns
+        // { kind: 'removed' }, or null when no job is queued.
+        async remove(id) {
+            const job = (await this.store.getQueue()).find(j => j.curatorId === id);
+            if (!job) return null;
+            await this.store.removeJob(job.id);
+            return { kind: 'removed' };
         }
     }
 

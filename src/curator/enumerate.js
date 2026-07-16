@@ -85,6 +85,15 @@
     // Walk the curator's recommendations in big pages until we've covered
     // total_count. Returns { total, apps, fetchedAt }. `opts.fetch/sleep/rand`
     // are injectable for tests; defaults hit the live endpoint same-origin.
+    //
+    // ACCEPTED (triage of the audit PLAUSIBLE finding): a
+    // list that changes BETWEEN page reads shifts rows across page boundaries.
+    // Duplicates are harmless (categorize() de-dupes on appid); a row shifted
+    // into an already-read range is MISSED for this enumeration. With count=500
+    // pages, sort=recent and sub-second gaps the window is a curator posting a
+    // review during those exact seconds — at worst one game is picked up by the
+    // next stage/re-enumeration (cache TTL 7 d, or any filter re-pick). Snapshot
+    // consistency isn't worth extra passes here.
     async function enumerate(curatorId, opts) {
         opts = opts || {};
         // 15 s deadline per page (a 500-row page is a big payload on a slow
