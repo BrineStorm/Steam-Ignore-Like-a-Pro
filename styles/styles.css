@@ -53,6 +53,21 @@
     filter: blur(5px) !important;
 }
 
+/* Some capsules paint their cover as a CSS background on the very element that
+   holds the badge (the Featured & Recommended main capsule: a background-image on
+   .capsule_image_ctn, with only a hover <video> as a real element). filter:blur
+   there would smear the badge, so instead lay a backdrop veil UNDER the badge: it
+   blurs whatever art is painted behind it — background, video, screenshots — in
+   one layer, while the badge (z-index:50) stays above it and sharp. */
+.ilap-blur-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    pointer-events: none;
+}
+
 /* =========================================
    2. Tooltip Styling - REFACTORED
    ========================================= */

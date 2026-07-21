@@ -175,7 +175,16 @@
             return {
                 name: 'Fallback',
                 match: (el) => el.querySelector('img, video'),
-                resolve: (el) => ({ element: el, type: 'grid' })
+                resolve: (el) => {
+                    // A capsule LINK can be a tall multi-row card — cover art on
+                    // top, then tag/price rows (e.g. a.sale_capsule wrapping
+                    // .capsule_image_ctn + .capsule_row_ctn + .discount_block).
+                    // The badge is anchored bottom:0 of its target, so pinning it
+                    // to the whole link drops it on the price row; prefer the
+                    // cover-art container when the link wraps one.
+                    const art = el.querySelector('.capsule_image_ctn, [class*="CapsuleImageCtn"]');
+                    return { element: art || el, type: 'grid' };
+                }
             };
         }
     }

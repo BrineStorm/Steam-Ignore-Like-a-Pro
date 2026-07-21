@@ -9,35 +9,50 @@
 // re-exports `test` / `expect`. Specs should require this instead of
 // '@playwright/test'. Persistent contexts ignore the storageState option, so we
 // apply the saved Steam login manually via addCookies.
+//
+// The launcher branches on the project's browser: Chromium loads the unpacked
+// extension via --load-extension; Firefox has no such flag, so _firefox.js
+// installs it as a temporary add-on over the Remote Debugging Protocol.
 
 const base = require('@playwright/test');
 const { chromium } = require('@playwright/test');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const { launchFirefoxExtensionContext } = require('./_firefox.js');
+const { getBridgePage } = require('./_extension.js');
 
 const EXT = path.join(__dirname, '..', 'dist', 'chromium-test');
 // Live Steam session cookies. Kept OUTSIDE the repo (the project tree may be
 // cloud-synced, where .gitignore offers no protection) — under the user's home.
 const AUTH_FILE = path.join(os.homedir(), '.playwright-states', 'steam.json');
 
+// Desktop-width viewport so Steam renders its full layout, but short enough
+// that the whole window (incl. browser chrome) fits a 1080p screen — the EQ
+// toast is anchored bottom:20px, so an over-tall window pushed its buttons off
+// the physical screen.
+const COMMON_OPTIONS = {
+    headless: false,
+    viewport: { width: 1440, height: 810 },
+    baseURL: 'https://store.steampowered.com',
+};
+
 const test = base.test.extend({
-    context: async ({}, use) => {
+    context: async ({ browserName }, use) => {
         const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ilap-pw-'));
-        const context = await chromium.launchPersistentContext(userDataDir, {
-            headless: false,
-            // Desktop-width viewport so Steam renders its full layout, but short
-            // enough that the whole window (incl. browser chrome) fits a 1080p
-            // screen — the EQ toast is anchored bottom:20px, so an over-tall
-            // window pushed its buttons off the physical screen.
-            viewport: { width: 1440, height: 810 },
-            baseURL: 'https://store.steampowered.com',
-            args: [
-                '--window-position=0,0',
-                `--disable-extensions-except=${EXT}`,
-                `--load-extension=${EXT}`,
-            ],
-        });
+        let context;
+        if (browserName === 'firefox') {
+            context = await launchFirefoxExtensionContext(userDataDir, COMMON_OPTIONS);
+        } else {
+            context = await chromium.launchPersistentContext(userDataDir, {
+                ...COMMON_OPTIONS,
+                args: [
+                    '--window-position=0,0',
+                    `--disable-extensions-except=${EXT}`,
+                    `--load-extension=${EXT}`,
+                ],
+            });
+        }
 
         // Persistent contexts don't honor the storageState option, so inject the
         // saved Steam session cookies directly.
@@ -46,6 +61,14 @@ const test = base.test.extend({
             if (state.cookies && state.cookies.length) {
                 await context.addCookies(state.cookies);
             }
+        }
+
+        // Firefox reaches storage through a content-script bridge tab. Warm it
+        // now so the first setExtensionStorage in a test isn't slowed by the
+        // tab load — some specs seed a storage timestamp and then race a short
+        // idle timer, a window the lazy bridge-open latency would blow past.
+        if (browserName === 'firefox') {
+            await getBridgePage(context);
         }
 
         await use(context);

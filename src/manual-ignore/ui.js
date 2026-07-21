@@ -104,34 +104,68 @@
 
         // Blur the cover art itself: the filter rides its exact box, so an image
         // that overflows onto a sibling video is blurred where it actually renders
-        // (an inset:0 overlay on the parent would miss that overhang).
+        // (an inset:0 overlay on the parent would miss that overhang). A capsule
+        // can hold TWO views of the same art — the resting <img> and a hover
+        // microtrailer <video> that overlays it 1:1 — and either can be on screen,
+        // so both must be blurred; blurring only the largest left the resting
+        // image sharp (the video, preload="none", won on area but is invisible).
+        //
+        // When the resting cover is a CSS background on the badge's OWN element
+        // (the Featured & Recommended main capsule), filter:blur can't touch it
+        // without smearing the badge — lay a backdrop veil under the badge instead.
         _applyBlur(targetForBadge, appid) {
-            const art = this._pickArt(targetForBadge);
-            if (!art) return;
-            art.classList.add('ilap-ignored-blur');
-            art.dataset.ilapBlur = appid;
+            if (this._hasOwnCoverBackground(targetForBadge)) {
+                this._applyBackdrop(targetForBadge, appid);
+                return;
+            }
+            for (const art of this._pickArts(targetForBadge)) {
+                art.classList.add('ilap-ignored-blur');
+                art.dataset.ilapBlur = appid;
+            }
         }
 
-        // Pick the real cover art inside the badge target. A plain
-        // querySelector('img, video') grabs the FIRST media, which on some surfaces
-        // is Steam's transparent blank.gif spacer (e.g. .tab_item's overlay anchor)
-        // rather than the visible capsule (.tab_item_cap_img). Skip those spacers
-        // and our own badge's tooltip icon, then take the largest-rendered element.
-        _pickArt(container) {
+        // True when the badge target paints its own cover as a background-image —
+        // the case filter:blur can't serve (it shares the box with the badge). A
+        // size gate keeps an incidental small background (e.g. a decorative badge)
+        // from hijacking capsules whose real cover is an <img> we can blur directly.
+        _hasOwnCoverBackground(host) {
+            if (getComputedStyle(host).backgroundImage === 'none') return false;
+            return host.clientWidth * host.clientHeight > 20000;
+        }
+
+        // A blur veil under the badge: backdrop-filter blurs whatever art is painted
+        // behind it (background, video, screenshots) while the badge (z-index:50)
+        // sits above it. Idempotent so a re-render / syncMasks doesn't stack veils.
+        _applyBackdrop(host, appid) {
+            if (host.querySelector(':scope > .ilap-blur-backdrop')) return;
+            const veil = document.createElement('div');
+            veil.className = 'ilap-blur-backdrop';
+            veil.dataset.ilapBlur = appid;
+            host.appendChild(veil);
+        }
+
+        // The real cover art inside the badge target. A plain querySelector picks
+        // the FIRST media, which on some surfaces is Steam's transparent blank.gif
+        // spacer (e.g. .tab_item's overlay anchor) rather than the visible capsule
+        // (.tab_item_cap_img). Drop those spacers and our own badge's tooltip icon,
+        // then keep every element rendered at (near) the largest media's size — the
+        // cover plus any full-bleed microtrailer overlay — while excluding small
+        // decorative media (platform/discount icons) so blur stays on the art.
+        _pickArts(container) {
             const media = Array.from(container.querySelectorAll('img, video')).filter(el => {
                 if ((el.getAttribute('src') || '').includes('blank.gif')) return false;
                 if (el.closest('.ilap-ignored-overlay')) return false;
                 return true;
             });
-            if (!media.length) return null;
+            if (!media.length) return [];
 
-            let best = media[0];
-            let bestArea = -1;
-            for (const el of media) {
-                const area = el.clientWidth * el.clientHeight;
-                if (area > bestArea) { bestArea = area; best = el; }
-            }
-            return best;
+            const areas = media.map(el => el.clientWidth * el.clientHeight);
+            const bestArea = Math.max(...areas);
+            // No layout yet (e.g. pre-render): fall back to the prior single-pick.
+            if (bestArea <= 0) return [media[0]];
+            // Keep the cover and any full-bleed microtrailer overlay (>= 50% of the
+            // largest media); drop small decorative icons well under that.
+            return media.filter((_, i) => areas[i] >= bestArea * 0.5);
         }
 
         // Live toggle: reconcile blur for already-rendered badges. OFF strips the
@@ -143,6 +177,9 @@
                     el.classList.remove('ilap-ignored-blur');
                     delete el.dataset.ilapBlur;
                 });
+                // Backdrop veils are dedicated elements, not a class on the art —
+                // remove them outright.
+                document.querySelectorAll('.ilap-blur-backdrop').forEach(el => el.remove());
                 return;
             }
             appids.forEach(appid => {

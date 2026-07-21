@@ -23,6 +23,39 @@ var TEST_SW_REL_PATH = 'src/background-test.js';
 var TEST_SW_CONTENT = '// Test-only MV3 service worker. Empty placeholder.\n'
     + '// Exists so Playwright can read context.serviceWorkers() and resolve\n'
     + '// the extension ID for chrome-extension:// URLs and storage access.\n';
+// Firefox has no service-worker handle and cannot navigate a tab to a
+// moz-extension:// page, so storage helpers cannot evaluate chrome.storage in
+// an extension context the way the chromium SW allows. Instead the firefox-test
+// build injects this content script: it bridges chrome.storage.local to the
+// page's main world over window.postMessage, and the helpers drive it from a
+// store.steampowered.com bridge tab (see tests/_extension.js).
+var TEST_BRIDGE_REL_PATH = 'src/test-storage-bridge.js';
+var TEST_BRIDGE_CONTENT =
+      '// TEST-ONLY (firefox-test build). Bridges chrome.storage.local to the\n'
+    + '// page main world over window.postMessage so Playwright page.evaluate can\n'
+    + '// seed/read extension storage on Firefox.\n'
+    + '(function () {\n'
+    + '    window.addEventListener(\'message\', function (e) {\n'
+    + '        var d = e.data;\n'
+    + '        if (!d || d.__ilapStore !== \'req\') return;\n'
+    + '        function reply(result, error) {\n'
+    + '            window.postMessage({ __ilapStore: \'res\', id: d.id, result: result, error: error }, \'*\');\n'
+    + '        }\n'
+    + '        try {\n'
+    + '            if (d.op === \'get\') {\n'
+    + '                chrome.storage.local.get(d.keys, function (r) { reply(r); });\n'
+    + '            } else if (d.op === \'set\') {\n'
+    + '                chrome.storage.local.set(d.payload, function () { reply(true); });\n'
+    + '            } else if (d.op === \'clear\') {\n'
+    + '                chrome.storage.local.clear(function () { reply(true); });\n'
+    + '            } else {\n'
+    + '                reply(undefined, \'unknown op \' + d.op);\n'
+    + '            }\n'
+    + '        } catch (err) {\n'
+    + '            reply(undefined, String(err));\n'
+    + '        }\n'
+    + '    });\n'
+    + '})();\n';
 
 function copyRecursiveSync(src, dest) {
     if (!fs.existsSync(src)) {
@@ -88,12 +121,28 @@ function buildPlatform(browser) {
         // strip optional UTF-8 BOM (regex matches a literal U+FEFF)
         var raw = fs.readFileSync(manifestPath, 'utf8').replace(/^﻿/, '');
         var manifest = JSON.parse(raw);
-        manifest.background = { service_worker: TEST_SW_REL_PATH };
+        if (browser === 'chromium') {
+            manifest.background = { service_worker: TEST_SW_REL_PATH };
+            fs.writeFileSync(path.join(outputDir, TEST_SW_REL_PATH), TEST_SW_CONTENT);
+        } else {
+            // Firefox loads via RDP installTemporaryAddon — no SW handle needed.
+            // Drop the background (event page) entirely for parity with the
+            // chromium test flavor, where the stub SW replaces src/background.js:
+            // otherwise migrate.js fires onInstalled on EVERY temporary install
+            // and its ilap_surface_mode write races the tests' storage seeding.
+            delete manifest.background;
+            // Inject the storage bridge as the first content script so the
+            // helpers can reach chrome.storage from a store-page bridge tab.
+            manifest.content_scripts[0].js.unshift(TEST_BRIDGE_REL_PATH);
+            fs.writeFileSync(
+                path.join(outputDir, TEST_BRIDGE_REL_PATH),
+                TEST_BRIDGE_CONTENT
+            );
+        }
         fs.writeFileSync(
             path.join(outputDir, 'manifest.json'),
             JSON.stringify(manifest, null, 2)
         );
-        fs.writeFileSync(path.join(outputDir, TEST_SW_REL_PATH), TEST_SW_CONTENT);
     } else {
         fs.copyFileSync(manifestPath, path.join(outputDir, 'manifest.json'));
     }

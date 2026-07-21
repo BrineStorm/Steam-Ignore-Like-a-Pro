@@ -30,6 +30,25 @@ There is no per-suite script for the cross-cutting Node unit tests; run them dir
 
 All scripts run `node build.js --test` first, which produces `dist/chromium-test/` — a test-flavor build with a stub MV3 service worker. Playwright uses it to resolve the extension ID; `dist/chromium/` (production) is not touched.
 
+## Firefox
+
+```bash
+npm run test:ff       # build + run the browser-driven suites under Firefox
+```
+
+The same store-page E2E suites also run under a **`firefox`** Playwright project. Firefox differs from Chromium in three ways that shape the harness (all in `tests/_firefox.js` / `tests/_extension.js`):
+
+- **Loading the extension.** Playwright's Firefox has no `--load-extension`. `tests/_firefox.js` launches with `-start-debugger-server <port>`, speaks the Remote Debugging Protocol over TCP with a tiny hand-rolled client (no new dependency), and calls `installTemporaryAddon`. A fixed internal UUID is pinned via the `extensions.webextensions.uuids` pref written into the profile's `user.js` **before** launch (Playwright applies `firefoxUserPrefs` too late, after startup).
+- **No SW handle, no navigable extension page.** Firefox exposes no extension service worker and **blocks navigating a tab to a `moz-extension://` page**. So there is no context to `page.evaluate` storage in. The test build (`dist/firefox-test/`) instead **drops the background entirely** and injects a test-only content script (`src/test-storage-bridge.js`) that relays `chrome.storage.local` to the page over `postMessage`; the helpers drive it from a `store.steampowered.com/about/` **bridge tab** kept open per context (warmed in the fixture so the first storage write isn't slowed).
+- **Heavier + flakier.** The `firefox` project runs with `timeout: 60s` and `retries: 2` (headed Firefox launch + per-context add-on install + synthetic mouse timing flake under a long run's CPU contention). The gesture-heavy Manual-Ignore swipe/Ctrl+Click tests are the flakiest — solid in isolation, they intermittently miss under a full run's load (Firefox also fires `contextmenu` at mouse-down, mid-gesture); the retries absorb the streaks.
+
+Because a `moz-extension://` popup page can't be opened, the whole **`tests/popup/`** suite and `manual-ignore/popup-history` are Chromium-only (the same popup UI is exercised on-page by the widget suite). The Node unit specs already run in the chromium project, so they're excluded from firefox too.
+
+**Known Firefox gaps / exclusions** (all others pass):
+- `manual-ignore/tag-page.spec.js` boot-render tests are `test.skip`ped on Firefox — a confirmed bug: `IgnoreManager.refreshAll()` paints **no** badges on `/tags/` from the session map under Firefox (Chromium badges them; a live ignore badges fine on Firefox too, so the `:231` persistence test stays enabled). Deferred for a content-script fix.
+- `manual-ignore/swipe-gesture.spec.js` "suppresses the native context menu" is skipped on Firefox — under Playwright's synthetic mouse, Firefox emits `contextmenu` at mouse-down (before the swipe is recognised on mouse-up), so the spy reads `defaultPrevented=false`; no real OS menu opens (verified), so it's a synthetic-event timing artifact.
+- `discovery-queue/ui.spec.js` panel-injection tests are **flaky** on Firefox — injecting `#ilap-queue-controls` into Steam's React-rendered queue modal races (mostly green with the one retry; likely the same MutationObserver-on-React-subtree reliability as the `/tags/` gap above).
+
 ## Test account cleanup (automatic)
 
 Some suites ignore **real** games on the test account: Explore Queue `bad-mode-ignore` (1 game, via the ignore API) and Discovery Queue test #6 (~12 games, via live UI clicks). To keep the account clean, every `npx playwright test` run wraps itself in a snapshot-and-diff cleanup:

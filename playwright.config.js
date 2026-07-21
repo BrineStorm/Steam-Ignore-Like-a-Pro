@@ -77,5 +77,44 @@ module.exports = defineConfig({
         }
       },
     },
+    {
+      // Firefox runs the browser-driven suites that operate on store pages. The
+      // extension is loaded per-context by tests/_firefox.js (RDP
+      // installTemporaryAddon) — there are no launch args to pass here.
+      // Excluded:
+      //  - auth setup (login is captured once, under Chromium);
+      //  - the Node unit specs (vm-based, browser-independent — they already
+      //    run in the chromium project: *.unit.spec.js, all of cross-cutting/,
+      //    and explore-queue/decision-matrix.spec.js);
+      //  - anything that navigates to the moz-extension popup page: Firefox
+      //    blocks top-level navigation to privileged extension pages, so the
+      //    whole popup/ suite and manual-ignore/popup-history are Chromium-only.
+      //    The same popup UI is exercised on-page by the widget suite.
+      //  - everything else runs: Firefox drains the curator queue with the same
+      //    content-script drainer these suites exercise.
+      name: 'firefox',
+      // Headed Firefox launches heavier than Chromium and each context also
+      // installs the add-on over RDP and warms a bridge tab, so setup plus a
+      // slow store page can brush past the default 30 s. Give it more room.
+      timeout: 60 * 1000,
+      // Synthetic mouse-gesture timing and the per-context add-on install get
+      // flaky under a long headed run's CPU contention — tests solid in
+      // isolation intermittently miss, and the Manual-Ignore swipe/Ctrl+Click
+      // suite is especially gesture-heavy (Firefox also emits contextmenu at
+      // mousedown, mid-gesture). Two retries absorb the streaks; a real failure
+      // (e.g. the /tags/ boot-render gap) still fails every attempt.
+      retries: 2,
+      testIgnore: [
+        /auth\.setup\.spec\.js/,
+        /\.unit\.spec\.js$/,
+        /cross-cutting[\\/]/,
+        /decision-matrix\.spec\.js/,
+        /popup[\\/]/,
+        /popup-history\.spec\.js/,
+      ],
+      use: {
+        ...devices['Desktop Firefox'],
+      },
+    },
   ],
 });
