@@ -13,7 +13,6 @@
 
     const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
 
-    const MAX_JOBS = 3;          // cap the queue at 3 jobs
     const BTN_ID = 'ilap-curator-enqueue';
     const STYLE_ID = 'ilap-curator-style';
 
@@ -99,29 +98,6 @@
             }
             #${BTN_ID}:hover { background-image: ${BTN_BG_HOVER} !important; }
             #${BTN_ID}:disabled { opacity: .7; cursor: default; }
-            /* Popup surface mode: the button stays in place but locked — greyed,
-               flat, plain cursor; our own inline tooltip (below) explains the escape.
-               pointer-events:none so hovering the (disabled) button hit-tests the
-               wrap itself — a disabled control's :hover propagation is engine-
-               dependent, and the tip reveal must not hang on it. */
-            #${BTN_ID}.ilap-locked, #${BTN_ID}.ilap-locked:hover {
-                background-color: #3d4450 !important; background-image: none !important;
-                box-shadow: none !important; color: #8f98a0 !important;
-                cursor: default; opacity: 1; filter: grayscale(1) !important;
-                pointer-events: none;
-            }
-            /* Our tooltip for the locked button: a single line under the button
-               (not the browser's little square). Right-anchored: the button sits
-               near the right edge of the curator header, so a long localized
-               nowrap line must grow leftward into the page, not off-screen. */
-            .ilap-locked-tip {
-                display: none; position: absolute; top: calc(100% + 6px); right: 0;
-                background: #16202d; color: #c7d5e0; border: 1px solid #2a3848;
-                border-radius: 6px; padding: 7px 10px; white-space: nowrap;
-                font: 400 11px "Motiva Sans", Arial, sans-serif; line-height: 1.3;
-                box-shadow: 0 6px 16px rgba(0,0,0,.5); z-index: 2147483000; pointer-events: none;
-            }
-            .ilap-curator-ctl.ilap-locked-ctl:hover .ilap-locked-tip { display: block; }
             /* Menu lives on <body> (position:fixed) so no Steam ancestor stacking
                context / overflow can clip it or push it under the .page_desc below. */
             .ilap-curator-menu {
@@ -154,6 +130,15 @@
             .ilap-opt-tag.is-active { color: #7ad13f; }
             .ilap-opt-tag.is-switch { color: #45A1FA; opacity: 0; transition: opacity .12s ease; }
             .ilap-curator-opt:hover .ilap-opt-tag.is-switch { opacity: 1; }
+            /* Soft re-stage warning: the user recently UNDID this curator's
+               ignores — staging again is allowed (never blocked), just flagged. */
+            .ilap-curator-warn {
+                display: flex; align-items: center; gap: 8px;
+                padding: 8px 15px; color: #ffd21a;
+                font: 500 11.5px "Motiva Sans", Arial, sans-serif;
+                border-bottom: 1px solid rgba(255,255,255,.05);
+                white-space: normal; max-width: 300px; line-height: 1.35;
+            }
             /* Post-add job actions: a separator, then Pause/Resume + Remove rows.
                The icon is centered over the filter rows' 8px dot column (13px
                glyph, negative side margins) so both row kinds align. */
@@ -261,8 +246,7 @@
             <button type="button" id="${BTN_ID}">
                 <img class="ilap-cur-logo" src="${ICON_URL}" alt="">
                 <span class="ilap-cur-label">${esc(label)}</span>
-            </button>
-            <span class="ilap-locked-tip" id="ilap-locked-tip" role="tooltip"></span>`;
+            </button>`;
 
         const gear = report.querySelector('a');
         if (gear) report.insertBefore(wrap, gear);
@@ -285,9 +269,18 @@
         menu.className = 'ilap-curator-menu';
         document.body.appendChild(menu);
 
-        const renderMenu = (job) => {
+        const renderMenu = (job, undoneAgoMs) => {
             const activeFilter = job ? job.filter : null;
-            let html = FILTERS.map(f => {
+            // Soft ping-pong flag: this curator's ignores were rolled back via
+            // undo within the warning window. Informational only — the rows
+            // below stay fully clickable (a re-stage right after an undo is a
+            // legitimate "picked the wrong filter" flow).
+            let html = '';
+            if (!job && undoneAgoMs > 0) {
+                const hours = Math.max(1, Math.round(undoneAgoMs / 3600000));
+                html += `<div class="ilap-curator-warn">⚠ ${esc(t('undo_restage_warning', { h: hours }))}</div>`;
+            }
+            html += FILTERS.map(f => {
                 const isActive = activeFilter === f.value;
                 let tag = '';
                 if (activeFilter != null) {
@@ -311,10 +304,7 @@
 
     // Wire open/close, option picking, and dismissal (outside click + scroll/resize
     // reposition guard — the fixed menu would otherwise detach from the button).
-    // `isLocked()` is re-checked on every interaction: the surface can flip to popup
-    // mode (in this or another window) while the dropdown is already open, so a pick
-    // must be refused even if the menu is still visibly open at click time.
-    function wireMenu(wrap, btn, menu, isLocked) {
+    function wireMenu(wrap, btn, menu) {
         const close = () => { menu.classList.remove('open'); };
         const open = () => {
             const r = btn.getBoundingClientRect();
@@ -327,7 +317,7 @@
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             if (!e.isTrusted) return; // real clicks only — a page script can't open the menu
-            if (btn.disabled || isLocked()) return;
+            if (btn.disabled) return;
             menu.classList.contains('open') ? close() : open();
         });
 
@@ -336,7 +326,6 @@
             const opt = e.target.closest('.ilap-curator-opt');
             if (!opt) return;
             close();
-            if (isLocked()) return; // popup mode flipped in mid-open: refuse the stage
             const act = opt.getAttribute('data-act');
             if (act) { jobAction(act); return; }
             pick(opt.getAttribute('data-value'), btn);
@@ -374,7 +363,13 @@
     // the popup applet, or in another tab/window). The re-render also hits an
     // OPEN menu, so a queue change elsewhere swaps this droplist's variant live.
     function wireStorageSync(btn, menu, renderMenu) {
-        const sync = () => chrome.storage.local.get('ilap_curator_queue', (res) => {
+        // Optional, like the drainer's log hooks: without the module the button
+        // still works, only the soft re-stage warning is skipped.
+        const Log = window.ILAP.IgnoreLog;
+        // Recently-undone window for the soft re-stage warning.
+        const WARN_WINDOW_MS = 48 * 3600000;
+        const keys = Log ? ['ilap_curator_queue', Log.LOG_KEY] : ['ilap_curator_queue'];
+        const sync = () => chrome.storage.local.get(keys, (res) => {
             const q = Array.isArray(res.ilap_curator_queue) ? res.ilap_curator_queue : [];
             const job = q.find(j => j.curatorId === curatorId());
             const text = job ? t('curator_added_state') : t('curator_add_to_queue');
@@ -383,11 +378,18 @@
                 const lbl = btn.querySelector('.ilap-cur-label');
                 if (lbl) lbl.textContent = text;
             }
-            renderMenu(job || null);
+            const now = Date.now();
+            const undoneAt = Log ? Log.lastUndoneForCurator(
+                res[Log.LOG_KEY] || [], curatorId(), WARN_WINDOW_MS, now) : 0;
+            renderMenu(job || null, undoneAt > 0 ? now - undoneAt : 0);
             syncBtnWidth(btn, menu);
         });
         sync();
         chrome.storage.onChanged.addListener((changes, area) => {
+            // Deliberately NOT keyed on the log: the drainer writes it 1–3×/s
+            // mid-drain and each sync re-measures the menu. The warning's inputs
+            // change meaningfully only when an undo job finishes — which removes
+            // the job from the queue and lands here anyway.
             if (area === 'local' && changes.ilap_curator_queue) sync();
         });
         // A language change re-derives the same things a queue change does
@@ -398,52 +400,18 @@
     let service = null; // EnqueueService, assembled in boot() once deps are present
 
     // Owns the injected curator-button lifecycle: the injection handle plus the
-    // login and surface gates that decide whether it's shown. Kept as one small
-    // object (state private to the closure) so boot() reads as assembly — seed the
-    // surface, settle login, react to a live surface flip — with no free-floating
-    // module state.
+    // login gate that decides whether it's shown. The button is deliberately NOT
+    // surface-gated: since the SW drain landed, the queue is stageable and
+    // manageable from either surface (the popup hosts the same applet), so the
+    // mode only decides where the UI lives, not what is allowed.
     function createButtonController() {
-        let injectedCtl = null; // { wrap, btn, menu } once injected; kept for the live surface switch
-        let loginOk = false;
-        let surfaceOn = true;
-        let locked = false;     // popup surface mode → button visible but not-allowed
-
-        // Reflect the current lock state onto the injected button: greyed + tooltip
-        // + disabled (so the dropdown can't be opened), and force the dropdown shut
-        // so a menu left open across a live flip can't stage a job.
-        function applyLock() {
-            if (!injectedCtl) return;
-            const { wrap, btn, menu } = injectedCtl;
-            const tip = wrap.querySelector('.ilap-locked-tip');
-            if (locked) {
-                menu.classList.remove('open');
-                btn.disabled = true;
-                btn.classList.add('ilap-locked');
-                wrap.classList.add('ilap-locked-ctl');
-                // aria-describedby reaches the (display:none) tip text for screen
-                // readers — the hover-only visual alone is invisible to AT.
-                btn.setAttribute('aria-describedby', 'ilap-locked-tip');
-                if (tip) tip.textContent = t('curator_locked_popup', { keys: window.ILAP.Surface.ESCAPE_HOTKEY_LABEL });
-            } else {
-                btn.disabled = false;
-                btn.classList.remove('ilap-locked');
-                wrap.classList.remove('ilap-locked-ctl');
-                btn.removeAttribute('aria-describedby');
-            }
-        }
-
         function inject(report) {
             if (report.querySelector('#' + BTN_ID)) return;
             injectStyle();
             const { wrap, btn } = buildButton(report);
             const { menu, renderMenu } = buildMenu();
-            wireMenu(wrap, btn, menu, () => locked);
+            wireMenu(wrap, btn, menu);
             wireStorageSync(btn, menu, renderMenu);
-            injectedCtl = { wrap, btn, menu };
-            applyLock();
-            // Keep the locked-state tooltip in the live language too (no-op
-            // while unlocked — applyLock only writes the tip when locked).
-            window.ILAP.i18n.onLangChange(applyLock);
         }
 
         function tryInject() {
@@ -462,24 +430,13 @@
         }
 
         return {
-            // Seed the effective surface at boot (before login settles) — no side effect.
-            setSurface(on) { surfaceOn = on; locked = !on; },
-            // Login gate settled positive: remember it and inject (locked in popup mode).
-            onLogin() { loginOk = true; start(); },
-            // Live surface switch: popup mode locks the button in place (greyed +
-            // tooltip, dropdown forced shut), widget mode unlocks/injects it.
-            applySurface(on) {
-                surfaceOn = on;
-                locked = !on;
-                if (injectedCtl) { applyLock(); return; }
-                if (loginOk) start();
-            }
+            // Login gate settled positive: inject.
+            onLogin() { start(); }
         };
     }
 
     function boot() {
         if (!curatorId()) return;          // no-op on every non-curator store page
-        const Surface = window.ILAP.Surface;
 
         // Assemble the enqueue service with its real deps (DIP: pick() no longer
         // reaches into the Store/Enumerator singletons itself). If the Phase-2
@@ -487,29 +444,17 @@
         const C = window.ILAP.Curator;
         if (C && C.Store && C.Enumerator && C.EnqueueService) {
             service = new C.EnqueueService({
-                store: C.Store, enumerator: C.Enumerator, maxJobs: MAX_JOBS
+                store: C.Store, enumerator: C.Enumerator, maxJobs: C.Store.MAX_JOBS
             });
         }
 
         const ctl = createButtonController();
 
-        // Surface gate: in popup mode the curator queue must stay empty, so the
-        // staging control is locked (greyed + tooltip) rather than removed; a live
-        // mode switch locks/unlocks it in place.
-        chrome.storage.onChanged.addListener((changes, area) => {
-            if (area === 'local' && changes[Surface.KEY]) {
-                ctl.applySurface(Surface.resolve(changes[Surface.KEY].newValue, navigator.userAgent) === 'widget');
-            }
-        });
-
-        chrome.storage.local.get({ [Surface.KEY]: 'widget' }, (data) => {
-            ctl.setSurface(Surface.resolve(data[Surface.KEY], navigator.userAgent) === 'widget');
-            // Login gate: staging an ignore job makes no sense without a Steam
-            // session, so the control isn't injected at all on a logged-out page
-            // (same SteamAuth policy as the widget lock — header DOM first, live
-            // probe only when there is no header to read).
-            window.ILAP.SteamAuth.resolveLogin().then((ok) => { if (ok) ctl.onLogin(); });
-        });
+        // Login gate: staging an ignore job makes no sense without a Steam
+        // session, so the control isn't injected at all on a logged-out page
+        // (same SteamAuth policy as the widget lock — header DOM first, live
+        // probe only when there is no header to read).
+        window.ILAP.SteamAuth.resolveLogin().then((ok) => { if (ok) ctl.onLogin(); });
     }
 
     if (document.readyState === 'loading') {

@@ -9,7 +9,8 @@
     "128": "assets/icons/icon128.png"
   },
   "permissions": [
-    "storage"
+    "storage",
+    "alarms"
   ],
   "action": {
     "default_icon": {
@@ -20,7 +21,7 @@
     "default_popup": "ui/popup.html"
   },
   "background": {
-    "service_worker": "src/migrate.js"
+    "service_worker": "src/background.js"
   },
   "content_scripts": [
     {
@@ -31,6 +32,7 @@
         "src/escape.js",
         "src/utils.js",
         "src/gate.js",
+        "src/ignore-log.js",
         "src/surface.js",
         "src/i18n.js",
 
@@ -54,10 +56,12 @@
         "src/curator/enqueue-service.js",
         "src/curator/main.js",
         "src/curator/drainer.js",
+        "src/undo-service.js",
 
         "ui/popup_markup.js",
         "ui/popup_settings.js",
         "ui/popup_queue.js",
+        "ui/popup_undo.js",
         "ui/popup_main.js",
         "src/widget/main.js"
       ],

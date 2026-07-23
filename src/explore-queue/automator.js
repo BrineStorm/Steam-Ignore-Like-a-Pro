@@ -214,7 +214,7 @@
             const gameContainer = this.context.getGameContainer();
             const name = this.nameExtractor.get(appid, gameContainer);
             
-            this.stats.save(name, "Explore Auto-Queue");
+            this.stats.save(name, "Explore Auto-Queue", appid);
             
             this.ui.applyVisuals('IGNORE', mode);
 

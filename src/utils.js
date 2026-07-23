@@ -64,22 +64,30 @@
 
     // Authoritative ignore-state source: Steam's own dynamic store. Same-origin
     // GET (read-only — NOT an ignore API call); rgIgnoredApps is the map of every
-    // ignored appid. Shared by the DQ ignore-confirmation and the curator drainer's
-    // drain-time dedupe. Any failure (network/parse/non-ok/timeout) resolves to an
-    // empty Set so callers treat it as "nothing confirmed ignored yet" and carry on.
+    // ignored appid. Two flavours over one fetch:
+    //   - strict: null on any failure (network/parse/non-ok/timeout). For callers
+    //     whose SKIP direction inverts on this data — the undo drainer treats
+    //     "appid not in the set" as "already rolled back", so a failure must be
+    //     distinguishable from a real empty set or a dead job burns to completion;
+    //   - lenient: empty Set on failure. For callers where missing data only
+    //     disables an optimization (DQ ignore-confirmation, curator dedupe —
+    //     "nothing confirmed ignored yet", carry on).
     const USERDATA_URL = 'https://store.steampowered.com/dynamicstore/userdata/';
-    async function fetchIgnoredApps() {
+    async function fetchIgnoredAppsStrict() {
         try {
             const res = await fetchWithTimeout(`${USERDATA_URL}?_=${Date.now()}`, {
                 credentials: 'include', cache: 'no-store'
             });
-            if (!res.ok) return new Set();
+            if (!res.ok) return null;
             const data = await res.json();
             const ignored = data && data.rgIgnoredApps;
             return new Set(ignored ? Object.keys(ignored).map(String) : []);
         } catch (e) {
-            return new Set();
+            return null;
         }
+    }
+    async function fetchIgnoredApps() {
+        return (await fetchIgnoredAppsStrict()) || new Set();
     }
 
     // Login-state source for gating the on-page UI. Two signals, because a page
@@ -117,18 +125,24 @@
     };
 
     const SteamAPI = {
-        // Resolves { ok, rateLimited, retryAfterMs }:
+        // Resolves { ok, rateLimited, retryAfterMs, status }:
         //   ok          — the ignore landed;
         //   rateLimited — the server answered 429 (throttling the ACCOUNT, not
         //                 this appid). Gated callers report it to the IgnoreGate
         //                 so every source in every tab backs off together;
         //   retryAfterMs — parsed Retry-After when the 429 carried one, else 0
         //                 (an HTTP-date Retry-After parses to 0 and the gate's
-        //                 own exponential backoff decides).
+        //                 own exponential backoff decides);
+        //   status      — the HTTP status (0 when the request never completed).
+        //                 Only the curator drainer's 400-classifier reads it:
+        //                 the region-lock ⇔ appdetails-success:false correlation
+        //                 was established for HTTP 400 specifically, so a probe
+        //                 must NOT fire on a timeout/5xx that merely looks like a
+        //                 refusal.
         // A network failure / dead session is { ok:false, rateLimited:false }.
         async ignore(appid, reason) {
             const sessionid = SessionService.getID();
-            if (!sessionid) return { ok: false, rateLimited: false, retryAfterMs: 0 };
+            if (!sessionid) return { ok: false, rateLimited: false, retryAfterMs: 0, status: 0 };
 
             // URLSearchParams encodes each field, so the cookie-sourced sessionid
             // can't break the body's key=value&… structure (it's hex today, but
@@ -144,10 +158,35 @@
                 });
                 if (response.status === 429) {
                     const ra = parseInt(response.headers.get('Retry-After'), 10);
-                    return { ok: false, rateLimited: true, retryAfterMs: ra > 0 ? ra * 1000 : 0 };
+                    return { ok: false, rateLimited: true, retryAfterMs: ra > 0 ? ra * 1000 : 0, status: 429 };
                 }
-                return { ok: response.ok, rateLimited: false, retryAfterMs: 0 };
-            } catch (e) { return { ok: false, rateLimited: false, retryAfterMs: 0 }; }
+                return { ok: response.ok, rateLimited: false, retryAfterMs: 0, status: response.status };
+            } catch (e) { return { ok: false, rateLimited: false, retryAfterMs: 0, status: 0 }; }
+        },
+
+        // Un-ignore: the SAME endpoint with remove=1 (the shape Steam's own
+        // notinterested page fires, proven by the E2E cleanup hooks). Same
+        // resolve contract as ignore() — the undo drainer paces these through
+        // the IgnoreGate exactly like ignores (same endpoint, same rate risk).
+        async unignore(appid) {
+            const sessionid = SessionService.getID();
+            if (!sessionid) return { ok: false, rateLimited: false, retryAfterMs: 0, status: 0 };
+
+            const body = new URLSearchParams({
+                sessionid, appid, snr: '1_account_notinterested_', remove: '1'
+            }).toString();
+            try {
+                const response = await fetchWithTimeout('https://store.steampowered.com/recommended/ignorerecommendation/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                    body: body
+                });
+                if (response.status === 429) {
+                    const ra = parseInt(response.headers.get('Retry-After'), 10);
+                    return { ok: false, rateLimited: true, retryAfterMs: ra > 0 ? ra * 1000 : 0, status: 429 };
+                }
+                return { ok: response.ok, rateLimited: false, retryAfterMs: 0, status: response.status };
+            } catch (e) { return { ok: false, rateLimited: false, retryAfterMs: 0, status: 0 }; }
         }
     };
 
@@ -373,6 +412,43 @@
         new GenericTextStrategy()
     ]);
 
+    // Some React storefront capsules (e.g. the front-page release-calendar
+    // carousel) are a bare <a href="/app/ID?..."><img></a> — no alt text, no
+    // title node, no name slug in the href — so every DOM strategy misses and
+    // the stored name degrades to "AppID 12345". The store's own appdetails
+    // endpoint is the only name source left. Same-origin GET, so the user's
+    // language cookie localizes the name like a DOM-extracted one would be.
+    const APPDETAILS_URL = 'https://store.steampowered.com/api/appdetails';
+    async function fetchAppName(appid) {
+        try {
+            const res = await fetchWithTimeout(`${APPDETAILS_URL}?appids=${appid}&filters=basic`);
+            if (!res.ok) return null;
+            const data = await res.json();
+            const entry = data && data[appid];
+            const name = entry && entry.success && entry.data && entry.data.name;
+            return name ? sanitizeName(name) : null;
+        } catch (e) { return null; }
+    }
+
+    // 400-classifier for the curator drainer: the ignore endpoint answers a
+    // permanent 400 for an appid with no purchasable store object in the
+    // account's region (CDPR titles in RU, Spacewar anywhere) — verified to
+    // correlate 1:1 with appdetails `success:false`. Resolves true only on
+    // that positive evidence; false/null (available / probe failed) keep the
+    // caller on its systemic-failure path. No cc override and no filters
+    // param: the session's own region must decide, exactly like the probe
+    // that established the correlation. Called at most once per FAILED post,
+    // so the endpoint's aggressive rate limit is not a concern.
+    async function checkAppUnavailable(appid) {
+        try {
+            const res = await fetchWithTimeout(`${APPDETAILS_URL}?appids=${appid}`);
+            if (!res.ok) return null;
+            const data = await res.json();
+            const entry = data && data[appid];
+            return entry ? entry.success !== true : null;
+        } catch (e) { return null; }
+    }
+
     // Collision-resistant per-context owner id for storage leases/slots (the
     // curator drain lease, the DQ registry slot); the prefix names the subsystem.
     const newOwnerId = (prefix) =>
@@ -384,10 +460,22 @@
     
     window.ILAP.getSessionID = SessionService.getID;
     window.ILAP.apiIgnoreGame = SteamAPI.ignore;
+    window.ILAP.apiUnignoreGame = SteamAPI.unignore;
     window.ILAP.fetchIgnoredApps = fetchIgnoredApps;
+    window.ILAP.fetchIgnoredAppsStrict = fetchIgnoredAppsStrict;
+    window.ILAP.checkAppUnavailable = checkAppUnavailable;
     window.ILAP.SteamAuth = SteamAuth;
     window.ILAP.saveStats = (name, source) => StatsManager.save(name, source);
     window.ILAP.getGameName = (appid, el) => extractorProvider.get(appid, el);
+    // Async flavour: DOM strategies first (synchronously, before the caller
+    // mutates the container), appdetails fallback only when they all miss.
+    // Callers whose surfaces always carry a name in the DOM stay on the sync
+    // getGameName.
+    window.ILAP.resolveGameName = async (appid, el) => {
+        const name = extractorProvider.get(appid, el);
+        if (name !== `AppID ${appid}`) return name;
+        return (await fetchAppName(appid)) || name;
+    };
     window.ILAP.SessionStateService = SessionStateService;
     window.ILAP.ResourceService = ResourceService;
     window.ILAP.sanitizeName = sanitizeName;

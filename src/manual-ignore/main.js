@@ -48,9 +48,13 @@
             const containerObj = this.strategies.findContainer(linkElement);
             const contextEl = containerObj ? containerObj.element : linkElement;
 
-            const name = this.nameExtractor.get(appid, contextEl);
             const source = reason === 0 ? "Default Ignore" : "Played Elsewhere";
-            this.stats.save(name, source);
+            // get() may resolve asynchronously (appdetails fallback when the DOM
+            // carries no name — e.g. the front-page release-calendar carousel);
+            // its DOM pass still runs synchronously, before the badge below
+            // mutates the container. Badges must not wait on a network fetch.
+            Promise.resolve(this.nameExtractor.get(appid, contextEl))
+                .then(name => this.stats.save(name, source, appid));
 
             this.refreshBadgesForGame(appid);
         }
@@ -102,9 +106,26 @@
             const badgeRenderer = new MI.BadgeRenderer(strategies, detector, MI.BADGE_CLASSES, resourceService, maskConfig);
             
             // Adapters
-            const apiAdapter = { ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) };
-            const nameExtractorAdapter = { get: (appid, el) => window.ILAP.getGameName(appid, el) };
-            const statsAdapter = { save: (name, source) => window.ILAP.saveStats(name, source) };
+            // MI is ungated (a swipe must fire instantly) but marks the ignore in
+            // the gate: the background drainer yields to manual swipes, and gated
+            // EQ/DQ/drainer space out AFTER this POST rather than landing flush
+            // against it (see IgnoreGate.noteManualIgnore). Called after the
+            // session-dedupe, so it never runs on a no-op.
+            const apiAdapter = { ignore: (appid, reason) => {
+                if (window.ILAP.IgnoreGate && window.ILAP.IgnoreGate.noteManualIgnore) {
+                    window.ILAP.IgnoreGate.noteManualIgnore();
+                }
+                return window.ILAP.apiIgnoreGame(appid, reason);
+            } };
+            const nameExtractorAdapter = { get: (appid, el) => window.ILAP.resolveGameName(appid, el) };
+            // Stats + the undo log ride one adapter call: the appid lands in
+            // ilap_ignore_log so a manual ignore is undoable like every other.
+            // The log is optional, same stance as the drainer's log hooks: a
+            // partial build must degrade to stats-only, not throw mid-ignore.
+            const statsAdapter = { save: (name, source, appid) => {
+                window.ILAP.saveStats(name, source);
+                if (window.ILAP.IgnoreLog) window.ILAP.IgnoreLog.append({ appid, name, source: 'mi' });
+            } };
 
             this.ignoreManager = new IgnoreManager(
                 badgeRenderer, 

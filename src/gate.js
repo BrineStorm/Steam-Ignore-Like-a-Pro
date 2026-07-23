@@ -26,6 +26,9 @@
     const GATE_KEY = 'ilap_ignore_gate';       // last reserved slot (bare epoch-ms number)
     const PENALTY_KEY = 'ilap_ignore_gate_penalty'; // rate-limit backoff ({ until, level })
     const MASTER_KEY = 'ilap_master_enabled';  // global on/off (widget master toggle)
+    // Timestamp of the last ignore from a VISIBLE source (EQ / DQ / manual MI). The
+    // background queue drainer yields while this stamp is fresh — visible work wins.
+    const FOREGROUND_KEY = 'ilap_ignore_foreground_at';
 
     // Minimum gap between consecutive ignores across ALL sources. ~500 ms + up to
     // 300 ms jitter → ≤ ~2 ignores/s per profile, matching the single-drainer
@@ -37,6 +40,11 @@
     const MIN_GAP = 500;
     const JITTER = 300;
     const GAP_FLOOR = 350;
+
+    // How long the background drainer yields after the last visible ignore (EQ/DQ/MI).
+    // A little over one gap+jitter, so a stream of visible ignores keeps the drainer
+    // paused continuously, while a lone swipe stalls the background only a couple seconds.
+    const YIELD_MS = 2500;
 
     // Rate-limit backoff. When the ignore endpoint answers 429, the reporting
     // source pushes a shared penalty here and every source in every tab goes
@@ -119,18 +127,30 @@
         return null;
     }
 
-    // A source calls this before every ignore. Resolves:
+    // A source calls this before every ignore. `opts.foreground` marks a VISIBLE
+    // source (EQ / DQ) — it stamps foreground activity and never yields. A
+    // background caller (the queue drainer, no flag) yields while a foreground
+    // ignore is recent, so the aggregate budget goes to what the user is watching.
+    // Resolves:
     //   { ok:true }                    once the reserved slot arrives — fire now.
     //   { ok:false, reason:'disabled' }   master toggle off — STOP this pass.
     //   { ok:false, reason:'no-session' } no sessionid cookie — STOP this pass
     //                                     (a dead session must not burn work).
+    //   { ok:false, reason:'yield' }      background pass deferring to visible work.
     // Callers treat !ok as "stop the whole pass", not "skip one item".
-    function reserve() {
+    function reserve(opts) {
+        const foreground = !!(opts && opts.foreground);
         const claim = chain.then(async () => {
             const stop = await stopVerdict();
             if (stop) return { stop };
-            const data = await get({ [GATE_KEY]: 0, [PENALTY_KEY]: null });
+            const data = await get({ [GATE_KEY]: 0, [PENALTY_KEY]: null, [FOREGROUND_KEY]: 0 });
             const now = Date.now();
+            // The background yields to visible work: while the foreground stamp is
+            // fresh, the drainer takes no slot (the pass stops and retries on the
+            // standby tick / alarm). Visible (foreground) sources never yield.
+            if (!foreground && (now - (data[FOREGROUND_KEY] || 0)) < YIELD_MS) {
+                return { yield: true };
+            }
             // An active rate-limit penalty folds into the slot: the first
             // reservation lands at the penalty's end, later ones queue past it
             // with normal gap spacing.
@@ -138,7 +158,10 @@
                 nextSlot(data[GATE_KEY], now, nextGap()),
                 penaltyUntil(data[PENALTY_KEY], now)
             );
-            await set({ [GATE_KEY]: slot });
+            const write = { [GATE_KEY]: slot };
+            // A visible source marks activity — the drainer yields to it.
+            if (foreground) write[FOREGROUND_KEY] = now;
+            await set(write);
             return { slot };
         });
         // Keep the chain alive across a thrown claim so one failure can't wedge
@@ -147,6 +170,7 @@
         chain = claim.then(() => {}, () => {});
         return claim.then(async (r) => {
             if (r.stop) return { ok: false, reason: r.stop };
+            if (r.yield) return { ok: false, reason: 'yield' };
             const wait = r.slot - Date.now();
             if (wait > 0) {
                 await sleep(wait);
@@ -158,6 +182,28 @@
             }
             return { ok: true };
         });
+    }
+
+    // Manual Ignore is deliberately NOT gated (a manual swipe must be instant), but
+    // its POST hits the same account. MI calls this at fire time to weave the manual
+    // ignore into the shared pacing without waiting a single ms:
+    //   - sets the foreground stamp → the background drainer yields to manual swipes too;
+    //   - moves the gate slot toward `now` (never back) → the next GATED source
+    //     (EQ/DQ/drainer) waits a full gap AFTER the manual POST, not flush against it.
+    // MI itself neither reads nor waits on the gate. Serialized on the shared chain so
+    // it can't clobber a concurrent slot write from reserve() (a cross-tab race — the
+    // same accepted trade-off as the rest of the gate).
+    function noteManualIgnore() {
+        const run = chain.then(async () => {
+            const now = Date.now();
+            const data = await get({ [GATE_KEY]: 0 });
+            await set({
+                [FOREGROUND_KEY]: now,
+                [GATE_KEY]: Math.max(data[GATE_KEY] || 0, now)
+            });
+        });
+        chain = run.catch(() => {});
+        return run;
     }
 
     // A gated source calls this when the ignore endpoint answered 429: escalate
@@ -177,8 +223,8 @@
     }
 
     window.ILAP.IgnoreGate = {
-        reserve, reportRateLimited, nextSlot, nextPenalty,
-        GATE_KEY, PENALTY_KEY, MIN_GAP, GAP_FLOOR, MAX_AHEAD,
+        reserve, noteManualIgnore, reportRateLimited, nextSlot, nextPenalty, penaltyUntil,
+        GATE_KEY, PENALTY_KEY, FOREGROUND_KEY, MIN_GAP, GAP_FLOOR, MAX_AHEAD, YIELD_MS,
         PENALTY_BASE, PENALTY_MAX, PENALTY_DECAY
     };
 })();

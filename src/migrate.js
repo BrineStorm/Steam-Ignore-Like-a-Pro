@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// One-shot install/update migration for the interface surface. This is the ONLY
-// background context in the extension and it does NOTHING but listen for the
-// install/update event — it never drains ignores (draining must run in a live
-// Steam page; see the deliberate no-SW design in CLAUDE.md). Its sole job is to
-// pick the default `ilap_surface_mode` so that:
+// One-shot install/update migration for the interface surface. On Chromium this
+// file is pulled into the background service worker via importScripts (see
+// src/background.js, which also hosts the Phase-3 SW drainer); on Firefox it is
+// the sole background script. It does nothing but listen for the install/update
+// event. Its sole job is to pick the default `ilap_surface_mode` so that:
 //   • a FRESH install lands on the on-page widget (the new default surface), and
 //   • a profile UPDATING from the old popup-only build (which never wrote the
 //     key) stays on the toolbar popup it already knows.

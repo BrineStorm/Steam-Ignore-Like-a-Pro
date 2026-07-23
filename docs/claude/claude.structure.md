@@ -11,8 +11,11 @@ Steam-Ignore-Like-a-Pro/
 │   ├── escape.js                # window.ILAP.Sanitizer.escapeHTML: single HTML-escaper, loaded FIRST in both worlds (content_scripts AND popup.html, which does not load utils.js)
 │   ├── utils.js                 # Shared infrastructure (loaded first after escape.js)
 │   ├── gate.js                  # window.ILAP.IgnoreGate: aggregate ignore-POST rate governor (reserve() a slot before every ignore across drainer/EQ/DQ; ilap_ignore_gate min-gap+jitter; master + dead-session stop) — closes audit #1/#2
+│   ├── ignore-log.js            # window.ILAP.IgnoreLog: ilap_ignore_log — timestamped append log of every EXTENSION ignore {appid,name?,ts,source,curatorId?,undoneAt?} (cap 5000 FIFO), the undo feature's data source (Steam's rgIgnoredApps has no dates). Pure selectors (snapshotLastN/Since, undoableCount, reIgnoredAfter, lastUndoneForCurator) + serialized-RMW append/markUndone; self-contained, loaded in content_scripts AND popup.html
+│   ├── undo-service.js          # window.ILAP.UndoService: injectable staging for undo jobs — a STATIC appid snapshot from the log (count or time scope) pushed into the shared curator queue as {type:'undo', curatorId:'undo'} (one at a time, same 3-job cap); the drainer branches on the type to POST remove=1
 │   ├── surface.js               # window.ILAP.Surface: ilap_surface_mode helper (widget|popup mode, Steam-client UA detect, Ctrl+Alt+Shift+I escape-hotkey) — pure, loaded in content scripts AND popup.html
-│   ├── migrate.js               # The ONLY background context (MV3 service worker in chromium / event-page script in firefox; NOT in the --test build, which swaps in the empty background-test.js). Event-only: on chrome.runtime.onInstalled it picks the default ilap_surface_mode — a FRESH install persists 'widget' (+ arms the ilap_intro_glow chevron beacon); an UPDATE from the old popup-only build (key absent) is kept on 'popup' (+ arms the one-shot ilap_update_glow popup highlight). onStartup re-asserts 'widget' when the key is absent (a LOST onInstalled write would otherwise get mis-migrated to 'popup' by a later update) — delayed + yielding to a same-lifetime install/update event so it can't outrace the legacy popup migration. Never drains ignores (that still needs a live Steam page)
+│   ├── background.js            # Chromium MV3 service-worker ENTRY (Phase 3; NOT in the --test build, which swaps in the empty background-test.js). Shims window→self, importScripts's migrate.js + gate.js + ignore-log.js + curator/store.js + curator/drainer.js, then hosts a CuratorQueueDrainer that drains the queue with NO Steam tab open — it joins the existing lease/handoff protocol as just another drainer. SW-specific parts: sessionid from the ilap_sw_sid cache (mirrored into memory for the gate's sync read), its own duplicated Steam API (world-isolation decision — see store.js's canonical note), a gate wrapper that refuses waits >20 s (the SW would die mid-sleep; a chrome.alarms alarm resumes at the penalty's end instead) and the ilap_sw_halt circuit breaker (2 consecutive failed POSTs — stale sid / missing Steam_Language — halt BEFORE the drainer's MAX_FAILS skip burns an appid; any store-page visit re-arms). One retry alarm ('ilap_sw_drain', ≥60 s) re-armed while drainable work remains, cleared when the queue empties. Firefox: NOT used (unverified fetch behavior from an event page) — its background stays migrate.js only, the content-script drainer remains the FF path
+│   ├── migrate.js               # Install/update surface migration (on Chromium loaded into the SW via background.js importScripts; on Firefox the sole event-page script; NOT in the --test build). Event-only: on chrome.runtime.onInstalled it picks the default ilap_surface_mode — a FRESH install persists 'widget' (+ arms the ilap_intro_glow chevron beacon); an UPDATE from the old popup-only build (key absent) is kept on 'popup' (+ arms the one-shot ilap_update_glow popup highlight). onStartup re-asserts 'widget' when the key is absent (a LOST onInstalled write would otherwise get mis-migrated to 'popup' by a later update) — delayed + yielding to a same-lifetime install/update event so it can't outrace the legacy popup migration
 │   ├── manual-ignore/
 │   │   ├── utils.js             # ConfigService, ContainerStrategyProvider, gesture detectors
 │   │   ├── ui.js                # BadgeFactory, BadgeRenderer, DuplicateDetector
@@ -32,16 +35,17 @@ Steam-Ignore-Like-a-Pro/
 │   │   ├── enumerate.js         # Phase 2: results_html parser + paged ajax enumerator (pure + fetch)
 │   │   ├── store.js             # Phase 2: retention cache (TTL/LRU), queue CRUD, per-job lease lock
 │   │   ├── enqueue-service.js   # Phase 2: window.ILAP.Curator.EnqueueService — injectable stage()/resolve() headless orchestration + the droplist job actions togglePause()/remove() (store + enumerator injected; Node-unit-tested)
-│   │   ├── main.js              # Phase 2: curator-page "Add to ignore queue" button + droplist (thin UI/wiring layer over EnqueueService); once a job is staged the droplist adds Pause/Resume + Remove rows (applet parity; open menu re-renders on every queue change, so windows can't diverge); login-gated (no button when logged out) + surface-gated (in popup mode the button stays in place but LOCKED — greyed `.ilap-locked` (pointer-events:none) + inline `.ilap-locked-tip` hover tooltip (`curator_locked_popup`, aria-describedby-linked) naming the Ctrl+Alt+Shift+I escape; the dropdown is forced shut and a pick is refused at click time, so a menu left open across a live surface flip can't stage)
-│   │   └── drainer.js           # Phase 2: CuratorQueueDrainer — opportunistic content-script ignore drainer (no SW)
+│   │   ├── main.js              # Phase 2: curator-page "Add to ignore queue" button + droplist (thin UI/wiring layer over EnqueueService); once a job is staged the droplist adds Pause/Resume + Remove rows (applet parity; open menu re-renders on every queue change, so windows can't diverge); login-gated (no button when logged out). NOT surface-gated: since the SW drain the queue is stageable/manageable from either surface, so the old popup-mode lock (greyed button + escape-hotkey tooltip) is removed
+│   │   └── drainer.js           # Phase 2/3: CuratorQueueDrainer — the ignore drainer class, hosted in every store tab (content-script boot at the bottom, which also caches ilap_sw_sid / clears ilap_sw_halt) AND in the Chromium SW (src/background.js, DI'd with SW deps). Also drains undo jobs (type:'undo'): remove=1 POSTs through the same gate/lease, INVERSE userdata dedupe (skip when already un-ignored), "last user intent wins" skip via IgnoreLog.reIgnoredAfter, marks rolled-back log entries undone; every confirmed curator ignore is appended to the undo log (appid-only)
 │   └── widget/
 │       └── main.js              # On-page shadow-DOM widget host (popup surface); login-gated launcher; collapses to a chevron tab (default) with a shared 60 s idle auto-stash; hover-revealed pin badge disables the auto-stash (goes inert while the extension is master-disabled); parks to a ghost-chevron beacon in popup surface mode (Ctrl+Alt+Shift+I unparks)
 ├── ui/
 │   ├── popup.html
 │   ├── popup_markup.js          # Shared popup body markup (window.ILAP_PopupMarkup)
-│   ├── popup_main.js            # Stats + history display
+│   ├── popup_main.js            # Stats + history display; bootstrapPopupWindow routes the popup window on ilap_surface_mode (popup mode → full UI; widget mode → signpost stub with an aggregate queue done/total progress line + the ilap_sw_halt hint — the one surface that reports progress with no Steam tab open)
 │   ├── popup_settings.js        # Settings UI
-│   ├── popup_queue.js           # Curator ignore-queue applet (window.ILAP_Queue)
+│   ├── popup_queue.js           # Curator ignore-queue applet (window.ILAP_Queue); renders undo jobs with a localized name and no filter line; shows the queue_sw_halt hint row while the SW route is halted (ilap_sw_halt)
+│   ├── popup_undo.js            # Undo applet (window.ILAP_Undo): the ⟲ button left of the Last-Ignored chip + its droplist — preset chips (10/25/100) + a digits-only count input clamped to "of N" undoable, and a time row (X hours/days); stages via UndoService from either surface (the popup-mode lock died with the empty-queue invariant)
 │   └── popup.css                # Popup styles (shadow widget + popup window)
 ├── styles/styles.css
 ├── build.js
@@ -52,8 +56,10 @@ Steam-Ignore-Like-a-Pro/
     ├── cross-cutting/
     │   ├── history-cap.spec.js       # ilap_ignored_history capped at 20
     │   ├── i18n.unit.spec.js         # Node unit: DICT completeness/extras per locale, {n}/{type} placeholder integrity, t() fallback ladder, onLangChange subscriber contract (fires on effective change; a throwing subscriber doesn't block the rest)
+    │   ├── ignore-log.unit.spec.js   # Node unit: IgnoreLog pure selectors (snapshots, undoableCount, reIgnoredAfter, lastUndoneForCurator, cap trim) + serialized-RMW append/markUndone against an async chrome stub
     │   ├── surface.unit.spec.js      # Node unit: Surface.KEY/hotkey label, isSteamClientUA, resolve (popup only when stored AND not client), isEscapeHotkey
     │   ├── migrate.unit.spec.js      # Node unit: src/migrate.js onInstalled — install→'widget', update+absent key→'popup', present key untouched, lastError→no write, other reasons no-op; onStartup re-assert (absent key→'widget' no-glow, present key untouched, yields to a same-lifetime install/update event)
+    │   ├── background.unit.spec.js   # Node unit: Phase-3 SW drain host (src/background.js) — the REAL gate/store/drainer/ignore-log/migrate modules loaded through a stubbed importScripts into a worker-shaped sandbox; drains a job from the sid cache (paced by the real gate, alarm cleared when done), no-sid → no POST, 2-consecutive-fail halt engages before an appid burns + fresh-sid revival, long 429 penalty → no slot claimed + alarm at the penalty end, alarm handler kicks a pass, live foreign lease respected
     │   └── sw-restart.spec.js        # Survives chrome.runtime.reload + page reload
     ├── explore-queue/
     │   ├── _helpers.js
@@ -82,21 +88,23 @@ Steam-Ignore-Like-a-Pro/
     │   ├── popup-main.spec.js        # Master toggle, counters, history, XSS, live update
     │   ├── settings.spec.js          # Queue toggles, mode, shortcut selects, mutual exclusion
     │   ├── queue.spec.js             # Curator queue applet: hidden-when-empty, chip count, pause/remove, running indicator, colours, mutual exclusion
-    │   ├── surface-stub.spec.js      # popup.html surface routing: widget mode → signpost stub (button guarded by empty-queue invariant); popup mode → full UI; live flip reloads
+    │   ├── undo.spec.js              # Undo applet: droplist stages an undo job from popup mode (no surface lock), disabled-empty tooltip contract, undo-job row renders localized without a filter line, pause/remove round-trip
+    │   ├── surface-stub.spec.js      # popup.html surface routing: widget mode → signpost stub (switch button free with a busy queue; aggregate done/total progress line + ilap_sw_halt hint, live-updating); popup mode → full UI; live flip reloads
     │   └── lang-chip.spec.js         # Language-chip styled menu: chip click opens it (Settings untouched), pick persists ilap_lang, bar click toggles Settings + closes it
     ├── curator/
     │   ├── _helpers.js               # interceptIgnoreApi + routeUserdata stubs (no real ignores)
     │   ├── enumerate.unit.spec.js    # Node unit: parseResults / categorize / filterAppids / buildUrl / paged enumerate
     │   ├── store.unit.spec.js        # Node unit: evictCache (TTL+LRU), lockFree, isFresh + serialized queue RMW / cursor keys (chrome stub)
-    │   ├── enqueue.spec.js           # Curator-page button (live): injection+logo, dropdown, stage job, Added state, switch-in-place, 3-job cap, droplist Pause/Resume+Remove actions, cross-window open-menu sync, logged-out no-inject, popup-mode no-inject + live surface flip
-    │   ├── drainer.unit.spec.js      # Node unit: drainer lease discipline — dedupe-skip run heartbeats the lease; lease stolen during the gate wait stops before the POST; standby interval armed only while a job exists
+    │   ├── enqueue.spec.js           # Curator-page button (live): injection+logo, dropdown, stage job, Added state, switch-in-place, 3-job cap, droplist Pause/Resume+Remove actions, cross-window open-menu sync, logged-out no-inject, popup-mode staging works (not surface-gated)
+    │   ├── drainer.unit.spec.js      # Node unit: drainer lease discipline — dedupe-skip run heartbeats the lease; lease stolen during the gate wait stops before the POST; standby interval armed only while a job exists (and standbyMs:0 disables it — the SW host); undo branch (inverse dedupe + remove=1 + markUndone, re-ignored-after-snapshot skip); curator ignores appended to the undo log; boot sid-cache block (change-only ilap_sw_sid writes, halt re-arm, logged-out no-op)
+    │   ├── undo-service.unit.spec.js # Node unit: UndoService staging — snapshot semantics (unique newest-first, undone skipped, time window), added/empty/exists/full outcomes, one-undo-at-a-time
     │   └── drain.spec.js             # Drainer E2E (stubbed): ignores un-ignored appids, dedupe-skips already-ignored, respects paused
     └── widget/
         ├── login-lock.spec.js        # Login gate: locked launcher when logged out; stale pre-login page unlocks via live probe on click
         ├── collapse.spec.js          # Chevron collapse: default-collapsed mount, chevron expand + persistence, cross-tab sync, idle auto-stash, open panel blocks collapse
         ├── pin.spec.js               # Pin badge: hover-revealed, pressed pin blocks idle stash + survives stale-timestamp mount, cross-tab unpin sync
         ├── master-off.spec.js        # Master gate: ilap_master_enabled=false leaves chevron/launcher/panel usable (re-enable from panel toggle) but the pin goes inert (.disabled), revived live on re-enable
-        └── surface-mode.spec.js      # popup mode parks widget to ghost-chevron beacon (escape-hatch tooltip, inert click), live park/restore, Ctrl+Alt+Shift+I unpark (works even while disabled), panel settings toggle locked while curator jobs exist + change-handler queue re-check (race guard)
+        └── surface-mode.spec.js      # popup mode parks widget to ghost-chevron beacon (escape-hatch tooltip, inert click), live park/restore, Ctrl+Alt+Shift+I unpark (works even while disabled), panel settings toggle switches to popup even with curator jobs queued (invariant removed)
 ```
 
 ## Script Load Order (manifest content_scripts)
@@ -105,31 +113,34 @@ Steam-Ignore-Like-a-Pro/
 1.  src/escape.js               → window.ILAP.Sanitizer.escapeHTML (shared HTML-escaper; loaded FIRST, before utils.js; also first in popup.html)
 2.  src/utils.js                → window.ILAP global + shared services
 3.  src/gate.js                 → window.ILAP.IgnoreGate (aggregate ignore-rate governor; needs getSessionID from utils.js)
-4.  src/surface.js              → window.ILAP.Surface (surface-mode helper: mode key, Steam-client UA detect, escape-hotkey)
-5.  src/i18n.js                 → window.ILAP.t / window.ILAP.i18n (popup + on-page UI strings)
-6.  src/manual-ignore/utils.js  → window.ILAP.ManualIgnore.*
-7.  src/manual-ignore/ui.js
-8.  src/manual-ignore/main.js
-9.  src/discovery-queue/ui.js
-10. src/discovery-queue/registry.js → window.ILAP.Discovery.Registry (concurrent-DQ cap lease)
-11. src/discovery-queue/logic.js → window.ILAP.Discovery.*
-12. src/discovery-queue/main.js
-13. src/explore-queue/utils.js   → window.ILAP.Explore.*
-14. src/explore-queue/ui.js
-15. src/explore-queue/automator.js
-16. src/explore-queue/main.js
-17. src/curator/filters.js       → window.ILAP_Filters (shared filter vocabulary + curatorIdFromPath; self-contained, also in popup.html)
-18. src/curator/enumerate.js     → window.ILAP.Curator.Enumerator (parser + paged ajax client)
-19. src/curator/store.js         → window.ILAP.Curator.Store (cache + queue + lease lock)
-20. src/curator/enqueue-service.js → window.ILAP.Curator.EnqueueService (injectable stage/resolve; built by main.js)
-21. src/curator/main.js          → curator-page "Add to ignore queue" button (Phase 2; thin UI over EnqueueService; locked-greyed-in-place in popup surface mode)
-22. src/curator/drainer.js       → window.ILAP.Curator.CuratorQueueDrainer + boot (reserves a gate slot before every POST)
-23. ui/popup_markup.js           → window.ILAP_PopupMarkup
-24. ui/popup_settings.js         → window.ILAP_Settings (+ wireExclusiveDetails)
-25. ui/popup_queue.js            → window.ILAP_Queue (curator queue applet)
-26. ui/popup_main.js             → window.ILAP_Popup.init
-27. src/widget/main.js           → on-page shadow-DOM widget host (parks to a ghost-chevron beacon in popup surface mode)
-28. styles/styles.css
+4.  src/ignore-log.js           → window.ILAP.IgnoreLog (undo data source: timestamped ignore log; before every module that ignores)
+5.  src/surface.js              → window.ILAP.Surface (surface-mode helper: mode key, Steam-client UA detect, escape-hotkey)
+6.  src/i18n.js                 → window.ILAP.t / window.ILAP.i18n (popup + on-page UI strings)
+7.  src/manual-ignore/utils.js  → window.ILAP.ManualIgnore.*
+8.  src/manual-ignore/ui.js
+9.  src/manual-ignore/main.js
+10. src/discovery-queue/ui.js
+11. src/discovery-queue/registry.js → window.ILAP.Discovery.Registry (concurrent-DQ cap lease)
+12. src/discovery-queue/logic.js → window.ILAP.Discovery.*
+13. src/discovery-queue/main.js
+14. src/explore-queue/utils.js   → window.ILAP.Explore.*
+15. src/explore-queue/ui.js
+16. src/explore-queue/automator.js
+17. src/explore-queue/main.js
+18. src/curator/filters.js       → window.ILAP_Filters (shared filter vocabulary + curatorIdFromPath; self-contained, also in popup.html)
+19. src/curator/enumerate.js     → window.ILAP.Curator.Enumerator (parser + paged ajax client)
+20. src/curator/store.js         → window.ILAP.Curator.Store (cache + queue + lease lock)
+21. src/curator/enqueue-service.js → window.ILAP.Curator.EnqueueService (injectable stage/resolve; built by main.js)
+22. src/curator/main.js          → curator-page "Add to ignore queue" button (Phase 2; thin UI over EnqueueService; locked-greyed-in-place in popup surface mode; soft re-stage warning row when this curator's ignores were undone <48 h ago)
+23. src/curator/drainer.js       → window.ILAP.Curator.CuratorQueueDrainer + boot (reserves a gate slot before every POST; drains undo jobs via remove=1)
+24. src/undo-service.js          → window.ILAP.UndoService (undo-job staging; needs Store + IgnoreLog)
+25. ui/popup_markup.js           → window.ILAP_PopupMarkup
+26. ui/popup_settings.js         → window.ILAP_Settings (+ wireExclusiveDetails)
+27. ui/popup_queue.js            → window.ILAP_Queue (curator queue applet)
+28. ui/popup_undo.js             → window.ILAP_Undo (undo button + droplist)
+29. ui/popup_main.js             → window.ILAP_Popup.init
+30. src/widget/main.js           → on-page shadow-DOM widget host (parks to a ghost-chevron beacon in popup surface mode)
+31. styles/styles.css
 ```
 
 > The Discovery Queue `ui.js` loads before `logic.js`; this works because the classes are only referenced after the window `load` event.

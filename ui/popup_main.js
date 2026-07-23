@@ -210,6 +210,7 @@
     function initPopup(root) {
         const settings = window.ILAP_Settings.create(root);
         const queue = window.ILAP_Queue ? window.ILAP_Queue.create(root) : null;
+        const undo = window.ILAP_Undo ? window.ILAP_Undo.create(root) : null;
 
         chrome.storage.local.get(null, (res) => {
             if (window.ILAP && window.ILAP.i18n && res.ilap_lang) {
@@ -222,6 +223,7 @@
             setupLangChip(root);
             updateBasicUI(root, res);
             if (queue) queue.render(res);
+            if (undo) undo.render(res);
 
             const accordion = root.getElementById('settings-accordion');
             const queueAcc = root.getElementById('queue-accordion');
@@ -270,13 +272,19 @@
             // is pure waste, so skip it when ONLY drain-progress keys changed.
             // ilap_curator_queue itself is NOT a drain-progress key: it feeds the
             // settings surface-guard and job list, so it stays on the full path.
+            // ilap_ignore_log IS one: the drainer appends/marks an entry per POST
+            // (1–3×/s during a drain) — the undo applet's cheap value-only render
+            // below is all that state needs.
             const isDrainKey = (k) => k === 'ilap_curator_pulse'
+                || k === 'ilap_ignore_log'
                 || k.indexOf('ilap_curator_cursor_') === 0
+                || k.indexOf('ilap_curator_skipped_') === 0
                 || k.indexOf('ilap_curator_lock_') === 0;
             const heavyNeeded = Object.keys(changes || {}).some(k => !isDrainKey(k));
             chrome.storage.local.get(null, (current) => {
                 if (!heavyNeeded) {
                     if (queue) queue.render(current);
+                    if (undo) undo.render(current);
                     return;
                 }
                 if (window.ILAP && window.ILAP.i18n && current.ilap_lang) {
@@ -285,6 +293,7 @@
                 // Queue renders AFTER the locale switch — its labels go through t(),
                 // so rendering first would leave them in the previous language.
                 if (queue) queue.render(current);
+                if (undo) undo.render(current);
                 updateBasicUI(root, current);
                 // Reflect external setting changes (e.g. EQ "Disable" → q_master=false)
                 // onto the open settings panel. Value-only, preserves CSS transitions.
@@ -302,14 +311,20 @@
     window.ILAP_Popup = { init: initPopup };
 
     // Widget-mode signpost shown in the toolbar popup: the real UI lives on the
-    // store pages, so this is just a pointer at the on-page widget plus a button
-    // that moves the interface into this popup — guarded by the same
-    // "popup mode ⇒ empty curator queue" invariant as the settings toggle.
+    // store pages, so this is a pointer at the on-page widget, a button that
+    // moves the interface into this popup (free — since the SW drain landed, a
+    // busy queue no longer needs the on-page surface), and an aggregate drain
+    // progress line: with the SW draining tab-lessly, this is the one surface
+    // that can report progress when no Steam page is open.
     function renderPopupStub(mount) {
         mount.innerHTML = `
             <div id="ilap-popup-stub">
                 <img src="${chrome.runtime.getURL('assets/icons/icon48.png')}" alt="">
                 <p id="ilap-stub-msg" data-i18n="popup_stub_message"></p>
+                <div id="ilap-stub-progress" hidden>
+                    <span id="ilap-stub-progress-text"></span>
+                    <div id="ilap-stub-halt" hidden></div>
+                </div>
                 <span id="ilap-stub-btnwrap">
                     <button type="button" id="ilap-stub-switch" data-i18n="popup_stub_switch"></button>
                 </span>
@@ -317,34 +332,49 @@
         if (window.ILAP && window.ILAP.i18n) window.ILAP.i18n.applyDom(mount);
 
         const btn = mount.querySelector('#ilap-stub-switch');
-        // A disabled <button> receives no hover events, so its title never shows —
-        // carry the "why is this locked" tooltip on the always-hoverable wrapper.
-        const btnWrap = mount.querySelector('#ilap-stub-btnwrap');
+        btn.addEventListener('click', () => {
+            chrome.storage.local.set({ [window.ILAP.Surface.KEY]: 'popup' });
+        });
+
+        // Aggregate "done / total" over EVERY queued job — pendings included,
+        // curator and undo jobs alike (one number, not a per-job breakdown; the
+        // full applet lives in the widget and in popup mode). Hidden while the
+        // queue is empty. The ilap_sw_halt hint surfaces here too: with no
+        // Steam tab open this stub is the only place it can be seen.
         const Store = window.ILAP.Curator && window.ILAP.Curator.Store;
-        const syncGuard = () => {
-            if (!Store) return;
-            Store.getQueue().then((queue) => {
-                btn.disabled = queue.length > 0;
-                btn.style.opacity = btn.disabled ? '.55' : '';
-                btn.style.cursor = btn.disabled ? 'default' : 'pointer';
-                if (btn.disabled) btnWrap.title = t('surface_popup_blocked');
-                else btnWrap.removeAttribute('title');
+        const progress = mount.querySelector('#ilap-stub-progress');
+        const progressText = mount.querySelector('#ilap-stub-progress-text');
+        const haltHint = mount.querySelector('#ilap-stub-halt');
+        const renderProgress = () => {
+            // Full snapshot: the per-job cursor keys are dynamic, same read
+            // pattern as the queue applet's render path.
+            chrome.storage.local.get(null, (res) => {
+                const jobs = Array.isArray(res[Store.QUEUE_KEY]) ? res[Store.QUEUE_KEY] : [];
+                if (jobs.length === 0) { progress.hidden = true; return; }
+                let done = 0;
+                let total = 0;
+                for (const j of jobs) {
+                    const size = j.total || (Array.isArray(j.appids) ? j.appids.length : 0);
+                    const cur = res[Store.CURSOR_PREFIX + j.id];
+                    total += size;
+                    done += Math.min(Number.isFinite(cur) ? cur : (j.cursor || 0), size);
+                }
+                progressText.textContent = `${t('ignore_queue')}: ${done} / ${total}`;
+                haltHint.hidden = !res.ilap_sw_halt;
+                if (!haltHint.hidden) haltHint.textContent = t('queue_sw_halt');
+                progress.hidden = false;
             });
         };
-        syncGuard();
-        chrome.storage.onChanged.addListener((changes, area) => {
-            if (area && area !== 'local') return;
-            if (changes.ilap_curator_queue) syncGuard();
-        });
-        btn.addEventListener('click', () => {
-            if (!Store) return;
-            // Disabled covers the common case; re-check for a queue staged
-            // since the last sync before committing the switch.
-            Store.getQueue().then((queue) => {
-                if (queue.length > 0) { syncGuard(); return; }
-                chrome.storage.local.set({ [window.ILAP.Surface.KEY]: 'popup' });
+        if (Store) {
+            renderProgress();
+            chrome.storage.onChanged.addListener((changes, area) => {
+                if (area && area !== 'local') return;
+                const touched = Object.keys(changes || {}).some((k) =>
+                    k === Store.QUEUE_KEY || k === 'ilap_sw_halt'
+                    || k.indexOf(Store.CURSOR_PREFIX) === 0);
+                if (touched) renderProgress();
             });
-        });
+        }
     }
 
     // Browser-popup bootstrap: mount the shared markup into the popup window and

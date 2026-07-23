@@ -258,24 +258,12 @@
             els.mask.addEventListener('change', () => chrome.storage.local.set({ ilap_mask_enabled: els.mask.checked }));
 
             if (els.surface) {
+                // Free switch in both directions: since the SW drain landed the
+                // queue no longer needs the on-page surface (or any Steam tab)
+                // to make progress, so a busy queue doesn't block popup mode.
                 els.surface.addEventListener('change', () => {
-                    if (!els.surface.checked) {
-                        chrome.storage.local.set({ [Surface.KEY]: 'widget' });
-                        return;
-                    }
-                    // Popup mode requires an empty curator queue (the drainer's
-                    // jobs live on the on-page surface). The control is disabled
-                    // while jobs exist, but the queue can change between the last
-                    // sync and this click — so re-check through the Store.
-                    const Store = window.ILAP.Curator && window.ILAP.Curator.Store;
-                    if (!Store) { els.surface.checked = false; return; }
-                    Store.getQueue().then((queue) => {
-                        if (queue.length > 0) {
-                            els.surface.checked = false;
-                            this._syncSurfaceGuard();
-                            return;
-                        }
-                        chrome.storage.local.set({ [Surface.KEY]: 'popup' });
+                    chrome.storage.local.set({
+                        [Surface.KEY]: els.surface.checked ? 'popup' : 'widget'
                     });
                 });
             }
@@ -344,33 +332,8 @@
             els.pSel.value = normalizeShortcut(data.ilap_platform_key) || 'swipeLeft';
             if (els.surface) {
                 els.surface.checked = (data.ilap_surface_mode === 'popup');
-                this._syncSurfaceGuard();
             }
             this._updateVisuals();
-        }
-
-        /**
-         * Enforce the "popup mode ⇒ empty curator queue" invariant on the
-         * surface toggle: while jobs exist, switching TO the popup is disabled
-         * (dimmed row + explanatory tooltip). Runs on every _applyValues, so a
-         * queue change in any tab re-evaluates the lock live via syncValues.
-         */
-        _syncSurfaceGuard() {
-            const els = this.els;
-            if (!els || !els.surface) return;
-            const Store = window.ILAP.Curator && window.ILAP.Curator.Store;
-            if (!Store) return;
-            Store.getQueue().then((queue) => {
-                if (this.els !== els) return; // panel re-rendered meanwhile
-                const blocked = queue.length > 0 && !els.surface.checked;
-                els.surface.disabled = blocked;
-                const row = this.root.getElementById('surface-row');
-                if (row) {
-                    row.classList.toggle('surface-blocked', blocked);
-                    if (blocked) row.title = t('surface_popup_blocked');
-                    else row.removeAttribute('title');
-                }
-            });
         }
 
         _updateVisuals() {

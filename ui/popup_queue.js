@@ -42,6 +42,10 @@
         paused: '#ffd21a'
     };
 
+    // Duration of the smooth "collapse on completion" — matches the .5s on
+    // .solo-collapse over ::details-content in popup.css (see _collapseEmpty).
+    const COLLAPSE_MS = 500;
+
     // Curator id of the page this surface is rendered on (only matches in the on-page
     // widget; the popup window's location isn't a curator page → null → no highlight).
     // Shared parser (src/curator/filters.js) so this and main.js agree.
@@ -58,6 +62,7 @@
             this.accordion = root.getElementById('queue-accordion');
             this.list = root.getElementById('queue-list');
             this.chip = root.getElementById('queue-jobs-chip');
+            this._closeTimer = null;   // "collapse on completion" timer
             // Delegated handler — the list HTML is rebuilt on every render.
             if (this.list) this.list.addEventListener('click', (e) => this._onAction(e));
         }
@@ -87,9 +92,16 @@
             const jobs = Array.isArray(store.ilap_curator_queue) ? store.ilap_curator_queue : [];
 
             if (jobs.length === 0) {
-                this.accordion.hidden = true;
-                this.accordion.open = false;
+                this._collapseEmpty();
                 return;
+            }
+
+            // A job exists again — cancel a still-running "collapse on completion"
+            // so a freshly staged job isn't hidden out from under the user.
+            if (this._closeTimer) {
+                clearTimeout(this._closeTimer);
+                this._closeTimer = null;
+                this.accordion.classList.remove('solo-collapse');
             }
 
             this.accordion.hidden = false;
@@ -100,11 +112,42 @@
             if (this.chip) this.chip.textContent = jobs.length;
             const cur = currentCuratorId();
             if (this.list) {
+                // SW drainer halted (persistent POST failures — a stale cached
+                // sessionid or a missing Steam_Language cookie). Opening any
+                // store page fixes both at content-script boot, so the hint just
+                // points there. Tab drainers are unaffected: with a store page
+                // open the flag has already been cleared.
+                const halt = store.ilap_sw_halt
+                    ? `<div class="queue-halt-hint">${esc(t('queue_sw_halt'))}</div>`
+                    : '';
                 this.list.innerHTML = jobs
-                    .map((j, i) => this._row(j, cur, statuses[i], this._done(j, store)))
-                    .join('');
+                    .map((j, i) => this._row(j, cur, statuses[i], this._done(j, store),
+                        this._skipped(j, store)))
+                    .join('') + halt;
             }
             if (window.ILAP && window.ILAP.i18n) window.ILAP.i18n.applyDom(this.list);
+        }
+
+        // The queue emptied. If the applet was OPEN (the user was watching a job
+        // that just finished) — collapse it with the same smooth, content-preserving
+        // animation as a manual "solo" close (the .solo-collapse class over
+        // ::details-content) and hide only after it ends, rather than snapping shut.
+        // A closed or already-hidden applet is just hidden — nothing to animate on screen.
+        _collapseEmpty() {
+            if (this.accordion.hidden) return;            // already hidden
+            if (this._closeTimer) return;                 // animation already running
+            this.accordion.classList.remove('has-running');
+            if (!this.accordion.open) {                   // collapsed — no body to animate
+                this.accordion.hidden = true;
+                return;
+            }
+            this.accordion.classList.add('solo-collapse');
+            this.accordion.open = false;
+            this._closeTimer = setTimeout(() => {
+                this._closeTimer = null;
+                this.accordion.hidden = true;
+                this.accordion.classList.remove('solo-collapse');
+            }, COLLAPSE_MS);
         }
 
         // Stored status carries only user intent ('enumerating'/'paused', else
@@ -123,14 +166,26 @@
             return Number.isFinite(v) ? v : (job.cursor || 0);
         }
 
-        _row(job, cur, effStatus, cursor) {
-            const name = esc(job.curatorName || job.curatorId || '');
+        // Appids the drainer skipped as permanently refused (region-locked) —
+        // drainer-owned per-job key, like the cursor.
+        _skipped(job, store) {
+            const v = store[Store.SKIPPED_PREFIX + job.id];
+            return Number.isFinite(v) ? v : 0;
+        }
+
+        _row(job, cur, effStatus, cursor, skipped) {
+            // Undo jobs have no curator: localized row name, no filter sub-line
+            // (the count/progress footer says everything else).
+            const isUndo = job.type === 'undo';
+            const name = isUndo
+                ? esc(t('undo_job_name'))
+                : esc(job.curatorName || job.curatorId || '');
             const total = job.total || 0;
             const done = Math.min(cursor, total || cursor);
             const status = esc(t(STATUS_LABELS[effStatus] || 'queue_status_pending'));
             const statusColor = STATUS_COLORS[effStatus];
-            const isCurrent = !!cur && job.curatorId === cur;
-            const filter = esc(t(Filters.labelKey(job.filter)));
+            const isCurrent = !isUndo && !!cur && job.curatorId === cur;
+            const filter = isUndo ? '' : esc(t(Filters.labelKey(job.filter)));
             const pct = total > 0 ? Math.round(done / total * 100) : 0;
             const count = total > 0 ? `${done} / ${total}` : '—';
             const jobId = esc(job.id || '');
@@ -145,8 +200,9 @@
                         <span class="queue-job-name">${name}</span>
                         <span class="queue-job-status"${statusColor ? ` style="color:${statusColor}"` : ''}>${status}</span>
                     </div>
-                    <div class="queue-job-sub" style="${filterStyle(job.filter)}">${filter}</div>
+                    ${isUndo ? '' : `<div class="queue-job-sub" style="${filterStyle(job.filter)}">${filter}</div>`}
                     <div class="queue-bar"><div class="queue-bar-fill" style="width:${pct}%"></div></div>
+                    ${skipped > 0 ? `<div class="queue-job-skip">${esc(t('queue_skipped_unavailable', { n: skipped }))}</div>` : ''}
                     <div class="queue-job-foot">
                         <span class="queue-job-count">${count}${total > 0 ? ` <b class="queue-job-pct">${pct}%</b>` : ''}</span>
                         <span class="queue-job-actions">

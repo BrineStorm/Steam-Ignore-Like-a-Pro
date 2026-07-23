@@ -32,10 +32,17 @@
         // 5. External Adapters Creation
         const apiAdapter = { ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) };
         const gateAdapter = {
-            reserve: () => window.ILAP.IgnoreGate.reserve(),
+            // EQ is a visible source: it never yields to the background and marks foreground activity.
+            reserve: () => window.ILAP.IgnoreGate.reserve({ foreground: true }),
             reportRateLimited: (ms) => window.ILAP.IgnoreGate.reportRateLimited(ms)
         };
-        const statsAdapter = { save: (name, source) => window.ILAP.saveStats(name, source) };
+        // Stats + the undo log ride one adapter call (appid → ilap_ignore_log).
+        // The log is optional, same stance as the drainer's log hooks: a partial
+        // build must degrade to stats-only, not throw mid-ignore.
+        const statsAdapter = { save: (name, source, appid) => {
+            window.ILAP.saveStats(name, source);
+            if (window.ILAP.IgnoreLog) window.ILAP.IgnoreLog.append({ appid, name, source: 'eq' });
+        } };
         const nameExtractorAdapter = { get: (appid, el) => window.ILAP.getGameName(appid, el) };
 
         // 6. Automator DI Assembly

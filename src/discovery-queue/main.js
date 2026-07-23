@@ -67,10 +67,17 @@
                 ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) // Using global utils facade for now
             };
             const statsAdapter = {
-                save: (name, source) => window.ILAP.saveStats(name, source)
+                // Stats + the undo log ride one adapter call (appid → ilap_ignore_log).
+                // The log is optional, same stance as the drainer's log hooks: a
+                // partial build must degrade to stats-only, not throw mid-ignore.
+                save: (name, source, appid) => {
+                    window.ILAP.saveStats(name, source);
+                    if (window.ILAP.IgnoreLog) window.ILAP.IgnoreLog.append({ appid, name, source: 'dq' });
+                }
             };
             const nameExtractorAdapter = { get: (appid, el) => window.ILAP.getGameName(appid, el) };
-            const gateAdapter = { reserve: () => window.ILAP.IgnoreGate.reserve() };
+            // DQ is a visible source: it never yields to the background and marks foreground activity.
+            const gateAdapter = { reserve: () => window.ILAP.IgnoreGate.reserve({ foreground: true }) };
             this.registry = window.ILAP.Discovery.Registry;
 
             // 2. Instantiate Components

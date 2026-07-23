@@ -243,72 +243,30 @@ test.describe('Curator — enqueue button', () => {
         expect(queue.some(j => j.curatorId === CURATOR_ID)).toBe(false);
     });
 
-    test('Popup surface mode: the button is injected but locked (greyed + tooltip); flipping back unlocks it live', async ({ page, context }) => {
+    test('Popup surface mode: the button works the same — staging is not surface-gated anymore', async ({ page, context }) => {
         await setExtensionStorage(context, { ilap_surface_mode: 'popup' });
         await openCurator(page);
 
-        // In popup mode the control stays in place but is locked: visible, greyed
-        // (.ilap-locked), disabled, with our own inline tooltip (not the browser
-        // title). It is NOT removed.
+        // Since the SW drain landed, the queue is stageable and manageable from
+        // either surface — popup mode no longer greys the button out.
         const btn = page.locator(BTN);
         await expect(btn).toBeVisible();
-        await expect(btn).toHaveClass(/ilap-locked/);
-        await expect(btn).toBeDisabled();
-        await expect(btn).not.toHaveAttribute('title');
-        // The tip must actually REVEAL on hover (hover the wrap — the locked
-        // button is pointer-events:none), not merely carry hidden text.
-        const tip = page.locator('.ilap-curator-ctl.ilap-locked-ctl .ilap-locked-tip');
-        await expect(tip).toBeHidden();
-        await page.locator('.ilap-curator-ctl.ilap-locked-ctl').hover();
-        await expect(tip).toBeVisible();
-        await expect(tip).toHaveText(/.+/);
-        // Screen readers reach the same text through the aria link.
-        await expect(btn).toHaveAttribute('aria-describedby', 'ilap-locked-tip');
-
-        // A locked button can't open its dropdown.
-        await btn.click({ force: true });
-        await expect(page.locator('.ilap-curator-menu.open')).toHaveCount(0);
-
-        // Switching back to the widget unlocks it in place — no reload.
-        await setExtensionStorage(context, { ilap_surface_mode: 'widget' });
-        await expect(btn).not.toHaveClass(/ilap-locked/);
         await expect(btn).toBeEnabled();
-    });
 
-    test('Live switch to popup mode locks the injected button (and back)', async ({ page, context }) => {
-        await openCurator(page);
-        const btn = page.locator(BTN);
-        await expect(btn).toBeVisible();
-        await expect(btn).not.toHaveClass(/ilap-locked/);
-
-        await setExtensionStorage(context, { ilap_surface_mode: 'popup' });
-        await expect(btn).toHaveClass(/ilap-locked/);
-        await expect(btn).toBeDisabled();
-
-        await setExtensionStorage(context, { ilap_surface_mode: 'widget' });
-        await expect(btn).not.toHaveClass(/ilap-locked/);
-        await expect(btn).toBeEnabled();
-    });
-
-    test('Open-dropdown race: flipping to popup mid-open forces the menu shut and refuses the stage', async ({ page, context }) => {
-        await openCurator(page);
-
-        // Open the dropdown while still in widget mode.
-        await page.locator(BTN).click();
+        await btn.click();
         await expect(page.locator('.ilap-curator-menu.open')).toBeVisible();
+        // Same broad-filter choice as the staging test above (a zero-appid
+        // resolve would legitimately drop the job as already-finished).
+        await page.locator('.ilap-curator-menu.open [data-value="all_but_recommended"]').click();
 
-        // Now the surface flips to popup (could be this or another browser window):
-        // the menu must be force-closed and the button locked.
-        await setExtensionStorage(context, { ilap_surface_mode: 'popup' });
-        await expect(page.locator(BTN)).toHaveClass(/ilap-locked/);
-        await expect(page.locator('.ilap-curator-menu.open')).toHaveCount(0);
+        await expect.poll(async () => await readQueue(context)).toHaveLength(1);
+        const [job] = await readQueue(context);
+        expect(job.curatorId).toBe(CURATOR_ID);
 
-        // Belt-and-suspenders: dispatch a raw click on the (now hidden) option —
-        // this models the race where the DOM event fires just as the lock lands.
-        // The menu handler re-checks the lock at click time, so no job is staged.
-        await page.locator('.ilap-curator-menu [data-value="not_recommended"]').dispatchEvent('click');
-        await page.waitForTimeout(500);
-        expect(await readQueue(context)).toHaveLength(0);
+        // A live flip back to widget mode changes nothing about the button.
+        await setExtensionStorage(context, { ilap_surface_mode: 'widget' });
+        await page.waitForTimeout(300);
+        await expect(btn).toBeEnabled();
     });
 
     test('Live language switch relabels the injected button in place', async ({ page, context }) => {

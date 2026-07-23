@@ -15,6 +15,7 @@
     "test_mi": "npm run build:test && npx playwright test tests/manual-ignore",
     "test_popup": "npm run build:test && npx playwright test tests/popup",
     "test_curator": "npm run build:test && npx playwright test tests/curator",
+    "test_live": "npm run build:test && npx playwright test --project=chromium tests/curator/drain-live.spec.js",
     "test_widget": "npm run build:test && npx playwright test tests/widget"
   },
   "devDependencies": {

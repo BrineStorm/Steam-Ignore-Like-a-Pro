@@ -83,6 +83,17 @@ test.describe('ignore-rate gate (unit)', () => {
         expect(Gate.nextPenalty({ until: now + Gate.PENALTY_MAX + 1, level: 5 }, now, 0).level).toBe(1);
     });
 
+    test('penaltyUntil: active deadline, expired/absent → still the stored value or 0, corrupt → 0', () => {
+        // Exported for the SW host's wait pre-check (src/background.js): it must
+        // see the penalty deadline WITHOUT claiming a slot.
+        const { Gate } = loadGate();
+        const now = 1000000;
+        expect(Gate.penaltyUntil(null, now)).toBe(0);
+        expect(Gate.penaltyUntil({ until: now + 5000, level: 1 }, now)).toBe(now + 5000);
+        // A corrupt far-future penalty is treated as absent (same rule as reserve).
+        expect(Gate.penaltyUntil({ until: now + Gate.PENALTY_MAX + 1, level: 1 }, now)).toBe(0);
+    });
+
     test('reportRateLimited escalates the shared penalty across consecutive reports', async () => {
         const { Gate, data } = loadGate({});
         const start = Date.now();
@@ -186,6 +197,67 @@ test.describe('ignore-rate gate (unit)', () => {
         setTimeout(() => { sid = null; }, 300);
         const r = await Gate.reserve();
         expect(r).toEqual({ ok: false, reason: 'no-session' });
+    });
+
+    test('a background reservation YIELDS while a foreground ignore is recent', async () => {
+        // Visible work (EQ/DQ/MI) has priority: the background queue drainer defers
+        // its slot while a foreground ignore is within the yield window.
+        const { Gate, ILAP } = loadGate({
+            ilap_master_enabled: true,
+            ilap_ignore_foreground_at: Date.now(),
+        });
+        ILAP.getSessionID = () => 'sess';
+        const r = await Gate.reserve();               // background (no foreground flag)
+        expect(r).toEqual({ ok: false, reason: 'yield' });
+    });
+
+    test('a foreground reservation never yields and stamps foreground activity', async () => {
+        const { Gate, ILAP, data } = loadGate({
+            ilap_master_enabled: true,
+            ilap_ignore_foreground_at: Date.now(),    // fresh — a background caller would yield
+        });
+        ILAP.getSessionID = () => 'sess';
+        const before = Date.now();
+        const r = await Gate.reserve({ foreground: true });
+        expect(r).toEqual({ ok: true });
+        expect(data().ilap_ignore_foreground_at).toBeGreaterThanOrEqual(before);
+    });
+
+    test('a background reservation proceeds once the foreground window has passed', async () => {
+        const { Gate, ILAP } = loadGate({
+            ilap_master_enabled: true,
+            ilap_ignore_foreground_at: Date.now() - 10000,   // stale (well past YIELD_MS)
+        });
+        ILAP.getSessionID = () => 'sess';
+        const r = await Gate.reserve();
+        expect(r).toEqual({ ok: true });
+    });
+
+    test('noteManualIgnore stamps foreground so the background drain yields to a manual swipe', async () => {
+        const { Gate, ILAP } = loadGate({ ilap_master_enabled: true });
+        ILAP.getSessionID = () => 'sess';
+        await Gate.noteManualIgnore();                 // ungated manual ignore just fired
+        const r = await Gate.reserve();                // background drain
+        expect(r).toEqual({ ok: false, reason: 'yield' });
+    });
+
+    test('noteManualIgnore pushes the gate slot to now, but never moves a future slot backward', async () => {
+        // Stale slot → bumped up to ~now, so the next GATED source spaces a gap
+        // after the manual POST instead of possibly landing right on top of it.
+        {
+            const { Gate, data } = loadGate({ ilap_ignore_gate: Date.now() - 10000 });
+            const before = Date.now();
+            await Gate.noteManualIgnore();
+            expect(data().ilap_ignore_gate).toBeGreaterThanOrEqual(before);
+        }
+        // A slot already reserved in the near future is left alone — a manual
+        // ignore must not pull a queued gated slot earlier.
+        {
+            const future = Date.now() + 5000;
+            const { Gate, data } = loadGate({ ilap_ignore_gate: future });
+            await Gate.noteManualIgnore();
+            expect(data().ilap_ignore_gate).toBe(future);
+        }
     });
 
     test('the claim chain survives a throwing reservation (one failure cannot wedge the gate)', async () => {

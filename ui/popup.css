@@ -108,10 +108,6 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
 
 /* === GENERAL UI === */
 .dimmed { opacity: 0.35; pointer-events: none; transition: opacity 0.3s; }
-/* Blocked surface toggle: dim only, and DON'T kill pointer-events — the row must
-   stay hoverable so its "why is this locked" title still shows. The <input> is
-   disabled separately, so nothing toggles even though the row is clickable. */
-#surface-row.surface-blocked { opacity: 0.35; transition: opacity 0.3s; }
 
 /* Widget-mode signpost shown in the toolbar popup window (renderPopupStub in
    popup_main.js): points at the on-page widget + offers to move the UI here. */
@@ -122,6 +118,8 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
 }
 #ilap-popup-stub img { width: 34px; height: 34px; border-radius: 8px; display: block; margin: 0 auto 10px; }
 #ilap-stub-msg { margin: 0 0 14px; font-size: 13px; line-height: 1.45; }
+#ilap-stub-progress { margin: 0 0 14px; font-size: 12px; font-weight: 700; color: var(--accent); }
+#ilap-stub-halt { margin-top: 6px; font-size: 10px; font-weight: 400; color: #ffd21a; }
 #ilap-stub-btnwrap { display: inline-block; }
 #ilap-stub-switch {
     background: #2a6cc6; color: #fff; border: none; border-radius: 3px;
@@ -137,6 +135,9 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     align-items: center;
 }
 
+/* The "Total Ignored" row — anchor for the Undo droplist (position: absolute). */
+#total-row { position: relative; }
+
 .stat-row > span:first-child {
     flex: 1;
     padding-right: 10px;
@@ -150,6 +151,84 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     display: block; width: 100%; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; color: var(--text);
 }
+
+/* === UNDO (un-ignore the last X) === */
+#last-ignored-row { display: flex; align-items: stretch; gap: 6px; width: 100%; }
+/* The button lives in the "Total Ignored" row, left of the number: its own height
+   (the row no longer stretches it) and a gap on the right before #count-link. */
+#undo-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 24px; padding: 0; margin-right: 8px;
+    cursor: pointer; flex-shrink: 0;
+    background: var(--panel); color: var(--muted);
+    border: 1px solid var(--border); border-radius: 6px;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+#undo-btn:hover:not(:disabled) { background: #22303f; color: #fff; border-color: #3f5169; }
+#undo-btn:disabled { opacity: .45; cursor: default; }
+#undo-btn svg { display: block; }
+
+/* The Undo button's own tooltip — instead of the browser title. The wrapper catches
+   hover even on a disabled button; popup_undo.js sets the text in #undo-tip. */
+.undo-btn-wrap { position: relative; display: inline-flex; }
+.undo-tip {
+    visibility: hidden; opacity: 0;
+    position: absolute; top: 100%; left: 0; margin-top: 6px;
+    padding: 5px 8px; white-space: nowrap; z-index: 1001;
+    background: var(--inset); color: var(--text);
+    border: 1px solid var(--accent); border-radius: 6px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+    font-size: 11px; font-weight: 600; pointer-events: none;
+    transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
+}
+.undo-btn-wrap:hover .undo-tip { visibility: visible; opacity: 1; transition-delay: 0.4s; }
+/* While the droplist is open — the tooltip stays out of the way. */
+#popup-root:has(.undo-menu.open) .undo-tip { display: none; }
+
+/* Droplist under the "Total Ignored" row (anchor #total-row). Overlays the
+   Last-Ignored section; the history hover-tooltip is suppressed while the menu is open. */
+.undo-menu {
+    display: none; position: absolute; top: 100%; margin-top: 4px; left: 0; right: 0;
+    background: var(--inset); border: 1px solid var(--accent); border-radius: 8px;
+    padding: 10px; z-index: 1000; box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+    cursor: default;
+}
+.undo-menu.open { display: block; }
+/* The menu now anchors to #total-row (above the history-trigger) and overlays the
+   Last-Ignored row; while it's open we suppress the history hover-tooltip wherever it is. */
+#popup-root:has(.undo-menu.open) .history-tooltip { display: none; }
+.undo-title { font-size: 11px; font-weight: 700; color: #fff; margin-bottom: 7px; }
+.undo-time-title { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 9px; }
+.undo-row { display: flex; align-items: center; gap: 5px; }
+.undo-chip {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 26px; padding: 0 8px; cursor: pointer;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-size: 11px; font-weight: 700; font-family: inherit;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.undo-chip:hover { background: #22303f; color: #fff; }
+.undo-chip.selected { background: #1d3a59; border-color: var(--accent); color: #fff; }
+.undo-menu input {
+    width: 52px; height: 26px; padding: 0 7px; min-width: 0;
+    background: var(--chip); color: #fff; border: 1px solid var(--border);
+    border-radius: 6px; font-size: 12px; font-weight: 700; font-family: inherit;
+    text-align: center; outline: none;
+}
+.undo-menu input:focus { border-color: var(--accent); }
+.undo-of { font-size: 10px; color: var(--muted); white-space: nowrap; flex: 1; }
+.undo-go {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 26px; padding: 0 9px; cursor: pointer; margin-left: auto;
+    background: var(--toggle); color: #fff; border: none; border-radius: 6px;
+    font-size: 11px; font-weight: 700; font-family: inherit; white-space: nowrap;
+    transition: background-color .15s ease, opacity .15s ease;
+}
+.undo-go:hover:not(:disabled) { background: #3a7de0; }
+.undo-go:disabled { opacity: .4; cursor: default; }
+.undo-msg { margin-top: 8px; font-size: 11px; color: var(--muted); line-height: 1.35; }
+.undo-msg.ok { color: #7ad13f; }
 
 /* === HISTORY TOOLTIP === */
 .history-trigger { position: relative; display: block; width: 100%; cursor: help; }
@@ -300,6 +379,19 @@ details[open] > summary::after { transform: rotate(90deg); }
     transition: block-size .5s ease, opacity .3s ease, content-visibility .5s allow-discrete;
 }
 
+/* Queue applet: unlike SETTINGS (its body is lazy → instant open, otherwise it
+   "jumps" as content loads), the queue renders immediately, so its "solo" open can
+   be animated too. The transition is declared ONLY on the [open] target: opening
+   smoothly pulls 0→auto, while an ordinary close (without .solo-collapse) has no
+   transition and collapses instantly — that's the COMPETITIVE collapse, when SETTINGS
+   opens in its place, and it must stay instant. The smooth "solo" and "on-completion"
+   close is handled by the .solo-collapse rule above. */
+#queue-accordion::details-content { block-size: 0; overflow: hidden; opacity: 0; }
+#queue-accordion[open]::details-content {
+    block-size: auto; overflow: visible; opacity: 1;
+    transition: block-size .3s ease, opacity .25s ease, overflow 0s .3s;
+}
+
 select {
     appearance: none; -webkit-appearance: none;
     background-color: var(--panel);
@@ -382,6 +474,8 @@ select option { background: #16202d; color: #fff; }
 .queue-job-count { font-size: 10px; color: var(--muted); }
 .queue-job-pct { color: var(--accent); font-weight: 700; }
 .queue-job-actions { display: inline-flex; gap: 18px; }
+.queue-job-skip { font-size: 10px; color: #ffd21a; margin-top: 5px; }
+.queue-halt-hint { font-size: 10px; color: #ffd21a; padding: 6px 2px 2px; }
 .queue-act {
     display: inline-flex; align-items: center; justify-content: center;
     width: 32px; height: 28px; padding: 0; cursor: pointer;

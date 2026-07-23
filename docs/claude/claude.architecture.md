@@ -10,7 +10,8 @@
 window.ILAP.getSessionID      // Steam session cookie
 window.ILAP.apiIgnoreGame     // POST to Steam ignore endpoint
 window.ILAP.saveStats         // Write to chrome.storage.local
-window.ILAP.getGameName       // 5-strategy name extractor
+window.ILAP.getGameName       // 5-strategy name extractor (sync)
+window.ILAP.resolveGameName   // async: DOM strategies, then appdetails fallback
 window.ILAP.SteamAuth         // login gate: header DOM check + live /account/ probe
 window.ILAP.SessionStateService
 window.ILAP.SESSION_IGNORED_KEY

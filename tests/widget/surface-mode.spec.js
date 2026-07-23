@@ -140,10 +140,11 @@ test.describe('on-page widget — surface mode', () => {
         await expect(page.locator('.ilap-chevron')).not.toHaveClass(/ghost/);
     });
 
-    test('settings toggle in the widget panel: popup mode is locked while curator jobs exist', async ({ context, page }) => {
+    test('settings toggle in the widget panel: switches to popup mode even while curator jobs exist', async ({ context, page }) => {
         test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session'); // panel is login-gated
 
-        // One inert job (paused, no appids) is enough to trip the invariant.
+        // A busy queue no longer blocks popup mode: since the SW drain landed,
+        // jobs progress with no Steam tab, and the popup hosts the same applet.
         await setExtensionStorage(context, {
             ilap_curator_queue: [{
                 id: 'job_111_1', curatorId: '111', curatorName: 'Curator 111',
@@ -163,24 +164,9 @@ test.describe('on-page widget — surface mode', () => {
         // visible .wide-track surface, then assert against the input itself.
         await page.locator('#surface-toggle ~ .wide-track').waitFor({ timeout: 5000 });
 
-        // Popup position is locked while the job exists (dimmed row + tooltip),
-        // and clicking the segmented track changes nothing.
-        await expect(surface).toBeDisabled();
-        await expect(page.locator('#surface-row')).toHaveAttribute('title', /queue/i);
-        // Force past the actionability gate (the locked control reports disabled):
-        // even a forced click must not toggle the disabled input or write the key.
-        await page.locator('#surface-toggle ~ .wide-track').click({ force: true });
-        await page.waitForTimeout(400);
-        const stored = await getExtensionStorage(context, [MODE_KEY]);
-        expect(stored[MODE_KEY] || 'widget').toBe('widget');
-
-        // …and unlocks live once the queue empties.
-        await setExtensionStorage(context, { ilap_curator_queue: [] });
+        // Free switch: clicking the segmented track writes 'popup' and the
+        // widget parks to the ghost beacon in place.
         await expect(surface).toBeEnabled();
-
-        // Now the enable→popup path actually parks the widget: clicking the
-        // segmented track writes 'popup' (via the Store re-check) and the panel
-        // stashes to the ghost beacon in place.
         await page.locator('#surface-toggle ~ .wide-track').click();
         await expect.poll(async () => {
             const data = await getExtensionStorage(context, [MODE_KEY]);
@@ -188,46 +174,9 @@ test.describe('on-page widget — surface mode', () => {
         }).toBe('popup');
         await expect(page.locator('.ilap-chevron')).toHaveClass(/ghost/);
         await expect(page.locator('.ilap-launcher')).toHaveClass(/stashed/);
-    });
 
-    test('settings surface toggle: the change handler re-checks the queue (race guard)', async ({ context, page }) => {
-        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session'); // panel is login-gated
-
-        // The invariant is double-guarded: the guard disables the toggle while a
-        // job exists, AND the change handler re-reads Store.getQueue() before
-        // writing 'popup'. This test isolates the SECOND layer — the narrow race
-        // where a job (added in another tab/window of the same profile) lands after
-        // the guard last synced but before onChanged re-disables the control.
-        await setExtensionStorage(context, {
-            ilap_curator_queue: [{
-                id: 'job_222_1', curatorId: '222', curatorName: 'Curator 222',
-                curatorUrl: 'https://store.steampowered.com/curator/222/',
-                filter: 'not_recommended', appids: [], total: 0,
-                status: 'paused', addedAt: Date.now(),
-            }],
-        });
-        await page.goto(searchUrl());
-        await page.locator('.ilap-chevron').click();
-        await page.locator('.ilap-launcher').click();
-        await expect(page.locator('.ilap-panel')).toHaveClass(/open/);
-
-        await page.locator('#settings-accordion > summary').click();
-        const surface = page.locator('#surface-toggle');
-        await page.locator('#surface-toggle ~ .wide-track').waitFor({ timeout: 5000 });
-
-        // Guard has disabled it (job present). Force it back enabled to open the
-        // race window the guard would normally have closed.
-        await expect(surface).toBeDisabled();
-        await surface.evaluate((el) => { el.disabled = false; });
-
-        // Clicking to popup now fires a real change event — the handler's own
-        // Store.getQueue() re-check must revert the toggle and write nothing.
-        await page.locator('#surface-toggle ~ .wide-track').click();
-        await expect(surface).not.toBeChecked();
-        await page.waitForTimeout(400);
-        const stored = await getExtensionStorage(context, [MODE_KEY]);
-        expect(stored[MODE_KEY] || 'widget').toBe('widget');
-        // The widget stayed on-page (never parked to the ghost beacon).
-        await expect(page.locator('.ilap-chevron')).not.toHaveClass(/ghost/);
+        // The job rode along untouched — nothing empties or blocks the queue.
+        const q = await getExtensionStorage(context, ['ilap_curator_queue']);
+        expect(q.ilap_curator_queue).toHaveLength(1);
     });
 });

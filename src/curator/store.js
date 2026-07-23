@@ -30,11 +30,16 @@
     const QUEUE_KEY = 'ilap_curator_queue';
     const LOCK_PREFIX = 'ilap_curator_lock_';
     const CURSOR_PREFIX = 'ilap_curator_cursor_';
+    const SKIPPED_PREFIX = 'ilap_curator_skipped_';
     const PULSE_KEY = 'ilap_curator_pulse';
 
     const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;  // 7 days
     const CACHE_MAX = 10;                        // LRU cap on cached curators
     const LEASE_MS = 8000;                       // lock TTL; renewed by heartbeat
+    // The one queue-job cap (curator jobs + at most one undo job). Lives here —
+    // the queue model — so every staging surface (curator button, undo droplist)
+    // enforces the same number.
+    const MAX_JOBS = 3;
 
     // --- pure helpers (unit-tested) ---------------------------------------
 
@@ -142,7 +147,8 @@
 
     async function removeJob(id) {
         await mutateQueue(queue => queue.filter(j => j.id !== id));
-        await remove(CURSOR_PREFIX + id); // the job's progress cursor dies with it
+        // The job's drainer-owned progress keys die with it.
+        await remove([CURSOR_PREFIX + id, SKIPPED_PREFIX + id]);
     }
 
     // --- drain cursor -------------------------------------------------------
@@ -168,6 +174,18 @@
     async function setCursor(jobId, value) {
         if (!(await getQueue()).some(j => j.id === jobId)) return false;
         await set({ [CURSOR_PREFIX + jobId]: value });
+        return true;
+    }
+
+    // Per-job count of appids skipped as permanently refused (no store object
+    // in the account's region — the drainer's 400-classifier). Same writer and
+    // partitioning as the cursor: only the lease holder bumps it, so it lives
+    // beside the cursor key, guarded the same way against a concurrent remove.
+    async function bumpSkipped(jobId) {
+        if (!(await getQueue()).some(j => j.id === jobId)) return false;
+        const key = SKIPPED_PREFIX + jobId;
+        const v = (await get(key))[key];
+        await set({ [key]: (Number.isFinite(v) ? v : 0) + 1 });
         return true;
     }
 
@@ -222,10 +240,10 @@
         // queue
         getQueue, setQueue, mutateQueue, updateJob, removeJob, signalCompleted,
         // drain cursor
-        getCursor, setCursor,
+        getCursor, setCursor, bumpSkipped,
         // lock
         acquireLock, renewLock, holdsLock, releaseLock,
         // constants
-        CACHE_KEY, QUEUE_KEY, LOCK_PREFIX, CURSOR_PREFIX, PULSE_KEY, CACHE_TTL, CACHE_MAX, LEASE_MS
+        CACHE_KEY, QUEUE_KEY, LOCK_PREFIX, CURSOR_PREFIX, SKIPPED_PREFIX, PULSE_KEY, CACHE_TTL, CACHE_MAX, LEASE_MS, MAX_JOBS
     };
 })();

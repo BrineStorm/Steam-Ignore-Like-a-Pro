@@ -129,6 +129,372 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(reports).toEqual([7000]); // Retry-After forwarded to the shared gate
     });
 
+    test('a classified region-lock skips immediately: one POST, no MAX_FAILS burn, counted and logged', async () => {
+        // The api layer marks a permanent per-appid 400 (no store object in
+        // the account's region) with res.unavailable: the drainer must step
+        // over it in ONE attempt (retrying a region lock is pointless — three
+        // tries would burn two extra gate slots), bump the per-job skip
+        // counter and leave a `skipped` log entry instead of a silent "done".
+        const Drainer = loadDrainerClass();
+        const job = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['480', '11'] };
+        let cursor = 0;
+        let removed = false;
+        const posts = [];
+        const bumps = [];
+        const appended = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            bumpSkipped: async (id) => { bumps.push(id); },
+            renewLock: async () => {},
+            removeJob: async () => { removed = true; },
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            api: { ignore: async (appid) => {
+                posts.push(appid);
+                return appid === '480'
+                    ? { ok: false, rateLimited: false, unavailable: true }
+                    : { ok: true };
+            } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            log: {
+                append: async (entry) => { appended.push(entry); },
+                markUndone: async () => {},
+                wasReIgnoredAfter: async () => false,
+            },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(posts).toEqual(['480', '11']);  // exactly one attempt each
+        expect(cursor).toBe(2);
+        expect(removed).toBe(true);
+        expect(bumps).toEqual(['j1']);
+        expect(appended).toEqual([
+            { appid: '480', source: 'curator', curatorId: 'c1', skipped: 'unavailable' },
+            { appid: '11', source: 'curator', curatorId: 'c1' },
+        ]);
+    });
+
+    test('undo job: a classified region-lock skips with no log write (nothing was rolled back)', async () => {
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'ju', curatorId: 'undo', type: 'undo',
+            status: 'pending', appids: ['480'], snapshotTs: 500,
+        };
+        let cursor = 0;
+        let removed = false;
+        const bumps = [];
+        const marked = [];
+        const appended = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            bumpSkipped: async (id) => { bumps.push(id); },
+            renewLock: async () => {},
+            removeJob: async () => { removed = true; },
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            api: {
+                ignore: async () => ({ ok: true }),
+                unignore: async () => ({ ok: false, rateLimited: false, unavailable: true }),
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(['480']),
+            log: {
+                append: async (entry) => { appended.push(entry); },
+                markUndone: async (appid, ts) => { marked.push([appid, ts]); },
+                wasReIgnoredAfter: async () => false,
+            },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(cursor).toBe(1);
+        expect(removed).toBe(true);
+        expect(bumps).toEqual(['ju']);
+        expect(appended).toEqual([]);  // the appid is still ignored…
+        expect(marked).toEqual([]);    // …so its log entries stay live
+    });
+
+    test('undo job: inverse dedupe, remove=1 POSTs, log marked undone', async () => {
+        // '2' is not in rgIgnoredApps (already rolled back elsewhere) → skipped
+        // with no request BUT still marked undone (so it can't inflate "of N"
+        // forever); '1' and '3' get un-ignore POSTs and their log entries
+        // marked. The finished job is dropped like any other.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'ju', curatorId: 'undo', type: 'undo',
+            status: 'pending', appids: ['1', '2', '3'], snapshotTs: 500,
+        };
+        let cursor = 0;
+        let removed = false;
+        const unposts = [];
+        const posts = [];
+        const marked = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            renewLock: async () => {},
+            removeJob: async () => { removed = true; },
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            api: {
+                ignore: async (appid) => { posts.push(appid); return { ok: true }; },
+                unignore: async (appid) => { unposts.push(appid); return { ok: true }; },
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(['1', '3']), // '2' is NOT ignored
+            log: {
+                append: async () => {},
+                markUndone: async (appid, ts) => { marked.push([appid, ts]); },
+                wasReIgnoredAfter: async () => false,
+                lastIgnoredAt: async () => 0, // '2' ignored long ago → skip is trustworthy
+            },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(posts).toEqual([]);              // an undo job never fires ignores
+        expect(unposts).toEqual(['1', '3']);
+        expect(marked).toEqual([['1', 500], ['2', 500], ['3', 500]]);
+        expect(cursor).toBe(3);
+        expect(removed).toBe(true);
+    });
+
+    test('undo job: a failed userdata read stops the pass instead of skip-burning the job', async () => {
+        // The inverse dedupe reads "not in the set" as "already rolled back" —
+        // so an undo job must never fall back to an empty set on a failed
+        // fetch (a curator job safely does): the whole job would burn to
+        // completion via skips with zero requests. Strict read → 'stop'.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'ju', curatorId: 'undo', type: 'undo',
+            status: 'pending', appids: ['1', '2'], snapshotTs: 500,
+        };
+        let cursor = 0;
+        let removed = false;
+        const unposts = [];
+        const marked = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            renewLock: async () => {},
+            removeJob: async () => { removed = true; },
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            api: {
+                ignore: async () => ({ ok: true }),
+                unignore: async (appid) => { unposts.push(appid); return { ok: true }; },
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => null,   // strict read failed
+            log: {
+                append: async () => {},
+                markUndone: async (appid, ts) => { marked.push([appid, ts]); },
+                wasReIgnoredAfter: async () => false,
+            },
+            ownerId: 't1',
+        });
+        expect(await d._drainJob(job)).toBe('stop');
+        expect(unposts).toEqual([]);
+        expect(marked).toEqual([]);
+        expect(cursor).toBe(0);        // nothing burned — retried on the next kick
+        expect(removed).toBe(false);
+    });
+
+    test('undo job: an EMPTY userdata set needs a live login probe (dead session → stop)', async () => {
+        // A logged-out userdata read returns 200 + empty defaults — identical
+        // to "the user manually rolled back everything". The skip path never
+        // consults the gate's dead-session check, so the drainer must confirm
+        // the session itself: probe false → stop (job intact); probe true →
+        // the legit-empty job completes via marked skips.
+        const Drainer = loadDrainerClass();
+        const makeJob = () => ({
+            id: 'ju', curatorId: 'undo', type: 'undo',
+            status: 'pending', appids: ['1'], snapshotTs: 500,
+        });
+        const makeDeps = (probeResult, state) => ({
+            store: {
+                getQueue: async () => (state.removed ? [] : [makeJob()]),
+                holdsLock: async () => true,
+                getCursor: async () => state.cursor,
+                setCursor: async (id, c) => { state.cursor = c; },
+                renewLock: async () => {},
+                removeJob: async () => { state.removed = true; },
+                signalCompleted: async () => {},
+            },
+            api: {
+                ignore: async () => ({ ok: true }),
+                unignore: async () => ({ ok: true }),
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),   // empty, NOT failed
+            probeLogin: async () => probeResult,
+            log: {
+                append: async () => {},
+                markUndone: async (appid, ts) => { state.marked.push([appid, ts]); },
+                wasReIgnoredAfter: async () => false,
+                lastIgnoredAt: async () => 0, // ignored long ago → the empty-set skip is trustworthy
+            },
+            ownerId: 't1',
+        });
+
+        const dead = { cursor: 0, removed: false, marked: [] };
+        const d1 = new Drainer(makeDeps(false, dead));
+        expect(await d1._drainJob(makeJob())).toBe('stop');
+        expect(dead.cursor).toBe(0);
+        expect(dead.removed).toBe(false);
+        expect(dead.marked).toEqual([]);
+
+        const alive = { cursor: 0, removed: false, marked: [] };
+        const d2 = new Drainer(makeDeps(true, alive));
+        await d2._drainJob(makeJob());
+        expect(alive.cursor).toBe(1);
+        expect(alive.removed).toBe(true);
+        expect(alive.marked).toEqual([['1', 500]]);
+    });
+
+    test('undo job: an appid re-ignored after the snapshot is skipped, not un-ignored', async () => {
+        // "Last user intent wins": the user re-ignored '1' after staging the
+        // undo — no POST, no markUndone, cursor still advances past it.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'ju', curatorId: 'undo', type: 'undo',
+            status: 'pending', appids: ['1'], snapshotTs: 500,
+        };
+        let cursor = 0;
+        let removed = false;
+        const unposts = [];
+        const marked = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            renewLock: async () => {},
+            removeJob: async () => { removed = true; },
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            api: {
+                ignore: async () => ({ ok: true }),
+                unignore: async (appid) => { unposts.push(appid); return { ok: true }; },
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(['1']),
+            log: {
+                append: async () => {},
+                markUndone: async (appid, ts) => { marked.push([appid, ts]); },
+                wasReIgnoredAfter: async (appid, ts) => appid === '1' && ts === 500,
+            },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(unposts).toEqual([]);
+        expect(marked).toEqual([]);
+        expect(cursor).toBe(1);
+        expect(removed).toBe(true);
+    });
+
+    test('undo job: a freshly-ignored appid missing from userdata is un-ignored, not skip-marked', async () => {
+        // rgIgnoredApps lags the ignore POST: '1' was ignored moments ago (log
+        // ts ≈ now) but isn't in the set yet. Trusting the inverse-dedupe skip
+        // would markUndone it with no remove POST — stranding it ignored and
+        // burning its log entry out of the undoable pool. The fresh-log guard
+        // refuses the skip and fires remove=1 instead (idempotent).
+        const now = 1000000;
+        const Drainer = loadDrainerClass({ now: () => now });
+        const job = {
+            id: 'ju', curatorId: 'undo', type: 'undo',
+            status: 'pending', appids: ['1'], snapshotTs: now,
+        };
+        let cursor = 0;
+        let removed = false;
+        const unposts = [];
+        const marked = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            renewLock: async () => {},
+            removeJob: async () => { removed = true; },
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            api: {
+                ignore: async () => ({ ok: true }),
+                unignore: async (appid) => { unposts.push(appid); return { ok: true }; },
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),   // '1' not reflected yet
+            probeLogin: async () => true,           // empty set + live session → proceed
+            log: {
+                append: async () => {},
+                markUndone: async (appid, ts) => { marked.push([appid, ts]); },
+                wasReIgnoredAfter: async () => false,
+                lastIgnoredAt: async () => now - 2000, // ignored 2 s ago — inside UNDO_FRESH_MS
+            },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(unposts).toEqual(['1']);          // remove=1 fired despite the empty set
+        expect(marked).toEqual([['1', now]]);    // marked undone only AFTER the confirmed POST
+        expect(cursor).toBe(1);
+        expect(removed).toBe(true);
+    });
+
+    test('curator job: every confirmed ignore lands in the undo log', async () => {
+        const Drainer = loadDrainerClass();
+        const job = { id: 'j1', curatorId: 'c9', status: 'pending', appids: ['7', '8'] };
+        let cursor = 0;
+        let removed = false;
+        const appended = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            renewLock: async () => {},
+            removeJob: async () => { removed = true; },
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            api: { ignore: async () => ({ ok: true }), unignore: async () => ({ ok: true }) },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            log: {
+                append: async (entry) => { appended.push(entry); },
+                markUndone: async () => {},
+                wasReIgnoredAfter: async () => false,
+            },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(appended).toEqual([
+            { appid: '7', source: 'curator', curatorId: 'c9' },
+            { appid: '8', source: 'curator', curatorId: 'c9' },
+        ]);
+    });
+
     test('standby interval armed only while the queue holds a job', async () => {
         // Audit cleanup: with a permanently empty queue the 9 s
         // standby tick used to run forever in every store tab (one storage read
@@ -167,5 +533,106 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         await d.drain();
         expect(clears).toEqual([1]);                      // disarmed on empty
         expect(d._timer).toBe(null);
+    });
+
+    test('standbyMs: 0 disables the standby interval (the SW host retries via alarms)', async () => {
+        const arms = [];
+        const Drainer = loadDrainerClass(null, {
+            setInterval: () => { arms.push(1); return 1; },
+            clearInterval: () => {},
+        });
+        const d = new Drainer({
+            store: { getQueue: async () => [{ id: 'j1', curatorId: 'c1', status: 'paused', appids: ['1'] }] },
+            api: { ignore: async () => ({ ok: true }) },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        await d.drain();          // a job exists, but the interval must not arm
+        expect(arms).toEqual([]);
+        expect(d._timer).toBe(null);
+    });
+});
+
+// --- content-script boot: the SW sessionid cache ---------------------------
+// The boot block caches the page's sessionid into ilap_sw_sid for the SW
+// drainer (which cannot read document.cookie) and clears a halted SW route
+// (ilap_sw_halt). Writes must be change-only: every store page boots this, and
+// a same-value write would wake the service worker via onChanged for nothing.
+
+function bootDrainer(sid, stored) {
+    const code = fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'curator', 'drainer.js'), 'utf8');
+    const gets = [];
+    const sets = [];
+    const sandbox = {
+        window: {
+            ILAP: {
+                Curator: { Store: { getQueue: async () => [] } },
+                apiIgnoreGame: async () => ({ ok: true }),
+                apiUnignoreGame: async () => ({ ok: true }),
+                IgnoreGate: { reserve: async () => ({ ok: true }), reportRateLimited: async () => {} },
+                getSessionID: () => sid,
+                newOwnerId: (p) => p + 'test',
+                fetchIgnoredAppsStrict: async () => new Set(),
+                SteamAuth: { probeLogin: async () => true },
+            },
+        },
+        chrome: {
+            storage: {
+                local: {
+                    get: (query, cb) => {
+                        gets.push(query);
+                        setTimeout(() => {
+                            const out = {};
+                            for (const k of Object.keys(query)) {
+                                out[k] = (stored && k in stored) ? stored[k] : query[k];
+                            }
+                            cb(out);
+                        }, 0);
+                    },
+                    set: (obj) => { sets.push({ ...obj }); },
+                },
+                onChanged: { addListener: () => {} },
+            },
+        },
+        document: { readyState: 'complete', addEventListener: () => {} },
+        Math, Date, Promise, Object, Array, String, Set,
+        setTimeout, clearTimeout, setInterval, clearInterval,
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(code, sandbox);
+    const flush = async () => {
+        for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
+    };
+    return { gets, sets, flush };
+}
+
+test.describe('drainer boot: SW sessionid cache (unit)', () => {
+
+    test('a new sessionid is cached (with the halt flag cleared)', async () => {
+        const b = bootDrainer('sess-1', {});
+        await b.flush();
+        expect(b.sets).toEqual([{ ilap_sw_sid: 'sess-1', ilap_sw_halt: false }]);
+    });
+
+    test('an unchanged sessionid writes nothing (no pointless SW wake)', async () => {
+        const b = bootDrainer('sess-1', { ilap_sw_sid: 'sess-1', ilap_sw_halt: false });
+        await b.flush();
+        expect(b.sets).toEqual([]);
+    });
+
+    test('a halted SW route is re-armed by the page visit even with the same sid', async () => {
+        const b = bootDrainer('sess-1', { ilap_sw_sid: 'sess-1', ilap_sw_halt: true });
+        await b.flush();
+        expect(b.sets).toEqual([{ ilap_sw_sid: 'sess-1', ilap_sw_halt: false }]);
+    });
+
+    test('no sessionid (logged out) → the cache is left alone', async () => {
+        const b = bootDrainer(null, { ilap_sw_sid: 'old', ilap_sw_halt: false });
+        await b.flush();
+        expect(b.sets).toEqual([]);
+        expect(b.gets).toEqual([]); // not even a read — nothing to compare
     });
 });

@@ -329,7 +329,7 @@
             this.processedCount++;
             this._continueStreak = 0;   // real progress → reset the Continue guard
             this._notifyUI();
-            this.stats.save(gameInfo.name, "Queue");
+            this.stats.save(gameInfo.name, "Queue", appid);
 
             // The confirm poll above can span seconds; a Stop click landing in
             // that window must not be followed by one more queue advance. (The
