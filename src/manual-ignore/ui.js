@@ -168,6 +168,28 @@
             return media.filter((_, i) => areas[i] >= bestArea * 0.5);
         }
 
+        // Remove a previously-rendered IGNORED badge for `appid` across the
+        // document — the un-render path BadgeRenderer lacked (it only ever added).
+        // Used when a game this tab badged is deliberately un-ignored (undo): the
+        // badge, its blur class and any backdrop veil come off, and the container's
+        // processed markers are cleared so a later re-ignore can badge it again.
+        unrender(appid) {
+            appid = String(appid);
+            document.querySelectorAll(`.ilap-ignored-overlay[data-ilap-appid="${appid}"]`).forEach(badge => {
+                const host = badge.parentElement;
+                badge.remove();
+                if (host) {
+                    delete host.dataset.ilapState;
+                    if (host.dataset.ilapIgnoreId === appid) delete host.dataset.ilapIgnoreId;
+                }
+            });
+            document.querySelectorAll(`.ilap-ignored-blur[data-ilap-blur="${appid}"]`).forEach(el => {
+                el.classList.remove('ilap-ignored-blur');
+                delete el.dataset.ilapBlur;
+            });
+            document.querySelectorAll(`.ilap-blur-backdrop[data-ilap-blur="${appid}"]`).forEach(el => el.remove());
+        }
+
         // Live toggle: reconcile blur for already-rendered badges. OFF strips the
         // blur class from every art element (badges stay); ON re-applies it to each
         // badged game's art for the given appids.

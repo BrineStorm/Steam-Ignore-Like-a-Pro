@@ -233,33 +233,6 @@ test.describe('ignore-rate gate (unit)', () => {
         expect(r).toEqual({ ok: true });
     });
 
-    test('noteManualIgnore stamps foreground so the background drain yields to a manual swipe', async () => {
-        const { Gate, ILAP } = loadGate({ ilap_master_enabled: true });
-        ILAP.getSessionID = () => 'sess';
-        await Gate.noteManualIgnore();                 // ungated manual ignore just fired
-        const r = await Gate.reserve();                // background drain
-        expect(r).toEqual({ ok: false, reason: 'yield' });
-    });
-
-    test('noteManualIgnore pushes the gate slot to now, but never moves a future slot backward', async () => {
-        // Stale slot → bumped up to ~now, so the next GATED source spaces a gap
-        // after the manual POST instead of possibly landing right on top of it.
-        {
-            const { Gate, data } = loadGate({ ilap_ignore_gate: Date.now() - 10000 });
-            const before = Date.now();
-            await Gate.noteManualIgnore();
-            expect(data().ilap_ignore_gate).toBeGreaterThanOrEqual(before);
-        }
-        // A slot already reserved in the near future is left alone — a manual
-        // ignore must not pull a queued gated slot earlier.
-        {
-            const future = Date.now() + 5000;
-            const { Gate, data } = loadGate({ ilap_ignore_gate: future });
-            await Gate.noteManualIgnore();
-            expect(data().ilap_ignore_gate).toBe(future);
-        }
-    });
-
     test('the claim chain survives a throwing reservation (one failure cannot wedge the gate)', async () => {
         // chain = claim.then(ok, err) must swallow a rejected claim so the next
         // reservation still runs. Make the session lookup throw once, then recover.

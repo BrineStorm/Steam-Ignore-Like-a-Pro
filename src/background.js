@@ -166,6 +166,30 @@ importScripts(
         })));
     }
 
+    // Last-Ignored stats for drained MI jobs, duplicated from utils.js
+    // StatsManager (same world-isolation decision as the rest of this file — the
+    // SW never loads utils.js). If you change the stored shape here, visit the
+    // sibling in utils.js. Serialized so overlapping saves can't lose a count.
+    const HISTORY_LIMIT = 20;
+    let statsChain = Promise.resolve();
+    function saveStats(name, reason) {
+        const source = reason === 2 ? 'Played Elsewhere' : 'Default Ignore';
+        const safe = String(name == null ? '' : name)
+            .replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        statsChain = statsChain.then(() => new Promise((resolve) => {
+            chrome.storage.local.get(['ilap_ignored_history', 'ilap_ignored_count'], (r) => {
+                const count = (r.ilap_ignored_count || 0) + 1;
+                const history = [{ name: safe, source }, ...(r.ilap_ignored_history || [])].slice(0, HISTORY_LIMIT);
+                chrome.storage.local.set({
+                    ilap_ignored_count: count,
+                    ilap_ignored_history: history,
+                    ilap_last_ignored_name: safe
+                }, resolve);
+            });
+        })).catch(() => {});
+        return statsChain;
+    }
+
     const USERDATA_URL = 'https://store.steampowered.com/dynamicstore/userdata/';
     async function fetchIgnoredAppsStrict() {
         try {
@@ -219,6 +243,7 @@ importScripts(
         },
         fetchUserdata: fetchIgnoredAppsStrict,
         probeLogin,
+        saveStats,
         log: Log ? {
             append: (entry) => Log.append(entry),
             markUndone: (appid, ts) => Log.markUndone(appid, ts),

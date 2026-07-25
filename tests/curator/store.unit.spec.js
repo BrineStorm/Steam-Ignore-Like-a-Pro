@@ -180,4 +180,109 @@ test.describe('Curator storage — serialized queue writes (unit)', () => {
         expect(data()['ilap_curator_cursor_j1']).toBeUndefined();
         expect(await Store.getCursor('j1')).toBeNull();
     });
+
+    test('removeIfDrained drops a fully-drained job and cleans its progress keys', async () => {
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{ id: 'j1', appids: ['10', '11'], status: 'pending' }],
+            ilap_curator_cursor_j1: 2,
+            ilap_curator_skipped_j1: 1,
+        });
+        expect(await Store.removeIfDrained('j1', 2)).toBe(true);
+        expect(data().ilap_curator_queue).toEqual([]);
+        expect(data().ilap_curator_cursor_j1).toBeUndefined();
+        expect(data().ilap_curator_skipped_j1).toBeUndefined();
+    });
+
+    test('removeIfDrained keeps a job that grew past the drainer snapshot (MI append race)', async () => {
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{ id: 'job_mi', type: 'mi', appids: ['10', '11'], status: 'pending' }],
+            ilap_curator_cursor_job_mi: 1,
+        });
+        // The drainer would complete on a snapshot where cursor(1) reached the end,
+        // but the fresh queue already carries an appended '11' → NOT drained: kept.
+        expect(await Store.removeIfDrained('job_mi', 1)).toBe(false);
+        expect(data().ilap_curator_queue).toHaveLength(1);
+        expect(data().ilap_curator_queue[0].appids).toEqual(['10', '11']);
+    });
+});
+
+test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
+
+    test('first swipe creates the MI job; later swipes append (append-or-create)', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        expect(await Store.enqueueMi({ appid: 10, name: 'A', reason: 0 })).toEqual({ kind: 'added', total: 1 });
+        expect(await Store.enqueueMi({ appid: 11, name: 'B', reason: 2 })).toEqual({ kind: 'added', total: 2 });
+        const q = data().ilap_curator_queue;
+        expect(q).toHaveLength(1);
+        const job = q[0];
+        expect(job.type).toBe('mi');
+        expect(job.curatorId).toBe(Store.MI_ID);
+        expect(job.id).toBe(Store.MI_JOB_ID);
+        expect(job.appids).toEqual(['10', '11']);         // string appids for the generic paths
+        expect(job.total).toBe(2);
+        expect(job.meta['10']).toEqual({ name: 'A', reason: 0 });
+        expect(job.meta['11']).toEqual({ name: 'B', reason: 2 });   // per-appid name + reason
+    });
+
+    test('a re-swiped appid does not enqueue twice (no double-POST)', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.enqueueMi({ appid: 10, name: 'A', reason: 0 });
+        expect(await Store.enqueueMi({ appid: 10, name: 'A', reason: 0 })).toEqual({ kind: 'added', total: 1 });
+        expect(data().ilap_curator_queue[0].appids).toEqual(['10']);
+    });
+
+    test('MI_MAX is a hard cap: a swipe past it is a silent no-op (kind:full)', async () => {
+        const MI_MAX = loadStore().MI_MAX;   // pure load for the constant
+        const appids = Array.from({ length: MI_MAX }, (_, i) => String(i));
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: 'job_mi', type: 'mi', curatorId: 'mi',
+                appids, meta: {}, total: appids.length, status: 'pending',
+            }],
+        });
+        expect(await Store.enqueueMi({ appid: 99999, name: 'Z', reason: 0 })).toEqual({ kind: 'full' });
+        expect(data().ilap_curator_queue[0].appids).toHaveLength(MI_MAX); // unchanged
+    });
+
+    test('MI is the one type allowed to exceed MAX_JOBS (exclusive 4th slot)', async () => {
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [
+                { id: 'a', curatorId: '1', appids: ['1'], status: 'pending' },
+                { id: 'b', curatorId: '2', appids: ['2'], status: 'pending' },
+                { id: 'c', curatorId: '3', appids: ['3'], status: 'pending' },
+            ],
+        });
+        expect(await Store.enqueueMi({ appid: 10, name: 'A', reason: 0 })).toEqual({ kind: 'added', total: 1 });
+        const q = data().ilap_curator_queue;
+        expect(q).toHaveLength(4);                         // over the cap, deliberately
+        expect(q.filter(j => j.type === 'mi')).toHaveLength(1);
+    });
+
+    test('signalUnignored writes the per-appid un-ignore pulse', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.signalUnignored(292030);
+        const pulse = data()[Store.UNIGNORE_PULSE_KEY];
+        expect(pulse.appid).toBe('292030');
+        expect(typeof pulse.ts).toBe('number');
+    });
+
+    test('a swipe appended concurrently with completion is never lost (enqueueMi vs removeIfDrained)', async () => {
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: 'job_mi', type: 'mi', curatorId: 'mi', appids: ['10'],
+                meta: { 10: { name: 'A', reason: 0 } }, total: 1, status: 'pending',
+            }],
+            ilap_curator_cursor_job_mi: 1,   // '10' drained → the drainer would complete
+        });
+        // Both funnel through the same serialized queueChain, so whichever wins the
+        // swipe survives: enqueueMi-first → removeIfDrained sees the grown job and
+        // keeps it; removeIfDrained-first → the job is dropped and enqueueMi recreates it.
+        await Promise.all([
+            Store.removeIfDrained('job_mi', 1),
+            Store.enqueueMi({ appid: 11, name: 'B', reason: 0 }),
+        ]);
+        const mi = (data().ilap_curator_queue || []).find(j => j.type === 'mi');
+        expect(mi).toBeTruthy();            // an MI job still exists
+        expect(mi.appids).toContain('11');  // the swipe was never wiped
+    });
 });

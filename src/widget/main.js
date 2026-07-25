@@ -367,13 +367,19 @@
             ctx.surface.endIntro(); // the first chevron click retires the new-install glow
             writeState(Date.now()); // slide the launcher out
         });
-        // Collapse when clicking elsewhere on the page. Clicks inside the shadow are
-        // retargeted to the host, so host.contains(target) stays true for them.
+        // Collapse when interacting elsewhere on the page. Clicks inside the shadow
+        // are retargeted to the host, so host.contains(target) stays true for them.
         // Capture phase so it still fires when another extension control (e.g. the
-        // curator "Add to ignore queue" button) calls stopPropagation in the bubble phase.
-        document.addEventListener('click', (e) => {
-            if (panel.classList.contains('open') && !host.contains(e.target)) setOpen(false);
-        }, true);
+        // curator "Add to ignore queue" button) calls stopPropagation in the bubble
+        // phase. Also collapse on a page mousedown, not just a click: an MI swipe is
+        // a mousedown→drag→mouseup with NO trailing click, so a click-only handler
+        // would let the user keep the panel open and watch the MI queue fill live —
+        // collapse it at the gesture's start (only real, trusted input).
+        const collapseOnOutside = (e) => {
+            if (e.isTrusted && panel.classList.contains('open') && !host.contains(e.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', collapseOnOutside, true);
+        document.addEventListener('click', collapseOnOutside, true);
 
         return {
             applyState, setOpen, writeState,

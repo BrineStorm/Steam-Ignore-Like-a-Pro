@@ -203,6 +203,32 @@ test.describe('SW drain host (unit)', () => {
         expect(env.data().ilap_curator_cursor_j1).toBeUndefined();
     });
 
+    test('an MI job drains through the SW: per-entry reason, Last-Ignored stats, source:mi log', async () => {
+        // A deferred manual swipe (type:'mi') inherited by the SW must POST with
+        // the entry's own reason (0 default / 2 played-elsewhere), stamp Last
+        // Ignored via the SW stats shim, and log the ignore attributed to MI with
+        // its name — none of which curator/undo drains do.
+        const env = loadBackground({
+            ilap_master_enabled: true,
+            ilap_sw_sid: 'sess-1',
+            ilap_curator_queue: [{
+                id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+                appids: ['10', '11'], total: 2,
+                meta: { 10: { name: 'Alpha', reason: 0 }, 11: { name: 'Beta', reason: 2 } },
+            }],
+        });
+        await env.until(() => (env.data().ilap_curator_queue || []).length === 0, 15000);
+        expect(env.posts.map((p) => [p.appid, p.ignore_reason])).toEqual([['10', '0'], ['11', '2']]);
+        // Last Ignored, count and history written by the SW stats shim.
+        expect(env.data().ilap_last_ignored_name).toBe('Beta');
+        expect(env.data().ilap_ignored_count).toBe(2);
+        expect(env.data().ilap_ignored_history.map((h) => h.name)).toEqual(['Beta', 'Alpha']);
+        // Undo log attributes them to MI (name + source), not curator.
+        expect(env.data().ilap_ignore_log.map((e) => [e.appid, e.source, e.name || null])).toEqual([
+            ['10', 'mi', 'Alpha'], ['11', 'mi', 'Beta'],
+        ]);
+    });
+
     test('no cached sid → no ignore POST, retry alarm armed', async () => {
         const env = loadBackground({
             ilap_master_enabled: true,

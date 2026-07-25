@@ -57,6 +57,13 @@
             // lastIgnoredAt / wasReIgnoredAfter for undo jobs. Optional so the drainer
             // still works (units, partial builds) without the log module.
             this.log = deps.log || null;
+            // Last-Ignored stats hook (name, reason) — written by the drainer only
+            // for type:'mi' jobs, so a deferred manual swipe still updates the
+            // popup's "Last Ignored" when its POST lands (curator/undo drains
+            // deliberately never touch it). Optional: partial builds / the SW host
+            // that can't reach StatsManager pass null and the MI ignore is still
+            // logged (undoable) — just not counted into Last Ignored.
+            this.saveStats = deps.saveStats || null;
             // Live login probe (SteamAuth.probeLogin) — consulted only by undo
             // jobs when userdata comes back EMPTY (see _drainJob). Defaults to
             // "confirmed" so stubs/partial builds keep the old behaviour.
@@ -102,12 +109,15 @@
         }
 
         // A job is drainable if it's meant to run and still has work left.
+        // Manual-Ignore jobs (type:'mi') are picked FIRST: an MI ignore is a live
+        // user action and must clear ahead of background curator/undo work.
         _pickJob(queue) {
-            return queue.find(j =>
+            const drainable = (j) =>
                 (j.status === 'running' || j.status === 'pending')
                 && Array.isArray(j.appids)
-                && (j.cursor || 0) < j.appids.length
-            ) || null;
+                && (j.cursor || 0) < j.appids.length;
+            return queue.find(j => j.type === 'mi' && drainable(j))
+                || queue.find(drainable) || null;
         }
 
         // Public probe for host schedulers (the SW's alarm re-arm): does the
@@ -193,14 +203,23 @@
                 const cursor = keyCursor != null ? keyCursor : (cur.cursor || 0);
                 if (cursor >= cur.appids.length) {
                     // Finished: drop the job entirely (no lingering "done" record) and
-                    // emit a completion pulse so the widget blinks once.
-                    await this.store.removeJob(job.id);
+                    // emit a completion pulse so the widget blinks once. removeIfDrained
+                    // re-checks emptiness inside the queue mutation, so an MI swipe that
+                    // appended in the window between the snapshot above and here keeps
+                    // the job alive instead of being wiped — loop back to drain it.
+                    if (!(await this.store.removeIfDrained(job.id, cursor))) continue;
                     await this.store.signalCompleted();
                     return;
                 }
 
                 const isUndo = cur.type === 'undo';
+                const isMi = cur.type === 'mi';
                 const appid = String(cur.appids[cursor]);
+                // MI entries carry their own name + ignore reason (a swipe can be
+                // reason 0 "Default" or 2 "Played Elsewhere"); everything else
+                // ignores with the default reason.
+                const miMeta = isMi && cur.meta ? cur.meta[appid] : null;
+                const miReason = miMeta && Number.isFinite(miMeta.reason) ? miMeta.reason : REASON;
 
                 // Dedupe against the live ignore state — inverted for undo jobs:
                 // a curator job skips an appid that's ALREADY ignored; an undo job
@@ -261,17 +280,29 @@
 
                 const res = isUndo
                     ? await this.api.unignore(appid)
-                    : await this.api.ignore(appid, REASON);
+                    : await this.api.ignore(appid, isMi ? miReason : REASON);
                 if (res && res.ok) {
                     if (isUndo) {
                         ignored.delete(appid);
                         // Mark the rolled-back log entries so a later undo can't
                         // re-undo them (and the re-stage warning can see them).
                         if (this.log) await this.log.markUndone(appid, cur.snapshotTs || 0);
+                        // Clear this game's on-page IGNORED badge in every MI tab
+                        // (per-appid pulse; the badge otherwise lingers and lies).
+                        if (this.store.signalUnignored) await this.store.signalUnignored(appid);
+                    } else if (isMi) {
+                        ignored.add(appid);
+                        // Truthful at drain time: only now that the POST landed do
+                        // we count it into Last Ignored and the undo log (source
+                        // 'mi', name resolved at swipe time). saveStats is gated
+                        // strictly to MI — curator/undo drains never touch it.
+                        const name = miMeta ? miMeta.name : '';
+                        if (this.saveStats) await this.saveStats(name, miReason);
+                        if (this.log) await this.log.append({ appid, name, source: 'mi' });
                     } else {
                         ignored.add(appid);
-                        // Every drained ignore lands in the undo log (appid-only —
-                        // enumeration never captures names).
+                        // Every drained curator ignore lands in the undo log
+                        // (appid-only — enumeration never captures names).
                         if (this.log) await this.log.append({
                             appid, source: 'curator', curatorId: job.curatorId
                         });
@@ -295,10 +326,14 @@
                     // anything for it, and a curator job's log entry carries the
                     // `skipped` marker that keeps it out of every undo selector.
                     await this.store.bumpSkipped(job.id);
-                    if (!isUndo && this.log) await this.log.append({
-                        appid, source: 'curator', curatorId: job.curatorId,
-                        skipped: 'unavailable'
-                    });
+                    if (!isUndo && this.log) await this.log.append(isMi
+                        ? { appid, source: 'mi', skipped: 'unavailable' }
+                        : { appid, source: 'curator', curatorId: job.curatorId, skipped: 'unavailable' });
+                    // An MI game was badged optimistically at swipe time; this
+                    // permanent refusal means it was never ignored, so clear the
+                    // on-page badge (it would otherwise linger and lie). Reuses the
+                    // undo un-badge pulse.
+                    if (isMi && this.store.signalUnignored) await this.store.signalUnignored(appid);
                     await this.store.setCursor(job.id, cursor + 1);
                     fails = 0;
                 } else {
@@ -307,6 +342,10 @@
                     // wedge the whole job.
                     fails += 1;
                     if (fails >= MAX_FAILS) {
+                        // Same as the unavailable skip: an MI game we badged
+                        // optimistically failed every retry — drop its lying badge
+                        // as we step past it.
+                        if (isMi && this.store.signalUnignored) await this.store.signalUnignored(appid);
                         await this.store.setCursor(job.id, cursor + 1);
                         fails = 0;
                     }
@@ -373,6 +412,12 @@
             // empty set itself for curator jobs and STOPS for undo jobs.
             fetchUserdata: () => window.ILAP.fetchIgnoredAppsStrict(),
             probeLogin: () => window.ILAP.SteamAuth.probeLogin(),
+            // Last-Ignored stats for drained MI ignores only (reason → the same
+            // human label the old instant MI path used). saveStats lives in
+            // utils.js, present in the content-script world.
+            saveStats: window.ILAP.saveStats
+                ? (name, reason) => window.ILAP.saveStats(name, reason === 2 ? 'Played Elsewhere' : 'Default Ignore')
+                : null,
             log: Log ? {
                 append: (entry) => Log.append(entry),
                 markUndone: (appid, ts) => Log.markUndone(appid, ts),

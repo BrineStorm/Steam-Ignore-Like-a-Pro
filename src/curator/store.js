@@ -32,6 +32,10 @@
     const CURSOR_PREFIX = 'ilap_curator_cursor_';
     const SKIPPED_PREFIX = 'ilap_curator_skipped_';
     const PULSE_KEY = 'ilap_curator_pulse';
+    // Per-appid pulse a confirmed un-ignore (undo drain) writes so the Manual-
+    // Ignore content scripts can clear that game's on-page IGNORED badge in every
+    // tab (sessionMap + badge are per-tab; onChanged is the only cross-tab reach).
+    const UNIGNORE_PULSE_KEY = 'ilap_unignored';
 
     const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;  // 7 days
     const CACHE_MAX = 10;                        // LRU cap on cached curators
@@ -40,6 +44,19 @@
     // the queue model — so every staging surface (curator button, undo droplist)
     // enforces the same number.
     const MAX_JOBS = 3;
+
+    // Manual-Ignore deferral job. A swipe no longer fires an ungated instant
+    // POST: it enqueues the game here and the drainer sends every MI ignore
+    // through the IgnoreGate, paced like EQ/DQ/curator — eliminating the last
+    // ungated POST, the residual ban risk. One MI job at a time (pseudo curator
+    // id 'mi' → lease ilap_curator_lock_mi), auto-filled on each swipe and
+    // auto-deleted when drained empty. MI_MAX caps its size; a swipe past the
+    // cap is a silent no-op. The MI job is the ONE type allowed to exceed
+    // MAX_JOBS as an exclusive 4th slot — it has top drainer priority and drains
+    // fastest, so it never blocks real work for long.
+    const MI_ID = 'mi';
+    const MI_JOB_ID = 'job_mi';
+    const MI_MAX = 200;
 
     // --- pure helpers (unit-tested) ---------------------------------------
 
@@ -151,6 +168,62 @@
         await remove([CURSOR_PREFIX + id, SKIPPED_PREFIX + id]);
     }
 
+    // Completion-safe removal, called by the drainer when its snapshot showed the
+    // cursor at/past the end. The emptiness is RE-CHECKED inside the serialized
+    // mutation against the fresh queue: an MI swipe can append to this job in the
+    // window between the drainer's loop-top snapshot and here (enqueueMi funnels
+    // through the same queueChain), and a blind removeJob would wipe the
+    // just-appended appid — a lost ignore whose optimistic badge would then lie.
+    // Kept if the job grew (drainer loops on to drain the new entries); curator/
+    // undo jobs never grow, so for them this is exactly removeJob. Returns true
+    // only when the job was actually removed (drainer then pulses completion).
+    async function removeIfDrained(id, cursor) {
+        let removed = false;
+        await mutateQueue((queue) => {
+            const j = queue.find(x => x.id === id);
+            if (!j) return null;                                   // already gone elsewhere
+            if ((cursor || 0) < (j.appids || []).length) return null; // grew → keep it
+            removed = true;
+            return queue.filter(x => x.id !== id);
+        });
+        if (removed) await remove([CURSOR_PREFIX + id, SKIPPED_PREFIX + id]);
+        return removed;
+    }
+
+    // Append-or-create the single Manual-Ignore deferral job (see the MI_* consts).
+    // One serialized mutateQueue closes the create/complete race: a swipe landing
+    // as the drainer removes the just-emptied job either finds the job (append) or
+    // recreates it — the swipe is never lost. Each entry carries the resolved name
+    // + ignore reason (in a per-appid `meta` map) so the drainer can stamp Last
+    // Ignored and POST the correct reason at drain time; `appids` stays a plain
+    // string array so the generic drainer/cursor/dedupe paths are untouched.
+    // Returns { kind:'added', total } or { kind:'full' } (MI_MAX reached → the
+    // caller no-ops: no badge, no POST). Never checks MAX_JOBS — MI is the one
+    // type allowed to exceed the cap.
+    async function enqueueMi(entry) {
+        const appid = String(entry.appid);
+        const meta = { name: entry.name || '', reason: entry.reason || 0 };
+        let outcome = { kind: 'full' };
+        await mutateQueue((queue) => {
+            const idx = queue.findIndex(j => j.type === 'mi');
+            const job = idx === -1 ? null : queue[idx];
+            if (job && (job.appids || []).length >= MI_MAX) return null;  // full → no-op
+            const base = job || {
+                id: MI_JOB_ID, type: 'mi', curatorId: MI_ID, curatorName: '',
+                appids: [], meta: {}, total: 0, status: 'pending', addedAt: Date.now()
+            };
+            // De-dup within the job: the session map should already block a
+            // re-swipe, but a double-append would double-POST the same game.
+            const already = base.appids.indexOf(appid) !== -1;
+            const appids = already ? base.appids : base.appids.concat([appid]);
+            const nextMeta = already ? base.meta : Object.assign({}, base.meta, { [appid]: meta });
+            const nextJob = Object.assign({}, base, { appids, meta: nextMeta, total: appids.length });
+            outcome = { kind: 'added', total: appids.length };
+            return idx === -1 ? queue.concat([nextJob]) : queue.map((j, i) => i === idx ? nextJob : j);
+        });
+        return outcome;
+    }
+
     // --- drain cursor -------------------------------------------------------
     // Per-job progress lives OUTSIDE the queue array, in a key only the lease
     // holder writes (plus a zeroing reset while the job is 'enumerating', i.e.
@@ -196,6 +269,15 @@
         await set({ [PULSE_KEY]: Date.now() });
     }
 
+    // Per-appid pulse the undo drainer fires after each CONFIRMED un-ignore, so
+    // every Manual-Ignore content script can drop that game from its per-tab
+    // sessionMap and un-render its on-page IGNORED badge (which otherwise lingers
+    // and lies). Written per appid (not batched at job end) so the badge clears
+    // as each game rolls back.
+    async function signalUnignored(appid) {
+        await set({ [UNIGNORE_PULSE_KEY]: { appid: String(appid), ts: Date.now() } });
+    }
+
     // --- lease lock -------------------------------------------------------
 
     async function acquireLock(curatorId, owner) {
@@ -238,12 +320,14 @@
         // cache
         getCache, putCache,
         // queue
-        getQueue, setQueue, mutateQueue, updateJob, removeJob, signalCompleted,
+        getQueue, setQueue, mutateQueue, updateJob, removeJob, removeIfDrained, enqueueMi,
+        signalCompleted, signalUnignored,
         // drain cursor
         getCursor, setCursor, bumpSkipped,
         // lock
         acquireLock, renewLock, holdsLock, releaseLock,
         // constants
-        CACHE_KEY, QUEUE_KEY, LOCK_PREFIX, CURSOR_PREFIX, SKIPPED_PREFIX, PULSE_KEY, CACHE_TTL, CACHE_MAX, LEASE_MS, MAX_JOBS
+        CACHE_KEY, QUEUE_KEY, LOCK_PREFIX, CURSOR_PREFIX, SKIPPED_PREFIX, PULSE_KEY,
+        UNIGNORE_PULSE_KEY, CACHE_TTL, CACHE_MAX, LEASE_MS, MAX_JOBS, MI_ID, MI_JOB_ID, MI_MAX
     };
 })();

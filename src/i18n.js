@@ -126,6 +126,8 @@
             undo_msg_full: "Not added — the queue is full",
             undo_msg_empty: "Nothing to undo in this range",
             undo_job_name: "Undo ignores",
+            mi_job_name: "Manual ignores",
+            queue_mi_remaining: "In queue: {n}",
             undo_restage_warning: "You rolled these ignores back ~{h} h ago"
         },
 
@@ -228,6 +230,8 @@
             undo_msg_full: "Nicht hinzugefügt — die Warteschlange ist voll",
             undo_msg_empty: "In diesem Zeitraum nichts zurückzunehmen",
             undo_job_name: "Ignorierungen zurücknehmen",
+            mi_job_name: "Manuelle Ignorierungen",
+            queue_mi_remaining: "In Warteschlange: {n}",
             undo_restage_warning: "Du hast diese Ignorierungen vor ~{h} Std. zurückgenommen"
         },
 
@@ -330,6 +334,8 @@
             undo_msg_full: "Non ajouté — la file est pleine",
             undo_msg_empty: "Rien à annuler sur cette période",
             undo_job_name: "Annulation des ignorés",
+            mi_job_name: "Ignorés manuels",
+            queue_mi_remaining: "En file : {n}",
             undo_restage_warning: "Vous avez annulé ces ignorés il y a ~{h} h"
         },
 
@@ -432,6 +438,8 @@
             undo_msg_full: "No añadido — la cola está llena",
             undo_msg_empty: "Nada que deshacer en ese periodo",
             undo_job_name: "Deshacer ignorados",
+            mi_job_name: "Ignorados manuales",
+            queue_mi_remaining: "En cola: {n}",
             undo_restage_warning: "Deshiciste estos ignorados hace ~{h} h"
         },
 
@@ -534,6 +542,8 @@
             undo_msg_full: "Δεν προστέθηκε — η ουρά είναι γεμάτη",
             undo_msg_empty: "Τίποτα προς αναίρεση σε αυτό το διάστημα",
             undo_job_name: "Αναίρεση αγνοήσεων",
+            mi_job_name: "Μη αυτόματες αγνοήσεις",
+            queue_mi_remaining: "Στην ουρά: {n}",
             undo_restage_warning: "Αναιρέσατε αυτές τις αγνοήσεις πριν ~{h} ώρες"
         },
 
@@ -636,6 +646,8 @@
             undo_msg_full: "Non aggiunto — la coda è piena",
             undo_msg_empty: "Niente da annullare in questo intervallo",
             undo_job_name: "Annulla ignorati",
+            mi_job_name: "Ignorati manuali",
+            queue_mi_remaining: "In coda: {n}",
             undo_restage_warning: "Hai annullato questi ignorati ~{h} h fa"
         },
 
@@ -738,6 +750,8 @@
             undo_msg_full: "Não adicionado — a fila está cheia",
             undo_msg_empty: "Nada para desfazer nesse período",
             undo_job_name: "Desfazer ignorados",
+            mi_job_name: "Ignorados manuais",
+            queue_mi_remaining: "Na fila: {n}",
             undo_restage_warning: "Você desfez esses ignorados há ~{h} h"
         },
 
@@ -840,6 +854,8 @@
             undo_msg_full: "Eklenmedi — kuyruk dolu",
             undo_msg_empty: "Bu aralıkta geri alınacak bir şey yok",
             undo_job_name: "Yoksaymaları geri alma",
+            mi_job_name: "Manuel yoksaymalar",
+            queue_mi_remaining: "Sırada: {n}",
             undo_restage_warning: "Bu yoksaymaları ~{h} sa. önce geri aldınız"
         },
 
@@ -942,6 +958,8 @@
             undo_msg_full: "Не добавлено — очередь заполнена",
             undo_msg_empty: "За этот период нечего возвращать",
             undo_job_name: "Возврат скрытых",
+            mi_job_name: "Ручные скрытия",
+            queue_mi_remaining: "В очереди: {n}",
             undo_restage_warning: "Вы вернули эти игры из скрытых ~{h} ч назад"
         },
 
@@ -1044,6 +1062,8 @@
             undo_msg_full: "Не додано — черга заповнена",
             undo_msg_empty: "За цей період нема чого повертати",
             undo_job_name: "Повернення прихованих",
+            mi_job_name: "Ручні приховування",
+            queue_mi_remaining: "У черзі: {n}",
             undo_restage_warning: "Ви повернули ці ігри з прихованих ~{h} год тому"
         },
 
@@ -1146,6 +1166,8 @@
             undo_msg_full: "Nie dodano — kolejka jest pełna",
             undo_msg_empty: "W tym okresie nie ma czego przywracać",
             undo_job_name: "Przywracanie ukrytych",
+            mi_job_name: "Ręczne ignorowania",
+            queue_mi_remaining: "W kolejce: {n}",
             undo_restage_warning: "Przywrócono te ukrycia ~{h} godz. temu"
         },
 
@@ -1248,6 +1270,8 @@
             undo_msg_full: "Nepřidáno — fronta je plná",
             undo_msg_empty: "V tomto období není co obnovovat",
             undo_job_name: "Obnovení skrytých",
+            mi_job_name: "Ruční skrytí",
+            queue_mi_remaining: "Ve frontě: {n}",
             undo_restage_warning: "Tato skrytí jste vrátili před ~{h} h"
         },
 
@@ -1350,6 +1374,8 @@
             undo_msg_full: "Nincs hozzáadva — a sor tele van",
             undo_msg_empty: "Ebben az időszakban nincs mit visszavonni",
             undo_job_name: "Mellőzések visszavonása",
+            mi_job_name: "Kézi mellőzések",
+            queue_mi_remaining: "Sorban: {n}",
             undo_restage_warning: "Ezeket a mellőzéseket ~{h} órája vontad vissza"
         },
 
@@ -1452,6 +1478,8 @@
             undo_msg_full: "Nije dodato — red je pun",
             undo_msg_empty: "U ovom periodu nema šta da se opozove",
             undo_job_name: "Opoziv ignorisanja",
+            mi_job_name: "Ručna ignorisanja",
+            queue_mi_remaining: "U redu: {n}",
             undo_restage_warning: "Opozvali ste ova ignorisanja pre ~{h} č"
         },
 
@@ -1554,6 +1582,8 @@
             undo_msg_full: "Neadăugat — coada este plină",
             undo_msg_empty: "Nimic de anulat în acest interval",
             undo_job_name: "Anularea ignorărilor",
+            mi_job_name: "Ignorări manuale",
+            queue_mi_remaining: "În coadă: {n}",
             undo_restage_warning: "Ați anulat aceste ignorări acum ~{h} h"
         },
 
@@ -1656,6 +1686,8 @@
             undo_msg_full: "追加されませんでした — キューが満杯です",
             undo_msg_empty: "この期間に取り消せるものはありません",
             undo_job_name: "無視の取り消し",
+            mi_job_name: "手動の無視",
+            queue_mi_remaining: "キュー内: {n}",
             undo_restage_warning: "約{h}時間前にこの無視を取り消しました"
         },
 
@@ -1758,6 +1790,8 @@
             undo_msg_full: "추가되지 않음 — 대기열이 가득 찼습니다",
             undo_msg_empty: "이 기간에는 되돌릴 숨김이 없습니다",
             undo_job_name: "숨김 되돌리기",
+            mi_job_name: "수동 숨김",
+            queue_mi_remaining: "대기 중: {n}",
             undo_restage_warning: "약 {h}시간 전에 이 숨김을 되돌렸습니다"
         },
 
@@ -1860,6 +1894,8 @@
             undo_msg_full: "未加入 — 佇列已滿",
             undo_msg_empty: "這段期間沒有可復原的忽略",
             undo_job_name: "復原忽略",
+            mi_job_name: "手動忽略",
+            queue_mi_remaining: "佇列中：{n}",
             undo_restage_warning: "您在約 {h} 小時前復原了這些忽略"
         },
 
@@ -1962,6 +1998,8 @@
             undo_msg_full: "ไม่ได้เพิ่ม — คิวเต็ม",
             undo_msg_empty: "ช่วงเวลานี้ไม่มีอะไรให้เลิกทำ",
             undo_job_name: "เลิกทำการซ่อน",
+            mi_job_name: "การซ่อนด้วยตนเอง",
+            queue_mi_remaining: "ในคิว: {n}",
             undo_restage_warning: "คุณเลิกทำการซ่อนเหล่านี้เมื่อ ~{h} ชม. ที่แล้ว"
         }
     };

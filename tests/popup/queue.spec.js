@@ -194,6 +194,33 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect(page.locator('.queue-job-pct')).toHaveText('40%');
     });
 
+    test('A Manual-Ignore job renders highlighted with a remaining COUNT (no filter, no bar)', async ({ page, context }) => {
+        // The MI job auto-fills while it drains, so a percent would jump backward
+        // on a fresh swipe — it shows a live "In queue: N" count instead, gets the
+        // distinct .mi highlight, and (like undo) has no filter sub-line.
+        const job = makeJob({
+            id: 'job_mi', type: 'mi', curatorId: 'mi', curatorName: '',
+            total: 5, appids: ['1', '2', '3', '4', '5'],
+        });
+        await setExtensionStorage(context, {
+            ilap_curator_queue: [job],
+            ['ilap_curator_cursor_' + job.id]: 2,   // 2 drained → 3 remaining
+        });
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+
+        const row = page.locator('.queue-job.mi');
+        await expect(row).toBeVisible();
+        await expect(row.locator('.queue-job-name')).toHaveText('Manual ignores');
+        await expect(row.locator('.queue-job-count')).toHaveText('In queue: 3');
+        await expect(row.locator('.queue-job-sub')).toHaveCount(0);   // no filter line
+        await expect(row.locator('.queue-bar')).toHaveCount(0);       // no percent bar
+        await expect(row.locator('.queue-job-pct')).toHaveCount(0);
+        // Still a normal job: pause/remove controls present.
+        await expect(row.locator('.queue-act[data-act="pause"]')).toBeVisible();
+        await expect(row.locator('.queue-act[data-act="remove"]')).toBeVisible();
+    });
+
     test('Filter label uses the Steam category colour (orange for Not Recommended)', async ({ page, context }) => {
         await seedQueue(context, [makeJob({ filter: 'not_recommended' })]);
         await openPopup(page, context);

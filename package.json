@@ -10,13 +10,13 @@
     "test": "npm run build:test && npx playwright test --project=chromium",
     "test:ff": "npm run build:test && npx playwright test --project=firefox",
     "test:auth": "npm run build:test && npx playwright test --project=setup",
-    "test_dq": "npm run build:test && npx playwright test tests/discovery-queue",
-    "test_eq": "npm run build:test && npx playwright test tests/explore-queue",
-    "test_mi": "npm run build:test && npx playwright test tests/manual-ignore",
-    "test_popup": "npm run build:test && npx playwright test tests/popup",
-    "test_curator": "npm run build:test && npx playwright test tests/curator",
+    "test_dq": "npm run build:test && npx playwright test --project=chromium tests/discovery-queue",
+    "test_eq": "npm run build:test && npx playwright test --project=chromium tests/explore-queue",
+    "test_mi": "npm run build:test && npx playwright test --project=chromium tests/manual-ignore",
+    "test_popup": "npm run build:test && npx playwright test --project=chromium tests/popup",
+    "test_curator": "npm run build:test && npx playwright test --project=chromium tests/curator",
     "test_live": "npm run build:test && npx playwright test --project=chromium tests/curator/drain-live.spec.js",
-    "test_widget": "npm run build:test && npx playwright test tests/widget"
+    "test_widget": "npm run build:test && npx playwright test --project=chromium tests/widget"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0"

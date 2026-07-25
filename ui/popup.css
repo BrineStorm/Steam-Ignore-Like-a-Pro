@@ -464,6 +464,10 @@ select option { background: #16202d; color: #fff; }
 .queue-job { background: var(--inset); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; }
 /* The job for the curator page we're currently on gets a highlight outline. */
 .queue-job.current { border-color: #45A1FA; box-shadow: 0 0 0 1px #45A1FA, 0 0 10px rgba(69,161,250,.3); }
+/* The special auto-filling Manual-Ignore job: a distinct green accent (the
+   IGNORED-badge / "running" green) marks it apart from curator/undo jobs. */
+.queue-job.mi { border-color: #7ad13f; box-shadow: 0 0 0 1px rgba(122,209,63,.5), 0 0 10px rgba(122,209,63,.2); }
+.queue-job.mi .queue-job-name { color: #a6e57a; }
 .queue-job-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .queue-job-name { font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .queue-job-status { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); flex-shrink: 0; }

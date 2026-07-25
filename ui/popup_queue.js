@@ -174,18 +174,21 @@
         }
 
         _row(job, cur, effStatus, cursor, skipped) {
-            // Undo jobs have no curator: localized row name, no filter sub-line
-            // (the count/progress footer says everything else).
+            // Undo and Manual-Ignore jobs have no curator: localized row name, no
+            // filter sub-line (the footer says everything else). The MI job is
+            // highlighted (a special auto-filling job) and renders differently —
+            // see the progress branch below.
             const isUndo = job.type === 'undo';
-            const name = isUndo
-                ? esc(t('undo_job_name'))
+            const isMi = job.type === 'mi';
+            const name = isMi ? esc(t('mi_job_name'))
+                : isUndo ? esc(t('undo_job_name'))
                 : esc(job.curatorName || job.curatorId || '');
             const total = job.total || 0;
             const done = Math.min(cursor, total || cursor);
             const status = esc(t(STATUS_LABELS[effStatus] || 'queue_status_pending'));
             const statusColor = STATUS_COLORS[effStatus];
-            const isCurrent = !isUndo && !!cur && job.curatorId === cur;
-            const filter = isUndo ? '' : esc(t(Filters.labelKey(job.filter)));
+            const isCurrent = !isUndo && !isMi && !!cur && job.curatorId === cur;
+            const filter = (isUndo || isMi) ? '' : esc(t(Filters.labelKey(job.filter)));
             const pct = total > 0 ? Math.round(done / total * 100) : 0;
             const count = total > 0 ? `${done} / ${total}` : '—';
             const jobId = esc(job.id || '');
@@ -194,22 +197,36 @@
             const pauseTitle = esc(t(paused ? 'queue_resume' : 'queue_pause'));
             const removeTitle = esc(t('queue_remove'));
 
+            const actions = `
+                        <span class="queue-job-actions">
+                            <button type="button" class="queue-act ${paused ? 'is-play' : 'is-pause'}" data-act="pause" data-job-id="${jobId}" title="${pauseTitle}" aria-label="${pauseTitle}">${pauseIcon}</button>
+                            <button type="button" class="queue-act queue-act-del" data-act="remove" data-job-id="${jobId}" title="${removeTitle}" aria-label="${removeTitle}">${ICON_TRASH}</button>
+                        </span>`;
+            const skipLine = skipped > 0
+                ? `<div class="queue-job-skip">${esc(t('queue_skipped_unavailable', { n: skipped }))}</div>` : '';
+
+            // An MI job auto-fills while it drains, so its total is a moving target:
+            // a percent bar would jump backward on a fresh swipe (5/10 → 5/15). Show
+            // a live remaining COUNT ("In queue: N") instead of the bar/percent.
+            const progress = isMi
+                ? `${skipLine}
+                    <div class="queue-job-foot">
+                        <span class="queue-job-count">${esc(t('queue_mi_remaining', { n: Math.max(total - done, 0) }))}</span>${actions}
+                    </div>`
+                : `<div class="queue-bar"><div class="queue-bar-fill" style="width:${pct}%"></div></div>
+                    ${skipLine}
+                    <div class="queue-job-foot">
+                        <span class="queue-job-count">${count}${total > 0 ? ` <b class="queue-job-pct">${pct}%</b>` : ''}</span>${actions}
+                    </div>`;
+
             return `
-                <div class="queue-job${isCurrent ? ' current' : ''}">
+                <div class="queue-job${isCurrent ? ' current' : ''}${isMi ? ' mi' : ''}">
                     <div class="queue-job-head">
                         <span class="queue-job-name">${name}</span>
                         <span class="queue-job-status"${statusColor ? ` style="color:${statusColor}"` : ''}>${status}</span>
                     </div>
-                    ${isUndo ? '' : `<div class="queue-job-sub" style="${filterStyle(job.filter)}">${filter}</div>`}
-                    <div class="queue-bar"><div class="queue-bar-fill" style="width:${pct}%"></div></div>
-                    ${skipped > 0 ? `<div class="queue-job-skip">${esc(t('queue_skipped_unavailable', { n: skipped }))}</div>` : ''}
-                    <div class="queue-job-foot">
-                        <span class="queue-job-count">${count}${total > 0 ? ` <b class="queue-job-pct">${pct}%</b>` : ''}</span>
-                        <span class="queue-job-actions">
-                            <button type="button" class="queue-act ${paused ? 'is-play' : 'is-pause'}" data-act="pause" data-job-id="${jobId}" title="${pauseTitle}" aria-label="${pauseTitle}">${pauseIcon}</button>
-                            <button type="button" class="queue-act queue-act-del" data-act="remove" data-job-id="${jobId}" title="${removeTitle}" aria-label="${removeTitle}">${ICON_TRASH}</button>
-                        </span>
-                    </div>
+                    ${(isUndo || isMi) ? '' : `<div class="queue-job-sub" style="${filterStyle(job.filter)}">${filter}</div>`}
+                    ${progress}
                 </div>`;
         }
     }

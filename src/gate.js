@@ -26,8 +26,10 @@
     const GATE_KEY = 'ilap_ignore_gate';       // last reserved slot (bare epoch-ms number)
     const PENALTY_KEY = 'ilap_ignore_gate_penalty'; // rate-limit backoff ({ until, level })
     const MASTER_KEY = 'ilap_master_enabled';  // global on/off (widget master toggle)
-    // Timestamp of the last ignore from a VISIBLE source (EQ / DQ / manual MI). The
-    // background queue drainer yields while this stamp is fresh — visible work wins.
+    // Timestamp of the last ignore from a VISIBLE source (EQ / DQ). The background
+    // queue drainer yields while this stamp is fresh — visible work wins. (Manual
+    // Ignore is no longer a visible ungated source: a swipe now enqueues a
+    // top-priority type:'mi' job the drainer sends through this same gate.)
     const FOREGROUND_KEY = 'ilap_ignore_foreground_at';
 
     // Minimum gap between consecutive ignores across ALL sources. ~500 ms + up to
@@ -41,9 +43,9 @@
     const JITTER = 300;
     const GAP_FLOOR = 350;
 
-    // How long the background drainer yields after the last visible ignore (EQ/DQ/MI).
+    // How long the background drainer yields after the last visible ignore (EQ/DQ).
     // A little over one gap+jitter, so a stream of visible ignores keeps the drainer
-    // paused continuously, while a lone swipe stalls the background only a couple seconds.
+    // paused continuously, while a lone one stalls the background only a couple seconds.
     const YIELD_MS = 2500;
 
     // Rate-limit backoff. When the ignore endpoint answers 429, the reporting
@@ -184,28 +186,6 @@
         });
     }
 
-    // Manual Ignore is deliberately NOT gated (a manual swipe must be instant), but
-    // its POST hits the same account. MI calls this at fire time to weave the manual
-    // ignore into the shared pacing without waiting a single ms:
-    //   - sets the foreground stamp → the background drainer yields to manual swipes too;
-    //   - moves the gate slot toward `now` (never back) → the next GATED source
-    //     (EQ/DQ/drainer) waits a full gap AFTER the manual POST, not flush against it.
-    // MI itself neither reads nor waits on the gate. Serialized on the shared chain so
-    // it can't clobber a concurrent slot write from reserve() (a cross-tab race — the
-    // same accepted trade-off as the rest of the gate).
-    function noteManualIgnore() {
-        const run = chain.then(async () => {
-            const now = Date.now();
-            const data = await get({ [GATE_KEY]: 0 });
-            await set({
-                [FOREGROUND_KEY]: now,
-                [GATE_KEY]: Math.max(data[GATE_KEY] || 0, now)
-            });
-        });
-        chain = run.catch(() => {});
-        return run;
-    }
-
     // A gated source calls this when the ignore endpoint answered 429: escalate
     // the shared penalty so every source in every tab backs off together.
     // Serialized on the same chain as reserve() so a same-context report/claim
@@ -223,7 +203,7 @@
     }
 
     window.ILAP.IgnoreGate = {
-        reserve, noteManualIgnore, reportRateLimited, nextSlot, nextPenalty, penaltyUntil,
+        reserve, reportRateLimited, nextSlot, nextPenalty, penaltyUntil,
         GATE_KEY, PENALTY_KEY, FOREGROUND_KEY, MIN_GAP, GAP_FLOOR, MAX_AHEAD, YIELD_MS,
         PENALTY_BASE, PENALTY_MAX, PENALTY_DECAY
     };

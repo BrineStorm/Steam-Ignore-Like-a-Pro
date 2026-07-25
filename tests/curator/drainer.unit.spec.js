@@ -44,6 +44,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             setCursor: async (id, c) => { cursor = c; now += 4000; },
             renewLock: async () => { renews.push(now); },
             removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
             signalCompleted: async () => {},
         };
         const d = new Drainer({
@@ -150,6 +151,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             bumpSkipped: async (id) => { bumps.push(id); },
             renewLock: async () => {},
             removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
             signalCompleted: async () => {},
         };
         const d = new Drainer({
@@ -199,6 +201,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             bumpSkipped: async (id) => { bumps.push(id); },
             renewLock: async () => {},
             removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
             signalCompleted: async () => {},
         };
         const d = new Drainer({
@@ -246,6 +249,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             setCursor: async (id, c) => { cursor = c; },
             renewLock: async () => {},
             removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
             signalCompleted: async () => {},
         };
         const d = new Drainer({
@@ -293,6 +297,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             setCursor: async (id, c) => { cursor = c; },
             renewLock: async () => {},
             removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
             signalCompleted: async () => {},
         };
         const d = new Drainer({
@@ -336,6 +341,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 setCursor: async (id, c) => { state.cursor = c; },
                 renewLock: async () => {},
                 removeJob: async () => { state.removed = true; },
+                removeIfDrained: async () => { state.removed = true; return true; },
                 signalCompleted: async () => {},
             },
             api: {
@@ -388,6 +394,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             setCursor: async (id, c) => { cursor = c; },
             renewLock: async () => {},
             removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
             signalCompleted: async () => {},
         };
         const d = new Drainer({
@@ -435,6 +442,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             setCursor: async (id, c) => { cursor = c; },
             renewLock: async () => {},
             removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
             signalCompleted: async () => {},
         };
         const d = new Drainer({
@@ -474,6 +482,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             setCursor: async (id, c) => { cursor = c; },
             renewLock: async () => {},
             removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
             signalCompleted: async () => {},
         };
         const d = new Drainer({
@@ -493,6 +502,159 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             { appid: '7', source: 'curator', curatorId: 'c9' },
             { appid: '8', source: 'curator', curatorId: 'c9' },
         ]);
+    });
+
+    test('MI job: drains each entry with its own reason, stamps Last Ignored, logs source:mi', async () => {
+        // A swipe defers into a type:'mi' job carrying per-appid name + reason.
+        // At drain the POST must use that reason (0 default / 2 played-elsewhere),
+        // saveStats must stamp Last Ignored (gated strictly to MI), and the undo
+        // log entry carries the name + source:'mi'.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+            appids: ['10', '11'],
+            meta: { 10: { name: 'A', reason: 0 }, 11: { name: 'B', reason: 2 } },
+        };
+        let cursor = 0;
+        let removed = false;
+        const posts = [];      // [appid, reason]
+        const stats = [];      // [name, reason]
+        const appended = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            renewLock: async () => {},
+            removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            api: { ignore: async (appid, reason) => { posts.push([appid, reason]); return { ok: true }; } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            saveStats: async (name, reason) => { stats.push([name, reason]); },
+            log: {
+                append: async (entry) => { appended.push(entry); },
+                markUndone: async () => {},
+                wasReIgnoredAfter: async () => false,
+            },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(posts).toEqual([['10', 0], ['11', 2]]);   // per-appid reason preserved
+        expect(stats).toEqual([['A', 0], ['B', 2]]);     // Last Ignored stamped at drain time
+        expect(appended).toEqual([
+            { appid: '10', name: 'A', source: 'mi' },
+            { appid: '11', name: 'B', source: 'mi' },
+        ]);
+        expect(cursor).toBe(2);
+        expect(removed).toBe(true);
+    });
+
+    test('MI job: a swipe appended in the completion window is drained, not wiped', async () => {
+        // The race removeIfDrained closes: the drainer's loop-top snapshot shows
+        // the MI job fully drained (cursor at the end), but a swipe appended a new
+        // appid before the removal commits. removeIfDrained re-checks against the
+        // fresh queue, reports the job grew (false), and the drainer loops back to
+        // drain the new entry instead of wiping it (a lost ignore + a lying badge).
+        const Drainer = loadDrainerClass();
+        const meta = { 10: { name: 'A', reason: 0 }, 11: { name: 'B', reason: 0 } };
+        let appids = ['10'];
+        let cursor = 0;
+        let removed = false;
+        let grewOnce = false;
+        const posts = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{
+                id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+                appids: appids.slice(), meta,
+            }]),
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            renewLock: async () => {},
+            signalCompleted: async () => {},
+            removeJob: async () => { removed = true; },
+            removeIfDrained: async () => {
+                // First completion attempt: model a swipe that appended '11' in the
+                // window → the job is no longer drained, so keep it.
+                if (!grewOnce) { grewOnce = true; appids = ['10', '11']; return false; }
+                removed = true; return true;
+            },
+        };
+        const d = new Drainer({
+            store,
+            api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            saveStats: async () => {},
+            log: { append: async () => {}, markUndone: async () => {}, wasReIgnoredAfter: async () => false },
+            ownerId: 't1',
+        });
+        await d._drainJob({ id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending', appids: ['10'], meta });
+        expect(posts).toEqual(['10', '11']); // the appended swipe was drained, not lost
+        expect(removed).toBe(true);          // and the job still completed afterwards
+    });
+
+    test('MI job: a permanent skip clears the optimistic on-page badge (signalUnignored)', async () => {
+        // An MI swipe badges optimistically at swipe time; if its deferred POST is
+        // permanently refused (region lock), the game was never ignored, so the
+        // drainer must pulse signalUnignored to drop the lying badge as it skips —
+        // and only for the refused game, not the one that ignored fine.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+            appids: ['480', '11'],
+            meta: { 480: { name: 'A', reason: 0 }, 11: { name: 'B', reason: 0 } },
+        };
+        let cursor = 0;
+        let removed = false;
+        const unbadged = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            bumpSkipped: async () => {},
+            signalUnignored: async (appid) => { unbadged.push(appid); },
+            renewLock: async () => {},
+            removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            api: { ignore: async (appid) => appid === '480'
+                ? { ok: false, rateLimited: false, unavailable: true }
+                : { ok: true } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            saveStats: async () => {},
+            log: { append: async () => {}, markUndone: async () => {}, wasReIgnoredAfter: async () => false },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(unbadged).toEqual(['480']);   // only the refused MI game is un-badged
+        expect(cursor).toBe(2);              // both entries stepped over
+    });
+
+    test('_pickJob prefers a drainable MI job over curator/undo work', () => {
+        const Drainer = loadDrainerClass();
+        const d = new Drainer({
+            store: {}, api: {}, gate: {},
+            fetchUserdata: async () => new Set(), ownerId: 't1',
+        });
+        const queue = [
+            { id: 'c', curatorId: '1', status: 'pending', appids: ['1'] },
+            { id: 'u', curatorId: 'undo', type: 'undo', status: 'pending', appids: ['2'] },
+            { id: 'm', curatorId: 'mi', type: 'mi', status: 'pending', appids: ['3'] },
+        ];
+        expect(d._pickJob(queue).id).toBe('m');
+        // With the MI job drained, the next pick falls back to document order.
+        expect(d._pickJob(queue.slice(0, 2)).id).toBe('c');
     });
 
     test('standby interval armed only while the queue holds a job', async () => {
