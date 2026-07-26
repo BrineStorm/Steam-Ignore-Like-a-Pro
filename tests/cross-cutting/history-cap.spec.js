@@ -38,6 +38,16 @@ function loadIlap() {
 
     const sandbox = { window: {}, chrome, console };
     vm.createContext(sandbox);
+    // escape.js owns the shared string helpers (escapeHTML + sanitizeName) for
+    // all three worlds, stats.js the Last-Ignored record shape for the two that
+    // write it, steam-net.js the Steam reads for the two that fetch; all three
+    // load before utils.js wherever it runs — the sandbox mirrors that.
+    vm.runInContext(fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'escape.js'), 'utf8'), sandbox);
+    vm.runInContext(fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'stats.js'), 'utf8'), sandbox);
+    vm.runInContext(fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'steam-net.js'), 'utf8'), sandbox);
     vm.runInContext(code, sandbox);
     return { ILAP: sandbox.window.ILAP, store };
 }

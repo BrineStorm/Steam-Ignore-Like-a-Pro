@@ -1,11 +1,11 @@
 const { test, expect } = require('../_fixtures.js');
 const {
     SEL,
-    interceptIgnoreApi,
+    DRAIN_TIMEOUT,
     rightClickSwipe,
     pickFirstRow,
     searchRow,
-    waitForContentScript,
+    gotoWithStubs,
 } = require('./_helpers');
 const {
     getExtensionId,
@@ -33,12 +33,13 @@ test.afterEach(async ({ context }) => {
 test.describe('Manual Ignore — stats reach the popup history', () => {
 
     test('After ignore: popup shows Last Ignored and history dropdown lists the game name', async ({ page, context }) => {
-        // 1) Drive a real ignore from the search page. The ignore POST is
-        //    intercepted, but saveStats / getGameName are NOT — they hit
-        //    chrome.storage.local and the real DOM-based name extractor.
-        const calls = await interceptIgnoreApi(context);
-        await page.goto(searchUrl());
-        await waitForContentScript(page);
+        // 1) Drive a real ignore from the search page. The ignore POST and the
+        //    userdata read are intercepted, but saveStats / getGameName are NOT
+        //    — they hit chrome.storage.local and the real DOM-based name
+        //    extractor. Note the stats are written by the DRAINER when the
+        //    deferred POST lands (name captured at swipe time), not by the
+        //    swipe itself — that's what the polls below wait for.
+        const calls = await gotoWithStubs(page, context, searchUrl());
 
         const { link, appid } = await pickFirstRow(page);
 
@@ -50,14 +51,14 @@ test.describe('Manual Ignore — stats reach the popup history', () => {
             .textContent().catch(() => null) || '').trim();
 
         await rightClickSwipe(page, link, 60);
-        await expect(searchRow(page, appid).locator(SEL.overlay)).toBeVisible({ timeout: 5000 });
-        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
+        await expect(searchRow(page, appid).locator(SEL.overlay)).toBeVisible({ timeout: DRAIN_TIMEOUT });
+        await expect.poll(() => calls.length, { timeout: DRAIN_TIMEOUT }).toBe(1);
 
         // 2) Wait until storage actually lands. The save is async (chained
         //    chrome.storage.local.get → set), so poll instead of sleeping.
         await expect.poll(
             async () => (await getExtensionStorage(context, 'ilap_ignored_count')).ilap_ignored_count,
-            { timeout: 5000 }
+            { timeout: DRAIN_TIMEOUT }
         ).toBe(1);
 
         const stored = await getExtensionStorage(context, ['ilap_last_ignored_name', 'ilap_ignored_history']);
@@ -101,21 +102,19 @@ test.describe('Manual Ignore — stats reach the popup history', () => {
             ilap_platform_key: 'shiftKey',
         });
 
-        const calls = await interceptIgnoreApi(context);
-        await page.goto(searchUrl());
-        await waitForContentScript(page);
+        const calls = await gotoWithStubs(page, context, searchUrl());
         await page.waitForTimeout(400);
 
         const { link, appid } = await pickFirstRow(page);
         await link.scrollIntoViewIfNeeded();
         await link.click({ modifiers: ['Shift'], force: true });
 
-        await expect(searchRow(page, appid).locator(SEL.overlay)).toBeVisible({ timeout: 5000 });
-        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
+        await expect(searchRow(page, appid).locator(SEL.overlay)).toBeVisible({ timeout: DRAIN_TIMEOUT });
+        await expect.poll(() => calls.length, { timeout: DRAIN_TIMEOUT }).toBe(1);
 
         await expect.poll(
             async () => (await getExtensionStorage(context, 'ilap_ignored_count')).ilap_ignored_count,
-            { timeout: 5000 }
+            { timeout: DRAIN_TIMEOUT }
         ).toBe(1);
 
         const stored = await getExtensionStorage(context, 'ilap_ignored_history');

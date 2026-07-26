@@ -332,8 +332,11 @@
                     // An MI game was badged optimistically at swipe time; this
                     // permanent refusal means it was never ignored, so clear the
                     // on-page badge (it would otherwise linger and lie). Reuses the
-                    // undo un-badge pulse.
-                    if (isMi && this.store.signalUnignored) await this.store.signalUnignored(appid);
+                    // undo un-badge pulse, tagged 'failed' so the swiping tab can
+                    // say why the badge went away instead of just dropping it.
+                    if (isMi && this.store.signalUnignored) {
+                        await this.store.signalUnignored(appid, 'failed');
+                    }
                     await this.store.setCursor(job.id, cursor + 1);
                     fails = 0;
                 } else {
@@ -344,8 +347,10 @@
                     if (fails >= MAX_FAILS) {
                         // Same as the unavailable skip: an MI game we badged
                         // optimistically failed every retry — drop its lying badge
-                        // as we step past it.
-                        if (isMi && this.store.signalUnignored) await this.store.signalUnignored(appid);
+                        // as we step past it, and let the tab explain itself.
+                        if (isMi && this.store.signalUnignored) {
+                            await this.store.signalUnignored(appid, 'failed');
+                        }
                         await this.store.setCursor(job.id, cursor + 1);
                         fails = 0;
                     }
@@ -378,24 +383,14 @@
         }
         const Log = window.ILAP.IgnoreLog;
         // 400-classification at the api boundary (the drainer only reads the
-        // verdict): a refused POST for a region-locked appid is permanent —
-        // appdetails `success:false` is the positive evidence (see
-        // checkAppUnavailable in utils.js). Gated strictly on HTTP 400: the
-        // region-lock ⇔ success:false correlation was established for 400, so a
-        // timeout / 5xx / dead-network refusal (status 0) must stay on the
-        // systemic MAX_FAILS path — else a transient failure coinciding with a
-        // sporadic appdetails success:false would falsely skip a live appid in
-        // one attempt. Deliberately NOT inside apiIgnoreGame itself: MI/EQ/DQ
-        // share that function and none of them retries or halts on a failed
-        // appid, so they have no use for the extra GET. Probe failures /
-        // available verdicts leave the result unmarked → systemic path stands.
-        const classifyRefusal = async (appid, res) => {
-            if (res.status === 400
-                && (await window.ILAP.checkAppUnavailable(appid)) === true) {
-                res.unavailable = true;
-            }
-            return res;
-        };
+        // verdict). The rule itself is world-agnostic and lives in steam-net.js
+        // beside the probe it uses; the worker wraps its own POST with the same
+        // call. What is specific here: the wrap sits in this adapter and
+        // deliberately NOT inside apiIgnoreGame itself — MI/EQ/DQ share that
+        // function and none of them retries or halts on a failed appid, so they
+        // have no use for the extra GET.
+        const classifyRefusal = (appid, res) =>
+            window.ILAP.classifyRefusal(appid, res);
         const drainer = new CuratorQueueDrainer({
             store: window.ILAP.Curator.Store,
             api: {
@@ -413,10 +408,12 @@
             fetchUserdata: () => window.ILAP.fetchIgnoredAppsStrict(),
             probeLogin: () => window.ILAP.SteamAuth.probeLogin(),
             // Last-Ignored stats for drained MI ignores only (reason → the same
-            // human label the old instant MI path used). saveStats lives in
-            // utils.js, present in the content-script world.
+            // human label the old instant MI path used, mapped by the store that
+            // owns the reason). saveStats lives in utils.js, present in the
+            // content-script world.
             saveStats: window.ILAP.saveStats
-                ? (name, reason) => window.ILAP.saveStats(name, reason === 2 ? 'Played Elsewhere' : 'Default Ignore')
+                ? (name, reason) => window.ILAP.saveStats(
+                    name, window.ILAP.Curator.Store.miSourceLabel(reason))
                 : null,
             log: Log ? {
                 append: (entry) => Log.append(entry),

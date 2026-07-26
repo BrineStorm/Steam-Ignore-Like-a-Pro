@@ -1,5 +1,7 @@
 const { test, expect } = require('../_fixtures.js');
-const { waitForContentScript, interceptIgnoreApi } = require('./_helpers');
+const {
+    waitForContentScript, interceptIgnoreApi, routeUserdata, DRAIN_TIMEOUT,
+} = require('./_helpers');
 const { clearExtensionStorage, setExtensionStorage } = require('../_extension.js');
 
 // The /tags/en/<Tag> sale page is NOT /tag/browse/. It stacks several DISTINCT
@@ -141,6 +143,8 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
         await page.waitForTimeout(500);
 
         // Pick a seeded hover capsule that's on-screen so the preview can open.
+        // Tag it, so the assertion below can tell the capsule's own subtree apart
+        // from the floating preview — see the disjointness rule there.
         const pick = await page.evaluate((ids) => {
             for (const h of document.querySelectorAll('div[data-key="hover div"]')) {
                 const a = h.querySelector('a[href*="/app/"]');
@@ -148,6 +152,7 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
                 if (!m || !ids.includes(m[1])) continue;
                 const r = h.getBoundingClientRect();
                 if (r.width > 50 && r.height > 50 && r.top > 60 && r.bottom < 800) {
+                    h.dataset.ilapTestPick = '1';
                     return { appid: m[1], x: r.x + r.width / 2, y: r.y + r.height / 2 };
                 }
             }
@@ -164,21 +169,49 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
         await page.mouse.move(pick.x, pick.y, { steps: 14 });
         await page.waitForTimeout(600);
 
-        // The popover is a floating element (inline z-index + left + top) holding a
-        // <video> and the app link. It must carry its OWN badge for this appid;
-        // before the fix it was deduped against the capsule and stayed bare.
+        // The popover is a floating element (inline z-index + left + top) holding
+        // the app link. It must carry its OWN badge for this appid; before the fix
+        // it was deduped against the capsule and stayed bare.
+        //
+        // Two independent ways to find that float, because either marker can be
+        // absent — and BOTH must land on the preview, never on the capsule:
+        //   PRIMARY  — walk up from the preview's <video>. When Steam mounts a
+        //              trailer this is the least ambiguous marker there is.
+        //   FALLBACK — scan floats directly, for the apps Steam previews as static
+        //              screenshots with no <video> in the DOM at all. The primary
+        //              walk reports "never opened" for those, which is how a popover
+        //              that was open AND correctly badged still failed this test.
+        //
+        // The fallback must not weaken the claim: /tags/ capsules are virtualized
+        // and inline-positioned too, so a float that WRAPS the hovered capsule
+        // (tagged above) would carry the capsule's own badge and pass with a bare
+        // popover — those are excluded. A float nested INSIDE the capsule is not:
+        // that is exactly where Steam mounts the preview (verified — excluding it
+        // made this assertion report "never opened" on a badged, open popover).
+        // Atomicity comes from counting badges INSIDE the float only, so the
+        // capsule's own badge, which lives outside it, can never satisfy this.
         // Returns badge count if the popover is open, -1 if it never opened.
         await expect.poll(async () => page.evaluate((id) => {
+            const capsule = document.querySelector('[data-ilap-test-pick="1"]');
+            const isFloat = (el) => {
+                const st = el.getAttribute('style') || '';
+                return st.includes('z-index') && st.includes('left') && st.includes('top');
+            };
+            const isPreview = (el) => isFloat(el)
+                && !!el.querySelector(`a[href*="/app/${id}"]`)
+                && !(capsule && el.contains(capsule));   // the capsule/its row, not the preview
+            const badges = (el) =>
+                el.querySelectorAll(`.ilap-ignored-overlay[data-ilap-appid="${id}"]`).length;
+
             for (const v of document.querySelectorAll('video')) {
                 let p = v.parentElement;
                 for (let i = 0; i < 15 && p && p !== document.body; i++) {
-                    const st = p.getAttribute('style') || '';
-                    if (st.includes('z-index') && st.includes('left') && st.includes('top')
-                        && p.querySelector('a[href*="/app/"]')) {
-                        return p.querySelectorAll(`.ilap-ignored-overlay[data-ilap-appid="${id}"]`).length;
-                    }
+                    if (isPreview(p)) return badges(p);
                     p = p.parentElement;
                 }
+            }
+            for (const p of document.querySelectorAll('[style*="z-index"]')) {
+                if (isPreview(p)) return badges(p);
             }
             return -1;
         }, pick.appid), {
@@ -250,6 +283,10 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
         // a single deterministic click, unlike a swipe the popover would intercept.
         await setExtensionStorage(context, { ilap_shortcut_key: 'ctrlKey' });
         const calls = await interceptIgnoreApi(context);
+        // Without this the drainer's dedupe can skip the picked capsule (it is a
+        // real, possibly already-ignored game) and the poll below would
+        // self-skip the whole regression test on a harness artifact.
+        await routeUserdata(context, []);
         await page.goto(TAG_URL);
         await waitForContentScript(page);
 
@@ -290,7 +327,7 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
         await page.keyboard.up('Control');
 
         try {
-            await expect.poll(() => calls.length, { timeout: 5000 }).toBeGreaterThan(0);
+            await expect.poll(() => calls.length, { timeout: DRAIN_TIMEOUT }).toBeGreaterThan(0);
         } catch {
             test.skip(true, 'Ctrl+Click landed no ignore (popover intercepted); cannot exercise.');
             return;

@@ -127,6 +127,8 @@
             undo_msg_empty: "Nothing to undo in this range",
             undo_job_name: "Undo ignores",
             mi_job_name: "Manual ignores",
+            mi_queue_stuck: "Ignore queue is stuck — remove the job and try again",
+            mi_ignore_failed: "Steam didn't accept this ignore — badge removed",
             queue_mi_remaining: "In queue: {n}",
             undo_restage_warning: "You rolled these ignores back ~{h} h ago"
         },
@@ -231,6 +233,8 @@
             undo_msg_empty: "In diesem Zeitraum nichts zurückzunehmen",
             undo_job_name: "Ignorierungen zurücknehmen",
             mi_job_name: "Manuelle Ignorierungen",
+            mi_queue_stuck: "Ignorier-Warteschlange hängt — Auftrag entfernen und erneut versuchen",
+            mi_ignore_failed: "Steam hat dieses Ignorieren abgelehnt — Markierung entfernt",
             queue_mi_remaining: "In Warteschlange: {n}",
             undo_restage_warning: "Du hast diese Ignorierungen vor ~{h} Std. zurückgenommen"
         },
@@ -335,6 +339,8 @@
             undo_msg_empty: "Rien à annuler sur cette période",
             undo_job_name: "Annulation des ignorés",
             mi_job_name: "Ignorés manuels",
+            mi_queue_stuck: "La file d'ignorés est bloquée — supprimez la tâche et réessayez",
+            mi_ignore_failed: "Steam a refusé cet ignoré — badge retiré",
             queue_mi_remaining: "En file : {n}",
             undo_restage_warning: "Vous avez annulé ces ignorés il y a ~{h} h"
         },
@@ -439,6 +445,8 @@
             undo_msg_empty: "Nada que deshacer en ese periodo",
             undo_job_name: "Deshacer ignorados",
             mi_job_name: "Ignorados manuales",
+            mi_queue_stuck: "La cola de ignorados está atascada: elimina la tarea e inténtalo de nuevo",
+            mi_ignore_failed: "Steam rechazó esta acción de ignorar — insignia eliminada",
             queue_mi_remaining: "En cola: {n}",
             undo_restage_warning: "Deshiciste estos ignorados hace ~{h} h"
         },
@@ -543,6 +551,8 @@
             undo_msg_empty: "Τίποτα προς αναίρεση σε αυτό το διάστημα",
             undo_job_name: "Αναίρεση αγνοήσεων",
             mi_job_name: "Μη αυτόματες αγνοήσεις",
+            mi_queue_stuck: "Η ουρά αγνόησης κόλλησε — αφαιρέστε την εργασία και δοκιμάστε ξανά",
+            mi_ignore_failed: "Το Steam απέρριψε αυτή την αγνόηση — το σήμα αφαιρέθηκε",
             queue_mi_remaining: "Στην ουρά: {n}",
             undo_restage_warning: "Αναιρέσατε αυτές τις αγνοήσεις πριν ~{h} ώρες"
         },
@@ -647,6 +657,8 @@
             undo_msg_empty: "Niente da annullare in questo intervallo",
             undo_job_name: "Annulla ignorati",
             mi_job_name: "Ignorati manuali",
+            mi_queue_stuck: "La coda di ignora è bloccata — rimuovi il lavoro e riprova",
+            mi_ignore_failed: "Steam ha rifiutato questo ignora — badge rimosso",
             queue_mi_remaining: "In coda: {n}",
             undo_restage_warning: "Hai annullato questi ignorati ~{h} h fa"
         },
@@ -751,6 +763,8 @@
             undo_msg_empty: "Nada para desfazer nesse período",
             undo_job_name: "Desfazer ignorados",
             mi_job_name: "Ignorados manuais",
+            mi_queue_stuck: "A fila de ignorados travou — remova a tarefa e tente novamente",
+            mi_ignore_failed: "O Steam recusou este ignorar — selo removido",
             queue_mi_remaining: "Na fila: {n}",
             undo_restage_warning: "Você desfez esses ignorados há ~{h} h"
         },
@@ -855,6 +869,8 @@
             undo_msg_empty: "Bu aralıkta geri alınacak bir şey yok",
             undo_job_name: "Yoksaymaları geri alma",
             mi_job_name: "Manuel yoksaymalar",
+            mi_queue_stuck: "Yoksayma kuyruğu takıldı — işi kaldırıp tekrar deneyin",
+            mi_ignore_failed: "Steam bu yoksaymayı kabul etmedi — rozet kaldırıldı",
             queue_mi_remaining: "Sırada: {n}",
             undo_restage_warning: "Bu yoksaymaları ~{h} sa. önce geri aldınız"
         },
@@ -959,6 +975,8 @@
             undo_msg_empty: "За этот период нечего возвращать",
             undo_job_name: "Возврат скрытых",
             mi_job_name: "Ручные скрытия",
+            mi_queue_stuck: "Очередь скрытий застряла — удалите задание и попробуйте снова",
+            mi_ignore_failed: "Steam отклонил это скрытие — плашка убрана",
             queue_mi_remaining: "В очереди: {n}",
             undo_restage_warning: "Вы вернули эти игры из скрытых ~{h} ч назад"
         },
@@ -1063,6 +1081,8 @@
             undo_msg_empty: "За цей період нема чого повертати",
             undo_job_name: "Повернення прихованих",
             mi_job_name: "Ручні приховування",
+            mi_queue_stuck: "Черга приховувань застрягла — видаліть завдання та спробуйте ще раз",
+            mi_ignore_failed: "Steam відхилив це приховування — позначку прибрано",
             queue_mi_remaining: "У черзі: {n}",
             undo_restage_warning: "Ви повернули ці ігри з прихованих ~{h} год тому"
         },
@@ -1167,6 +1187,8 @@
             undo_msg_empty: "W tym okresie nie ma czego przywracać",
             undo_job_name: "Przywracanie ukrytych",
             mi_job_name: "Ręczne ignorowania",
+            mi_queue_stuck: "Kolejka ignorowania utknęła — usuń zadanie i spróbuj ponownie",
+            mi_ignore_failed: "Steam odrzucił to ignorowanie — plakietka usunięta",
             queue_mi_remaining: "W kolejce: {n}",
             undo_restage_warning: "Przywrócono te ukrycia ~{h} godz. temu"
         },
@@ -1271,6 +1293,8 @@
             undo_msg_empty: "V tomto období není co obnovovat",
             undo_job_name: "Obnovení skrytých",
             mi_job_name: "Ruční skrytí",
+            mi_queue_stuck: "Fronta skrývání uvázla — odeberte úlohu a zkuste to znovu",
+            mi_ignore_failed: "Steam toto skrytí odmítl — odznak odstraněn",
             queue_mi_remaining: "Ve frontě: {n}",
             undo_restage_warning: "Tato skrytí jste vrátili před ~{h} h"
         },
@@ -1375,6 +1399,8 @@
             undo_msg_empty: "Ebben az időszakban nincs mit visszavonni",
             undo_job_name: "Mellőzések visszavonása",
             mi_job_name: "Kézi mellőzések",
+            mi_queue_stuck: "A mellőzési sor elakadt — távolítsd el a feladatot, és próbáld újra",
+            mi_ignore_failed: "A Steam elutasította ezt a mellőzést — a jelvény eltávolítva",
             queue_mi_remaining: "Sorban: {n}",
             undo_restage_warning: "Ezeket a mellőzéseket ~{h} órája vontad vissza"
         },
@@ -1479,6 +1505,8 @@
             undo_msg_empty: "U ovom periodu nema šta da se opozove",
             undo_job_name: "Opoziv ignorisanja",
             mi_job_name: "Ručna ignorisanja",
+            mi_queue_stuck: "Red ignorisanja je zaglavljen — uklonite zadatak i pokušajte ponovo",
+            mi_ignore_failed: "Steam je odbio ovo ignorisanje — oznaka uklonjena",
             queue_mi_remaining: "U redu: {n}",
             undo_restage_warning: "Opozvali ste ova ignorisanja pre ~{h} č"
         },
@@ -1583,6 +1611,8 @@
             undo_msg_empty: "Nimic de anulat în acest interval",
             undo_job_name: "Anularea ignorărilor",
             mi_job_name: "Ignorări manuale",
+            mi_queue_stuck: "Coada de ignorări s-a blocat — eliminați sarcina și încercați din nou",
+            mi_ignore_failed: "Steam a refuzat această ignorare — insigna a fost eliminată",
             queue_mi_remaining: "În coadă: {n}",
             undo_restage_warning: "Ați anulat aceste ignorări acum ~{h} h"
         },
@@ -1687,6 +1717,8 @@
             undo_msg_empty: "この期間に取り消せるものはありません",
             undo_job_name: "無視の取り消し",
             mi_job_name: "手動の無視",
+            mi_queue_stuck: "無視キューが停止しています — ジョブを削除して再試行してください",
+            mi_ignore_failed: "Steam がこの無視を受け付けませんでした — バッジを削除しました",
             queue_mi_remaining: "キュー内: {n}",
             undo_restage_warning: "約{h}時間前にこの無視を取り消しました"
         },
@@ -1791,6 +1823,8 @@
             undo_msg_empty: "이 기간에는 되돌릴 숨김이 없습니다",
             undo_job_name: "숨김 되돌리기",
             mi_job_name: "수동 숨김",
+            mi_queue_stuck: "숨김 대기열이 멈췄습니다 — 작업을 삭제한 뒤 다시 시도하세요",
+            mi_ignore_failed: "Steam이 이 숨김을 거부했습니다 — 배지를 제거했습니다",
             queue_mi_remaining: "대기 중: {n}",
             undo_restage_warning: "약 {h}시간 전에 이 숨김을 되돌렸습니다"
         },
@@ -1895,6 +1929,8 @@
             undo_msg_empty: "這段期間沒有可復原的忽略",
             undo_job_name: "復原忽略",
             mi_job_name: "手動忽略",
+            mi_queue_stuck: "忽略佇列卡住了 — 請移除工作後再試一次",
+            mi_ignore_failed: "Steam 未接受此忽略 — 已移除標記",
             queue_mi_remaining: "佇列中：{n}",
             undo_restage_warning: "您在約 {h} 小時前復原了這些忽略"
         },
@@ -1999,6 +2035,8 @@
             undo_msg_empty: "ช่วงเวลานี้ไม่มีอะไรให้เลิกทำ",
             undo_job_name: "เลิกทำการซ่อน",
             mi_job_name: "การซ่อนด้วยตนเอง",
+            mi_queue_stuck: "คิวการซ่อนค้างอยู่ — โปรดลบงานแล้วลองใหม่",
+            mi_ignore_failed: "Steam ไม่รับการซ่อนนี้ — นำป้ายออกแล้ว",
             queue_mi_remaining: "ในคิว: {n}",
             undo_restage_warning: "คุณเลิกทำการซ่อนเหล่านี้เมื่อ ~{h} ชม. ที่แล้ว"
         }

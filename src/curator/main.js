@@ -52,11 +52,8 @@
 
     // Boundary normalizer: the curator name comes from a third-party page (or a
     // crafted URL slug) and is persisted, so reduce it to bounded plain text
-    // before it reaches storage. Falls back to a minimal local strip if utils.js
-    // somehow isn't present.
-    const clean = (s) => (window.ILAP && window.ILAP.sanitizeName)
-        ? window.ILAP.sanitizeName(s)
-        : String(s == null ? '' : s).replace(/[<>]/g, '').trim().slice(0, 120);
+    // before it reaches storage (src/escape.js, loaded before this script).
+    const clean = window.ILAP.Sanitizer.sanitizeName;
 
     function curatorName(id) {
         const el = document.querySelector('.curator_name');
@@ -146,18 +143,6 @@
             .ilap-act-ico { display: inline-flex; flex-shrink: 0; margin: 0 -2.5px; }
             .ilap-act-ico svg { display: block; }
             .ilap-curator-opt.ilap-act-del:hover { background: rgba(211,47,47,.18); }
-            /* Bottom-right push notification shown when a curator is added. */
-            .ilap-curator-toast {
-                position: fixed; right: 20px; bottom: 20px; z-index: 2147483000;
-                display: flex; align-items: center; gap: 10px; max-width: 320px;
-                background: #16202d; color: #fff; border: 1px solid #45A1FA; border-left: 3px solid #45A1FA;
-                border-radius: 8px; padding: 12px 15px; box-shadow: 0 8px 24px rgba(0,0,0,.6);
-                font: 600 13px "Motiva Sans", Arial, sans-serif; line-height: 1.4;
-                transform: translateY(16px); opacity: 0;
-                transition: transform .3s cubic-bezier(.2,.9,.3,1), opacity .3s ease;
-            }
-            .ilap-curator-toast.show { transform: translateY(0); opacity: 1; }
-            .ilap-curator-toast img { width: 22px; height: 22px; border-radius: 4px; display: block; flex-shrink: 0; }
         `;
         (document.head || document.documentElement).appendChild(style);
     }
@@ -171,8 +156,9 @@
 
     const filterKey = (value) => Filters.labelKey(value);
 
-    // Bottom-right push notification that slides in, then fades out. When the message
-    // has a "{type}" placeholder, the category name is highlighted bold in its colour.
+    // Message layer over the shared bottom-right push card (src/toast.js): when
+    // the message has a "{type}" placeholder, the category name is highlighted
+    // bold in its colour; everything else is plain escaped text.
     function showToast(msgKey, value, duration) {
         const tpl = t(msgKey);
         let html;
@@ -184,15 +170,7 @@
         } else {
             html = esc(tpl);
         }
-        const toast = document.createElement('div');
-        toast.className = 'ilap-curator-toast';
-        toast.innerHTML = `<img src="${ICON_URL}" alt=""><span>${html}</span>`;
-        document.body.appendChild(toast);
-        requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add('show')));
-        setTimeout(() => {
-            toast.classList.remove('show');
-            setTimeout(() => toast.remove(), 350);
-        }, duration || 3100);
+        window.ILAP.showToast(html, duration);
     }
 
     // Pick a filter from the dropdown: add a new job, or — if this curator is

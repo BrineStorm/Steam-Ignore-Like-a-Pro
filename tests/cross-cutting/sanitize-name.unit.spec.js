@@ -14,6 +14,16 @@ function loadILAP() {
     );
     const sandbox = { window: {}, document: { cookie: '' } };
     vm.createContext(sandbox);
+    // escape.js owns the shared string helpers (escapeHTML + sanitizeName) for
+    // all three worlds, stats.js the Last-Ignored record shape for the two that
+    // write it, steam-net.js the Steam reads for the two that fetch; all three
+    // load before utils.js wherever it runs — the sandbox mirrors that.
+    vm.runInContext(fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'escape.js'), 'utf8'), sandbox);
+    vm.runInContext(fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'stats.js'), 'utf8'), sandbox);
+    vm.runInContext(fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'steam-net.js'), 'utf8'), sandbox);
     vm.runInContext(code, sandbox);
     return sandbox.window.ILAP;
 }
@@ -49,5 +59,27 @@ test.describe('sanitizeName — storage boundary normalizer (unit)', () => {
 
     test('leaves an ordinary game name untouched', () => {
         expect(ILAP.sanitizeName('Counter-Strike 2')).toBe('Counter-Strike 2');
+    });
+});
+
+test.describe('escapeHTML — render boundary escaper (unit)', () => {
+    const esc = loadILAP().Sanitizer.escapeHTML;
+
+    test('escapes every character that could open markup or break an attribute', () => {
+        expect(esc('<img src=x onerror=alert(1)>'))
+            .toBe('&lt;img src=x onerror=alert(1)&gt;');
+        expect(esc(`"' & <>`)).toBe('&quot;&#039; &amp; &lt;&gt;');
+        // The ampersand goes first, so an escaped entity is not re-escaped.
+        expect(esc('a & <b>')).toBe('a &amp; &lt;b&gt;');
+    });
+
+    test('only null/undefined become the empty string — a real 0 or false survives', () => {
+        // Callers escape counts ("0 skipped"), and the earlier falsy guard
+        // silently swallowed the zero.
+        expect(esc(0)).toBe('0');
+        expect(esc(false)).toBe('false');
+        expect(esc('')).toBe('');
+        expect(esc(null)).toBe('');
+        expect(esc(undefined)).toBe('');
     });
 });

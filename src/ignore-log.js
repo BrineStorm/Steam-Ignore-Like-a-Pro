@@ -174,11 +174,7 @@
             ts: entry.ts || Date.now(),
             source: entry.source
         };
-        if (entry.name) {
-            safe.name = (window.ILAP && window.ILAP.sanitizeName)
-                ? window.ILAP.sanitizeName(entry.name)
-                : String(entry.name).replace(/[<>]/g, '').trim().slice(0, 120);
-        }
+        if (entry.name) safe.name = window.ILAP.Sanitizer.sanitizeName(entry.name);
         if (entry.curatorId) safe.curatorId = String(entry.curatorId);
         if (entry.skipped) safe.skipped = String(entry.skipped);
         return mutateLog(log => appended(log, safe));

@@ -1,13 +1,22 @@
 // Shared helpers for Manual Ignore (MI) E2E tests.
 //
-// IMPORTANT: Manual Ignore is the ONLY automator that calls the real Steam
-// ignore API directly (DQ/EQ click Steam's own UI buttons). To keep tests from
-// polluting the real account we intercept the ignore endpoint at the NETWORK
-// layer via context.route. This is world-independent (the old window.ILAP stub
-// lived in the isolated world and was invisible to page.evaluate) AND guarantees
-// no request ever reaches Steam, because the route fulfills a fake success.
+// IMPORTANT: a swipe no longer POSTs. It badges optimistically and enqueues a
+// type:'mi' job that the CURATOR DRAINER sends through the IgnoreGate a few
+// hundred ms later. Two consequences for every spec here:
+//
+//  1. the ignore endpoint must be intercepted at the NETWORK layer (the drainer
+//     may even POST from another tab of the context — an isolated-world
+//     window.ILAP stub could not see that, and route interception fulfills a
+//     fake success so no request ever reaches Steam);
+//  2. the drainer dedupes against dynamicstore/userdata before POSTing, so that
+//     endpoint must be stubbed too — otherwise a swiped game that happens to be
+//     among the real account's ~450 ignores is skipped and the spec waits for a
+//     POST that will never come. `gotoWithStubs` installs both.
+//
+// Both stubs are shared with the curator suite (tests/_steam-routes.js).
 
-const { popupUrl } = require('../_extension.js');
+const { popupUrl, getExtensionStorage } = require('../_extension.js');
+const { interceptIgnoreApi, routeUserdata } = require('../_steam-routes.js');
 const { AUTH_FILE } = require('../_fixtures.js');
 
 const SEL = {
@@ -20,25 +29,30 @@ const SEL = {
     lastGame: '#last-game',
 };
 
-// Intercept POSTs to Steam's ignore endpoint and fulfill a fake success. Returns
-// a LIVE array that fills as calls arrive: { appid, reason }. The body shape is
-// `sessionid=...&appid=<id>&snr=&ignore_reason=<reason>` (see SteamAPI.ignore in
-// src/utils.js). Install this BEFORE navigating so no gesture can slip through.
-async function interceptIgnoreApi(context) {
-    const calls = [];
-    await context.route('**/recommended/ignorerecommendation/**', async (route) => {
-        const params = new URLSearchParams(route.request().postData() || '');
-        calls.push({
-            appid: params.get('appid'),
-            reason: Number(params.get('ignore_reason')),
-        });
-        await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ success: 1 }),
-        });
-    });
+// How long a deferred swipe may take to reach the POST: enqueue (storage RMW) →
+// onChanged kick → the drainer's userdata read → an IgnoreGate slot (500-800 ms,
+// serialized across appids) → POST. Comfortably over that, because a headed
+// Firefox run under load is the slow case and a timeout here reads as a product
+// bug rather than the harness being impatient.
+const DRAIN_TIMEOUT = 15000;
+
+// Install both Steam stubs, navigate, and wait for the content script. Returns
+// the live ignore-call array. Routes go up BEFORE the navigation so no gesture
+// and no drain pass can slip past them.
+async function gotoWithStubs(page, context, url) {
+    const calls = await interceptIgnoreApi(context);
+    await routeUserdata(context, []);   // nothing pre-ignored → the dedupe can never skip
+    await page.goto(url);
+    await waitForContentScript(page);
     return calls;
+}
+
+// The deferral job, or null. Negative tests assert on THIS rather than on "no
+// POST arrived within X ms": the POST is now seconds behind the gesture, so a
+// short wait proves nothing about a swipe that wrongly enqueued.
+async function miJob(context) {
+    const { ilap_curator_queue: queue } = await getExtensionStorage(context, 'ilap_curator_queue');
+    return (queue || []).find(j => j.type === 'mi') || null;
 }
 
 // Track contextmenu events on document so tests can assert that the
@@ -113,8 +127,12 @@ async function waitForContentScript(page) {
 module.exports = {
     AUTH_FILE,
     SEL,
+    DRAIN_TIMEOUT,
     popupUrl,
     interceptIgnoreApi,
+    routeUserdata,
+    gotoWithStubs,
+    miJob,
     installContextMenuSpy,
     readContextMenuSpy,
     rightClickSwipe,

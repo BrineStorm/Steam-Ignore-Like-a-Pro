@@ -97,6 +97,19 @@
     // to save ~40 stable lines whose copies each sit beside their only consumer.
     // Accepted as the price of world isolation. If you CHANGE one of the copies'
     // semantics (not cosmetics), visit its siblings.
+    //
+    // The rule holds for this STORAGE plumbing only, and only because of the
+    // popup. Two kinds of code were pulled out of it:
+    //   - PURE helpers, which never had the excuse and had already drifted (the
+    //     SW's and the log's own name normalizers were missing the control-char
+    //     strip) → escape.js, one definition every world loads;
+    //   - the Steam network READS (deadline wrapper, userdata, login probe,
+    //     appdetails classifier) → steam-net.js. That block is a TWO-world
+    //     problem: popup.html never talks to Steam, so the argument above
+    //     simply does not apply to it. Only the ignore POST stays per-world
+    //     (see the note at the top of steam-net.js).
+    // Keep it that way: a new pure helper belongs in escape.js and a new Steam
+    // read in steam-net.js, not in a fourth local copy.
 
     function get(keys) {
         return new Promise(resolve => chrome.storage.local.get(keys, resolve));
@@ -190,6 +203,15 @@
         return removed;
     }
 
+    // Last-Ignored history label for an MI entry's ignore reason. The reason
+    // lives in this file's `meta` map, so the mapping lives here too — both
+    // drain hosts (the content-script wiring in curator/drainer.js and the SW's
+    // saveStats shim in background.js) read it instead of re-spelling the
+    // literals in two worlds. NB the other reason===2 branch, the badge colour +
+    // tooltip in manual-ignore/ui.js, is a different mapping (presentation, not
+    // stored data) and deliberately stays where it is.
+    const miSourceLabel = (reason) => (Number(reason) === 2 ? 'Played Elsewhere' : 'Default Ignore');
+
     // Append-or-create the single Manual-Ignore deferral job (see the MI_* consts).
     // One serialized mutateQueue closes the create/complete race: a swipe landing
     // as the drainer removes the just-emptied job either finds the job (append) or
@@ -203,6 +225,21 @@
     async function enqueueMi(entry) {
         const appid = String(entry.appid);
         const meta = { name: entry.name || '', reason: entry.reason || 0 };
+        // Dedupe only against the entries the drainer has NOT reached yet.
+        // `appids` keeps drained entries until the job completes, so matching
+        // the whole array would swallow a LEGITIMATE re-swipe: ignore a game,
+        // let it drain, undo it (which clears its badge and its session-map
+        // entry), swipe it again while the MI job is still alive — the appid is
+        // still in the drained head, so the swipe was dropped while the caller
+        // was told 'added' and painted a badge for an ignore that never fired.
+        // The cursor only moves forward, so a read taken before the mutation is
+        // at worst stale-low: the tail we consider is a superset of the real
+        // pending tail, which keeps the guarantee that matters (never append a
+        // second copy of something still queued) and leaves a one-appid window
+        // where the old behaviour survives. Erring the other way would cost a
+        // duplicate POST, which Steam accepts idempotently — but this direction
+        // needs no extra request at all.
+        const drained = (await getCursor(MI_JOB_ID)) || 0;
         let outcome = { kind: 'full' };
         await mutateQueue((queue) => {
             const idx = queue.findIndex(j => j.type === 'mi');
@@ -212,9 +249,10 @@
                 id: MI_JOB_ID, type: 'mi', curatorId: MI_ID, curatorName: '',
                 appids: [], meta: {}, total: 0, status: 'pending', addedAt: Date.now()
             };
-            // De-dup within the job: the session map should already block a
-            // re-swipe, but a double-append would double-POST the same game.
-            const already = base.appids.indexOf(appid) !== -1;
+            // De-dup within the job's PENDING tail (see `drained` above): the
+            // session map should already block a re-swipe, but a double-append
+            // would double-POST the same game.
+            const already = base.appids.indexOf(appid, drained) !== -1;
             const appids = already ? base.appids : base.appids.concat([appid]);
             const nextMeta = already ? base.meta : Object.assign({}, base.meta, { [appid]: meta });
             const nextJob = Object.assign({}, base, { appids, meta: nextMeta, total: appids.length });
@@ -274,8 +312,14 @@
     // sessionMap and un-render its on-page IGNORED badge (which otherwise lingers
     // and lies). Written per appid (not batched at job end) so the badge clears
     // as each game rolls back.
-    async function signalUnignored(appid) {
-        await set({ [UNIGNORE_PULSE_KEY]: { appid: String(appid), ts: Date.now() } });
+    // `reason` tells the MI listener WHY the badge is going away: 'undo' (the
+    // user rolled the ignore back — silent, they asked for it) or 'failed' (the
+    // deferred MI POST never landed: region-locked appid, or every retry
+    // refused). Only the second warrants telling the user anything.
+    async function signalUnignored(appid, reason) {
+        await set({
+            [UNIGNORE_PULSE_KEY]: { appid: String(appid), ts: Date.now(), reason: reason || 'undo' }
+        });
     }
 
     // --- lease lock -------------------------------------------------------
@@ -316,7 +360,7 @@
 
     window.ILAP.Curator.Store = {
         // pure
-        isFresh, evictCache, lockFree,
+        isFresh, evictCache, lockFree, miSourceLabel,
         // cache
         getCache, putCache,
         // queue

@@ -619,7 +619,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             getCursor: async () => cursor,
             setCursor: async (id, c) => { cursor = c; },
             bumpSkipped: async () => {},
-            signalUnignored: async (appid) => { unbadged.push(appid); },
+            signalUnignored: async (appid, reason) => { unbadged.push([appid, reason]); },
             renewLock: async () => {},
             removeJob: async () => { removed = true; },
             removeIfDrained: async () => { removed = true; return true; },
@@ -637,7 +637,10 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             ownerId: 't1',
         });
         await d._drainJob(job);
-        expect(unbadged).toEqual(['480']);   // only the refused MI game is un-badged
+        // Only the refused MI game is un-badged — tagged 'failed' so the tab
+        // that swiped it can say the ignore never landed, instead of the badge
+        // just evaporating.
+        expect(unbadged).toEqual([['480', 'failed']]);
         expect(cursor).toBe(2);              // both entries stepped over
     });
 

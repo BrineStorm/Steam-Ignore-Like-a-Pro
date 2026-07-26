@@ -1,0 +1,29 @@
+# The Node unit layer only — the pure-logic specs that load a module through
+# `vm` with a stubbed window/chrome and launch no browser. The E2E half cannot
+# run here: it drives a real logged-in Steam session in a headed browser with the
+# extension loaded, which needs credentials this repo must never carry.
+#
+# The suite's globalSetup snapshots the test account's ignore list for cleanup;
+# with no session it writes a no-op marker and warns instead of failing, so the
+# units are green on a runner with no Steam access.
+name: units
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  units:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # No test in this selection opens a page, but the runner has no browsers at
+      # all and Playwright resolves its project browser at startup.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:units

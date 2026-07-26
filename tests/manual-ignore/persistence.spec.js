@@ -1,11 +1,14 @@
 const { test, expect } = require('../_fixtures.js');
 const {
     SEL,
+    DRAIN_TIMEOUT,
     interceptIgnoreApi,
+    routeUserdata,
     rightClickSwipe,
     pickFirstRow,
     searchRow,
     waitForContentScript,
+    miJob,
 } = require('./_helpers');
 const { clearExtensionStorage } = require('../_extension.js');
 const { searchUrl } = require('../_search.js');
@@ -24,6 +27,10 @@ test.describe('Manual Ignore — session persistence across reload', () => {
 
     test('Ignore → reload → badge re-renders from ilap_session_map_v2 with no new API call', async ({ page, context }) => {
         const calls = await interceptIgnoreApi(context);
+        // Nothing pre-ignored, so the drainer's dedupe can't skip the swipe.
+        // (This spec keeps its own goto: sessionStorage has to be wiped between
+        // the navigation and the content script's boot read.)
+        await routeUserdata(context, []);
 
         // 1. Ignore a game so the session map records [appid → reason].
         await page.goto(searchUrl());
@@ -35,8 +42,8 @@ test.describe('Manual Ignore — session persistence across reload', () => {
         const { link, appid } = await pickFirstRow(page);
         await rightClickSwipe(page, link, 60);
 
-        await expect(searchRow(page, appid).locator(SEL.overlay)).toBeVisible({ timeout: 5000 });
-        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
+        await expect(searchRow(page, appid).locator(SEL.overlay)).toBeVisible({ timeout: DRAIN_TIMEOUT });
+        await expect.poll(() => calls.length, { timeout: DRAIN_TIMEOUT }).toBe(1);
 
         // 2. Sanity: the session map actually holds this appid.
         const sessionDump = await page.evaluate((key) => sessionStorage.getItem(key), SESSION_KEY);
@@ -44,7 +51,13 @@ test.describe('Manual Ignore — session persistence across reload', () => {
         const entries = JSON.parse(sessionDump);
         expect(entries.some(([id]) => String(id) === appid)).toBe(true);
 
-        // 3. Reload — sessionStorage survives in the same tab, chrome.storage too.
+        // 3. Let the deferral job finish FIRST. The drainer advances the cursor
+        //    just after the POST resolves; reloading inside that window would
+        //    make the fresh page re-drain the same appid, and step 5's "no new
+        //    API call" would fail on a harness race rather than a real bug.
+        await expect.poll(() => miJob(context), { timeout: DRAIN_TIMEOUT }).toBeNull();
+
+        // Reload — sessionStorage survives in the same tab, chrome.storage too.
         await page.reload();
         await waitForContentScript(page);
 

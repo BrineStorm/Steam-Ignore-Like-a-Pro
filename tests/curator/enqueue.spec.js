@@ -124,7 +124,7 @@ test.describe('Curator — enqueue button', () => {
         await expect.poll(async () => (await readQueue(context))[0].status)
             .not.toBe('enumerating');
 
-        await expect(page.locator('.ilap-curator-toast')).toContainText(/added to queue/i);
+        await expect(page.locator('.ilap-toast')).toContainText(/added to queue/i);
     });
 
     test('An already-queued curator shows the "Added" state and an Active tag on its filter', async ({ page, context }) => {
@@ -154,7 +154,7 @@ test.describe('Curator — enqueue button', () => {
         expect(queue[0].curatorId).toBe(CURATOR_ID);
         expect(queue[0].filter).toBe('informational');
 
-        await expect(page.locator('.ilap-curator-toast')).toContainText(/switched to/i);
+        await expect(page.locator('.ilap-toast')).toContainText(/switched to/i);
     });
 
     test('Added state: the droplist carries Pause/Resume — toggling flips the stored job intent', async ({ page, context }) => {
@@ -237,7 +237,7 @@ test.describe('Curator — enqueue button', () => {
         await page.locator('.ilap-curator-menu.open [data-value="not_recommended"]').click();
 
         // Nothing was added: still three jobs, none for this curator.
-        await expect(page.locator('.ilap-curator-toast')).toContainText(/queue is full/i);
+        await expect(page.locator('.ilap-toast')).toContainText(/queue is full/i);
         const queue = await readQueue(context);
         expect(queue).toHaveLength(3);
         expect(queue.some(j => j.curatorId === CURATOR_ID)).toBe(false);

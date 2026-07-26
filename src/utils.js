@@ -27,75 +27,34 @@
         getIconUrl(fileName) { return chrome.runtime.getURL(`./assets/icons/${fileName}`); }
     }
 
-    // Plain-text boundary normalizer for names captured from Steam's DOM (game
-    // titles, curator names) before they are persisted to storage. Render paths
-    // already escape, but stripping tag delimiters + control chars and clamping
-    // length HERE means a future render path that forgets to escape can't become
-    // a stored-XSS sink, and a pathological name can't bloat storage.
-    const NAME_MAX_LEN = 120;
-    function sanitizeName(str, maxLen) {
-        return String(str == null ? '' : str)
-            .replace(/[<>]/g, '')                    // no tag delimiters survive
-            .replace(/\p{Cc}/gu, ' ')                 // drop control chars
-            .replace(/\s+/g, ' ')                    // collapse runs of whitespace
-            .trim()
-            .slice(0, maxLen || NAME_MAX_LEN);
-    }
+    // The storage-boundary name normalizer has ONE definition, in src/escape.js
+    // (loaded before this file in the content world, and reachable from the
+    // popup + service worker, which never load utils.js). Re-exported at the
+    // bottom as window.ILAP.sanitizeName for this file's long-standing callers.
+    const sanitizeName = window.ILAP.Sanitizer.sanitizeName;
 
-    // Every Steam fetch gets a hard deadline: a hung request (server not
-    // answering, half-dead connection) must fail like a network error rather
-    // than hold its caller forever — most critically the curator drainer, whose
-    // `draining` latch a hung ignore POST would otherwise wedge until reload
-    // (the lease would expire and hand off to another tab, but THIS tab would
-    // never drain again). Callers already treat a throw as failure, and an
-    // abort throws, so no call site needs extra handling.
-    const FETCH_TIMEOUT_MS = 10000;
-    function fetchWithTimeout(url, options, timeoutMs) {
-        const ctl = new AbortController();
-        const timer = setTimeout(() => ctl.abort(), timeoutMs || FETCH_TIMEOUT_MS);
-        // The timer is deliberately NOT cleared when fetch() resolves: fetch()
-        // resolves at HEADERS, while body reads (res.json()) run afterwards
-        // under the same signal — a server that sends headers then stalls the
-        // body must hit the same deadline. Once the body has been consumed the
-        // late abort() is a no-op (at worst it cancels an unread body).
-        return fetch(url, Object.assign({}, options, { signal: ctl.signal }))
-            .catch(err => { clearTimeout(timer); throw err; });
-    }
+    // The Steam network reads (deadline wrapper, userdata, login probe,
+    // appdetails classifier) have ONE definition, in src/steam-net.js — the
+    // content script and the service worker are the only worlds that talk to
+    // Steam, and both load it. Re-exported on the facade below so no caller
+    // changes; see the note at the top of that file for what deliberately
+    // stays duplicated (the ignore POST).
+    const Net = window.ILAP.SteamNet;
+    const fetchWithTimeout = Net.fetchWithTimeout;
 
-    // Authoritative ignore-state source: Steam's own dynamic store. Same-origin
-    // GET (read-only — NOT an ignore API call); rgIgnoredApps is the map of every
-    // ignored appid. Two flavours over one fetch:
-    //   - strict: null on any failure (network/parse/non-ok/timeout). For callers
-    //     whose SKIP direction inverts on this data — the undo drainer treats
-    //     "appid not in the set" as "already rolled back", so a failure must be
-    //     distinguishable from a real empty set or a dead job burns to completion;
-    //   - lenient: empty Set on failure. For callers where missing data only
-    //     disables an optimization (DQ ignore-confirmation, curator dedupe —
-    //     "nothing confirmed ignored yet", carry on).
-    const USERDATA_URL = 'https://store.steampowered.com/dynamicstore/userdata/';
-    async function fetchIgnoredAppsStrict() {
-        try {
-            const res = await fetchWithTimeout(`${USERDATA_URL}?_=${Date.now()}`, {
-                credentials: 'include', cache: 'no-store'
-            });
-            if (!res.ok) return null;
-            const data = await res.json();
-            const ignored = data && data.rgIgnoredApps;
-            return new Set(ignored ? Object.keys(ignored).map(String) : []);
-        } catch (e) {
-            return null;
-        }
-    }
+    // The lenient flavour of the userdata read stays here: it encodes CALLER
+    // policy, not network behaviour — an empty Set on failure is right where
+    // missing data only disables an optimization (DQ ignore-confirmation,
+    // curator dedupe — "nothing confirmed ignored yet", carry on), and wrong
+    // for the undo drainer, which uses the strict one.
     async function fetchIgnoredApps() {
-        return (await fetchIgnoredAppsStrict()) || new Set();
+        return (await Net.fetchIgnoredAppsStrict()) || new Set();
     }
 
     // Login-state source for gating the on-page UI. Two signals, because a page
     // can outlive its login state (opened before the user signed in elsewhere):
     // the store header DOM (free, but frozen at page load) and a live same-origin
-    // probe — /account/ redirects to the login page when the session cookies are
-    // absent (steamLoginSecure is HttpOnly, so the cookie can't be read directly).
-    const ACCOUNT_URL = 'https://store.steampowered.com/account/';
+    // probe (steam-net.js, shared with the SW).
     const SteamAuth = {
         // true/false from the store header; null when the header isn't rendered
         // at all (unknown surface) → caller falls back to the live probe.
@@ -103,15 +62,7 @@
             if (document.querySelector('#account_pulldown, #global_actions .user_avatar')) return true;
             return document.getElementById('global_action_menu') ? false : null;
         },
-        // Live check against the CURRENT cookies (a read, not an ignore call).
-        // null when the request itself failed (offline) — keep the current state.
-        async probeLogin() {
-            try {
-                const res = await fetchWithTimeout(ACCOUNT_URL, { credentials: 'include', cache: 'no-store' });
-                if (!res.ok) return null;
-                return !res.url.includes('/login');
-            } catch (e) { return null; }
-        },
+        probeLogin: Net.probeLogin,
         // The login-gate policy shared by the widget launcher and the curator
         // button: trust the header DOM when it rendered (true/false — a false
         // header never triggers a probe), fall back to the live probe only when
@@ -124,85 +75,68 @@
         }
     };
 
-    const SteamAPI = {
-        // Resolves { ok, rateLimited, retryAfterMs, status }:
-        //   ok          — the ignore landed;
-        //   rateLimited — the server answered 429 (throttling the ACCOUNT, not
-        //                 this appid). Gated callers report it to the IgnoreGate
-        //                 so every source in every tab backs off together;
-        //   retryAfterMs — parsed Retry-After when the 429 carried one, else 0
-        //                 (an HTTP-date Retry-After parses to 0 and the gate's
-        //                 own exponential backoff decides);
-        //   status      — the HTTP status (0 when the request never completed).
-        //                 Only the curator drainer's 400-classifier reads it:
-        //                 the region-lock ⇔ appdetails-success:false correlation
-        //                 was established for HTTP 400 specifically, so a probe
-        //                 must NOT fire on a timeout/5xx that merely looks like a
-        //                 refusal.
-        // A network failure / dead session is { ok:false, rateLimited:false }.
-        async ignore(appid, reason) {
-            const sessionid = SessionService.getID();
-            if (!sessionid) return { ok: false, rateLimited: false, retryAfterMs: 0, status: 0 };
+    // The ignore endpoint, this world's copy (the SW has its own — see the note
+    // at the top of steam-net.js for why this one POST stays duplicated).
+    // Resolves { ok, rateLimited, retryAfterMs, status }:
+    //   ok          — the call landed;
+    //   rateLimited — the server answered 429 (throttling the ACCOUNT, not
+    //                 this appid). Gated callers report it to the IgnoreGate
+    //                 so every source in every tab backs off together;
+    //   retryAfterMs — parsed Retry-After when the 429 carried one, else 0
+    //                 (an HTTP-date Retry-After parses to 0 and the gate's
+    //                 own exponential backoff decides);
+    //   status      — the HTTP status (0 when the request never completed).
+    //                 Only the curator drainer's 400-classifier reads it:
+    //                 the region-lock ⇔ appdetails-success:false correlation
+    //                 was established for HTTP 400 specifically, so a probe
+    //                 must NOT fire on a timeout/5xx that merely looks like a
+    //                 refusal.
+    // A network failure / dead session is { ok:false, rateLimited:false }.
+    const IGNORE_URL = 'https://store.steampowered.com/recommended/ignorerecommendation/';
+    async function post(fields) {
+        const sessionid = SessionService.getID();
+        if (!sessionid) return { ok: false, rateLimited: false, retryAfterMs: 0, status: 0 };
 
-            // URLSearchParams encodes each field, so the cookie-sourced sessionid
-            // can't break the body's key=value&… structure (it's hex today, but
-            // this closes the injection question at the boundary regardless).
-            const body = new URLSearchParams({
-                sessionid, appid, snr: '', ignore_reason: reason
-            }).toString();
-            try {
-                const response = await fetchWithTimeout('https://store.steampowered.com/recommended/ignorerecommendation/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                    body: body
-                });
-                if (response.status === 429) {
-                    const ra = parseInt(response.headers.get('Retry-After'), 10);
-                    return { ok: false, rateLimited: true, retryAfterMs: ra > 0 ? ra * 1000 : 0, status: 429 };
-                }
-                return { ok: response.ok, rateLimited: false, retryAfterMs: 0, status: response.status };
-            } catch (e) { return { ok: false, rateLimited: false, retryAfterMs: 0, status: 0 }; }
+        // URLSearchParams encodes each field, so the cookie-sourced sessionid
+        // can't break the body's key=value&… structure (it's hex today, but
+        // this closes the injection question at the boundary regardless).
+        const body = new URLSearchParams(Object.assign({ sessionid }, fields)).toString();
+        try {
+            const response = await fetchWithTimeout(IGNORE_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                body: body
+            });
+            if (response.status === 429) {
+                const ra = parseInt(response.headers.get('Retry-After'), 10);
+                return { ok: false, rateLimited: true, retryAfterMs: ra > 0 ? ra * 1000 : 0, status: 429 };
+            }
+            return { ok: response.ok, rateLimited: false, retryAfterMs: 0, status: response.status };
+        } catch (e) { return { ok: false, rateLimited: false, retryAfterMs: 0, status: 0 }; }
+    }
+
+    const SteamAPI = {
+        ignore(appid, reason) {
+            return post({ appid, snr: '', ignore_reason: reason });
         },
 
         // Un-ignore: the SAME endpoint with remove=1 (the shape Steam's own
         // notinterested page fires, proven by the E2E cleanup hooks). Same
         // resolve contract as ignore() — the undo drainer paces these through
         // the IgnoreGate exactly like ignores (same endpoint, same rate risk).
-        async unignore(appid) {
-            const sessionid = SessionService.getID();
-            if (!sessionid) return { ok: false, rateLimited: false, retryAfterMs: 0, status: 0 };
-
-            const body = new URLSearchParams({
-                sessionid, appid, snr: '1_account_notinterested_', remove: '1'
-            }).toString();
-            try {
-                const response = await fetchWithTimeout('https://store.steampowered.com/recommended/ignorerecommendation/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                    body: body
-                });
-                if (response.status === 429) {
-                    const ra = parseInt(response.headers.get('Retry-After'), 10);
-                    return { ok: false, rateLimited: true, retryAfterMs: ra > 0 ? ra * 1000 : 0, status: 429 };
-                }
-                return { ok: response.ok, rateLimited: false, retryAfterMs: 0, status: response.status };
-            } catch (e) { return { ok: false, rateLimited: false, retryAfterMs: 0, status: 0 }; }
+        unignore(appid) {
+            return post({ appid, snr: '1_account_notinterested_', remove: '1' });
         }
     };
 
     // === Stats Domain ===
 
-    const HISTORY_LIMIT = 20; // max entries kept in ilap_ignored_history
-
-    const StatsLogic = {
-        increment(currentCount) {
-            return (currentCount || 0) + 1;
-        },
-        pushHistory(currentHistory, name, source) {
-            const history = [{ name, source }, ...(currentHistory || [])];
-            return history.slice(0, HISTORY_LIMIT);
-        }
-    };
+    // The record's shape — key names, the 20-entry history cap and the two pure
+    // transforms — has ONE definition, in src/stats.js (loaded before this file;
+    // the service worker writes the same record for drained manual-ignore jobs
+    // and cannot load utils.js). Only the chrome.storage read-modify-write below
+    // is this world's own.
+    const StatsLogic = window.ILAP.StatsLogic;
 
     const StatsManager = {
         // Serializes the read-modify-write so concurrent ignores can't lose an
@@ -229,17 +163,10 @@
         _commit(safeName, source) {
             return new Promise(resolve => {
                 try {
-                    chrome.storage.local.get(['ilap_ignored_history', 'ilap_ignored_count'], (result) => {
+                    chrome.storage.local.get([StatsLogic.HISTORY_KEY, StatsLogic.COUNT_KEY], (result) => {
                         if (chrome.runtime.lastError) return resolve();
-
-                        const newCount = StatsLogic.increment(result.ilap_ignored_count);
-                        const newHistory = StatsLogic.pushHistory(result.ilap_ignored_history, safeName, source);
-
-                        chrome.storage.local.set({
-                            'ilap_ignored_count': newCount,
-                            'ilap_ignored_history': newHistory,
-                            'ilap_last_ignored_name': safeName
-                        }, resolve);
+                        chrome.storage.local.set(
+                            StatsLogic.nextState(result, safeName, source), resolve);
                     });
                 } catch (e) {
                     console.warn("[ILAP] Failed to access storage:", e);
@@ -430,25 +357,6 @@
         } catch (e) { return null; }
     }
 
-    // 400-classifier for the curator drainer: the ignore endpoint answers a
-    // permanent 400 for an appid with no purchasable store object in the
-    // account's region (CDPR titles in RU, Spacewar anywhere) — verified to
-    // correlate 1:1 with appdetails `success:false`. Resolves true only on
-    // that positive evidence; false/null (available / probe failed) keep the
-    // caller on its systemic-failure path. No cc override and no filters
-    // param: the session's own region must decide, exactly like the probe
-    // that established the correlation. Called at most once per FAILED post,
-    // so the endpoint's aggressive rate limit is not a concern.
-    async function checkAppUnavailable(appid) {
-        try {
-            const res = await fetchWithTimeout(`${APPDETAILS_URL}?appids=${appid}`);
-            if (!res.ok) return null;
-            const data = await res.json();
-            const entry = data && data[appid];
-            return entry ? entry.success !== true : null;
-        } catch (e) { return null; }
-    }
-
     // Collision-resistant per-context owner id for storage leases/slots (the
     // curator drain lease, the DQ registry slot); the prefix names the subsystem.
     const newOwnerId = (prefix) =>
@@ -462,8 +370,8 @@
     window.ILAP.apiIgnoreGame = SteamAPI.ignore;
     window.ILAP.apiUnignoreGame = SteamAPI.unignore;
     window.ILAP.fetchIgnoredApps = fetchIgnoredApps;
-    window.ILAP.fetchIgnoredAppsStrict = fetchIgnoredAppsStrict;
-    window.ILAP.checkAppUnavailable = checkAppUnavailable;
+    window.ILAP.fetchIgnoredAppsStrict = Net.fetchIgnoredAppsStrict;
+    window.ILAP.classifyRefusal = Net.classifyRefusal;
     window.ILAP.SteamAuth = SteamAuth;
     window.ILAP.saveStats = (name, source) => StatsManager.save(name, source);
     window.ILAP.getGameName = (appid, el) => extractorProvider.get(appid, el);

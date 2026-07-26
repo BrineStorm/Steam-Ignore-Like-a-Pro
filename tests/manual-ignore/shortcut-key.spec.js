@@ -1,12 +1,13 @@
 const { test, expect } = require('../_fixtures.js');
 const {
     SEL,
-    interceptIgnoreApi,
+    DRAIN_TIMEOUT,
     rightClickSwipe,
     pickFirstRow,
     searchRow,
     SEARCH_ROW,
-    waitForContentScript,
+    gotoWithStubs,
+    miJob,
 } = require('./_helpers');
 const { clearExtensionStorage, setExtensionStorage } = require('../_extension.js');
 const { searchUrl } = require('../_search.js');
@@ -27,9 +28,7 @@ test.describe('Manual Ignore — alternative shortcut (Ctrl+Click)', () => {
             ilap_platform_key: 'off',
         });
 
-        const calls = await interceptIgnoreApi(context);
-        await page.goto(searchUrl());
-        await waitForContentScript(page);
+        const calls = await gotoWithStubs(page, context, searchUrl());
         // ConfigService.listen() picks up storage changes asynchronously.
         await page.waitForTimeout(400);
 
@@ -39,11 +38,11 @@ test.describe('Manual Ignore — alternative shortcut (Ctrl+Click)', () => {
         // event still fires through document.body capture-phase listener.
         await link.click({ modifiers: ['Control'], force: true });
 
-        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
+        await expect.poll(() => calls.length, { timeout: DRAIN_TIMEOUT }).toBe(1);
         expect(calls[0].appid).toBe(appid);
         expect(calls[0].reason).toBe(0);
 
-        await expect(searchRow(page, appid).locator(SEL.overlay)).toBeVisible({ timeout: 5000 });
+        await expect(searchRow(page, appid).locator(SEL.overlay)).toBeVisible({ timeout: DRAIN_TIMEOUT });
     });
 
     test('After switching default to ctrlKey: swipeRight no longer triggers ignore', async ({ page, context }) => {
@@ -52,15 +51,16 @@ test.describe('Manual Ignore — alternative shortcut (Ctrl+Click)', () => {
             ilap_platform_key: 'off',
         });
 
-        const calls = await interceptIgnoreApi(context);
-        await page.goto(searchUrl());
-        await waitForContentScript(page);
+        const calls = await gotoWithStubs(page, context, searchUrl());
         await page.waitForTimeout(400);
 
         const { link } = await pickFirstRow(page);
         await rightClickSwipe(page, link, 60);
         await page.waitForTimeout(500);
 
+        // Nothing may reach the deferral queue either — a POST that hasn't
+        // fired yet is no longer evidence that the gesture was ignored.
+        expect(await miJob(context)).toBeNull();
         expect(calls).toHaveLength(0);
         await expect(page.locator(SEL.overlay)).toHaveCount(0);
     });
@@ -71,9 +71,7 @@ test.describe('Manual Ignore — alternative shortcut (Ctrl+Click)', () => {
             ilap_platform_key: 'shiftKey',
         });
 
-        const calls = await interceptIgnoreApi(context);
-        await page.goto(searchUrl());
-        await waitForContentScript(page);
+        const calls = await gotoWithStubs(page, context, searchUrl());
         await page.waitForTimeout(400);
 
         // Each search row IS an /app/ link; take two distinct rows so dedup
@@ -92,7 +90,7 @@ test.describe('Manual Ignore — alternative shortcut (Ctrl+Click)', () => {
         await secondLink.scrollIntoViewIfNeeded();
         await secondLink.click({ modifiers: ['Shift'], force: true });
 
-        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(2);
+        await expect.poll(() => calls.length, { timeout: DRAIN_TIMEOUT }).toBe(2);
         const byId = Object.fromEntries(calls.map(c => [c.appid, c.reason]));
         expect(byId[firstId]).toBe(0);
         expect(byId[secondId]).toBe(2);

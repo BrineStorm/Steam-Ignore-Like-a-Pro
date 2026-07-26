@@ -29,11 +29,14 @@
       ],
       "js": [
         "src/escape.js",
+        "src/stats.js",
+        "src/steam-net.js",
         "src/utils.js",
         "src/gate.js",
         "src/ignore-log.js",
         "src/surface.js",
         "src/i18n.js",
+        "src/toast.js",
 
         "src/manual-ignore/utils.js",
         "src/manual-ignore/ui.js",

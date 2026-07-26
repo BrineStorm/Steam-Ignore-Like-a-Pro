@@ -9,6 +9,7 @@
     "build:test": "node build.js --test",
     "test": "npm run build:test && npx playwright test --project=chromium",
     "test:ff": "npm run build:test && npx playwright test --project=firefox",
+    "test:units": "npx playwright test --project=chromium unit.spec.js tests/cross-cutting tests/explore-queue/decision-matrix.spec.js",
     "test:auth": "npm run build:test && npx playwright test --project=setup",
     "test_dq": "npm run build:test && npx playwright test --project=chromium tests/discovery-queue",
     "test_eq": "npm run build:test && npx playwright test --project=chromium tests/explore-queue",
@@ -16,6 +17,7 @@
     "test_popup": "npm run build:test && npx playwright test --project=chromium tests/popup",
     "test_curator": "npm run build:test && npx playwright test --project=chromium tests/curator",
     "test_live": "npm run build:test && npx playwright test --project=chromium tests/curator/drain-live.spec.js",
+    "test_sw_live": "npm run build && npx playwright test --project=chromium tests/curator/sw-live.spec.js",
     "test_widget": "npm run build:test && npx playwright test --project=chromium tests/widget"
   },
   "devDependencies": {

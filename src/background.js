@@ -26,6 +26,9 @@
 self.window = self;
 
 importScripts(
+    'escape.js',
+    'stats.js',
+    'steam-net.js',
     'migrate.js',
     'gate.js',
     'ignore-log.js',
@@ -40,6 +43,7 @@ importScripts(
     const Store = ILAP.Curator.Store;
     const Gate = ILAP.IgnoreGate;
     const Log = ILAP.IgnoreLog;
+    const Net = ILAP.SteamNet;   // the Steam reads this worker shares with the tab
 
     const SID_KEY = 'ilap_sw_sid';    // sessionid cached by the content script
     const HALT_KEY = 'ilap_sw_halt';  // SW route halted until a store-page visit
@@ -61,17 +65,11 @@ importScripts(
     ILAP.getSessionID = () => cachedSid;
 
     // --- Steam API from the SW ---------------------------------------------
-    // Deliberately duplicated from utils.js SteamAPI/SteamAuth (same
-    // world-isolation decision as the storage shim above); the one semantic
-    // difference is the sessionid source: the storage cache, not the cookie.
-
-    const FETCH_TIMEOUT_MS = 10000;
-    function fetchWithTimeout(url, options) {
-        const ctl = new AbortController();
-        const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
-        return fetch(url, Object.assign({}, options, { signal: ctl.signal }))
-            .catch(err => { clearTimeout(timer); throw err; });
-    }
+    // The READS (deadline wrapper, userdata, login probe, appdetails
+    // classifier) come from the shared steam-net.js — the tab and this worker
+    // are the only worlds that talk to Steam. Only the ignore POST below is
+    // deliberately this world's own: the sessionid comes from the storage
+    // cache rather than the cookie, and it carries the halt counter.
 
     // A cached sessionid can go stale with no store tab around to refresh it
     // (re-login elsewhere): every POST then fails, and the drainer's MAX_FAILS
@@ -85,7 +83,8 @@ importScripts(
     // fails-closed by design; and the whole mechanism assumes Steam answers
     // non-ok for a rejected POST (verified: bad sessionid → 400).
     // A classified per-appid refusal (res.unavailable — region-locked appid,
-    // see classifyRefusal below) is neutral: it neither counts toward the halt
+    // marked by SteamNet.classifyRefusal, which the api wrappers below apply
+    // BEFORE this counter sees the result) is neutral: it neither counts toward the halt
     // (two adjacent region-locked titles in one list must not kill the whole
     // SW route) nor resets the counter (it proves nothing about the sid).
     let consecFails = 0;
@@ -102,7 +101,7 @@ importScripts(
     const IGNORE_URL = 'https://store.steampowered.com/recommended/ignorerecommendation/';
     async function post(fields) {
         try {
-            const response = await fetchWithTimeout(IGNORE_URL, {
+            const response = await Net.fetchWithTimeout(IGNORE_URL, {
                 method: 'POST',
                 // Load-bearing, unlike in utils.js SteamAPI (where the fetch is
                 // same-origin): from the SW this POST is CROSS-origin
@@ -122,96 +121,41 @@ importScripts(
         } catch (e) { return { ok: false, rateLimited: false, retryAfterMs: 0, status: 0 }; }
     }
 
-    // 400-classifier, duplicated from utils.js checkAppUnavailable (same
-    // world-isolation decision as the rest of this API block): a refused POST
-    // for an appid with no store object in the account's region is permanent —
-    // appdetails `success:false` correlates 1:1. The one difference from the
-    // tab copy is credentials:'include' — cross-origin here, and the account
-    // cookies are what pin the response to the account's region. Runs BEFORE
-    // trackFails so a region lock never charges the halt counter; false/null
-    // verdicts leave the result unmarked → systemic path stands.
-    const APPDETAILS_URL = 'https://store.steampowered.com/api/appdetails';
-    async function checkAppUnavailable(appid) {
-        try {
-            const res = await fetchWithTimeout(`${APPDETAILS_URL}?appids=${appid}`, {
-                credentials: 'include'
-            });
-            if (!res.ok) return null;
-            const data = await res.json();
-            const entry = data && data[appid];
-            return entry ? entry.success !== true : null;
-        } catch (e) { return null; }
-    }
-    // Gated strictly on HTTP 400 (see the tab copy in curator/drainer.js): the
-    // region-lock ⇔ success:false correlation holds for 400, so a timeout / 5xx
-    // (status 0 here) stays on the systemic path and charges the halt counter.
-    async function classifyRefusal(appid, res) {
-        if (res.status === 400
-            && (await checkAppUnavailable(appid)) === true) {
-            res.unavailable = true;
-        }
-        return res;
-    }
-
+    // 400-classification wraps THIS world's POST with the shared rule from
+    // steam-net.js (the tab's drainer wraps its own the same way). The ordering
+    // is what's specific here: it runs BEFORE trackFails, so a region-locked
+    // appid never charges the halt counter — two such titles in a row would
+    // otherwise kill the whole SW route.
     async function apiIgnore(appid, reason) {
-        if (!cachedSid) return { ok: false, rateLimited: false, retryAfterMs: 0 };
-        return trackFails(await classifyRefusal(appid, await post({
+        if (!cachedSid) return { ok: false, rateLimited: false, retryAfterMs: 0, status: 0 };
+        return trackFails(await Net.classifyRefusal(appid, await post({
             sessionid: cachedSid, appid, snr: '', ignore_reason: reason
         })));
     }
     async function apiUnignore(appid) {
-        if (!cachedSid) return { ok: false, rateLimited: false, retryAfterMs: 0 };
-        return trackFails(await classifyRefusal(appid, await post({
+        if (!cachedSid) return { ok: false, rateLimited: false, retryAfterMs: 0, status: 0 };
+        return trackFails(await Net.classifyRefusal(appid, await post({
             sessionid: cachedSid, appid, snr: '1_account_notinterested_', remove: '1'
         })));
     }
 
-    // Last-Ignored stats for drained MI jobs, duplicated from utils.js
-    // StatsManager (same world-isolation decision as the rest of this file — the
-    // SW never loads utils.js). If you change the stored shape here, visit the
-    // sibling in utils.js. Serialized so overlapping saves can't lose a count.
-    const HISTORY_LIMIT = 20;
+    // Last-Ignored stats for drained MI jobs. Only the chrome.storage
+    // read-modify-write is this world's own (the same world-isolation decision
+    // as the storage shim above); everything that CAN be shared is: the record's
+    // shape and cap come from stats.js, the name normalizer from escape.js and
+    // the reason→label map from the queue store, all three loaded by this
+    // worker. Serialized so overlapping saves can't lose a count.
+    const Stats = ILAP.StatsLogic;
     let statsChain = Promise.resolve();
     function saveStats(name, reason) {
-        const source = reason === 2 ? 'Played Elsewhere' : 'Default Ignore';
-        const safe = String(name == null ? '' : name)
-            .replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        const source = Store.miSourceLabel(reason);
+        const safe = ILAP.Sanitizer.sanitizeName(name);
         statsChain = statsChain.then(() => new Promise((resolve) => {
-            chrome.storage.local.get(['ilap_ignored_history', 'ilap_ignored_count'], (r) => {
-                const count = (r.ilap_ignored_count || 0) + 1;
-                const history = [{ name: safe, source }, ...(r.ilap_ignored_history || [])].slice(0, HISTORY_LIMIT);
-                chrome.storage.local.set({
-                    ilap_ignored_count: count,
-                    ilap_ignored_history: history,
-                    ilap_last_ignored_name: safe
-                }, resolve);
+            chrome.storage.local.get([Stats.HISTORY_KEY, Stats.COUNT_KEY], (r) => {
+                chrome.storage.local.set(Stats.nextState(r, safe, source), resolve);
             });
         })).catch(() => {});
         return statsChain;
-    }
-
-    const USERDATA_URL = 'https://store.steampowered.com/dynamicstore/userdata/';
-    async function fetchIgnoredAppsStrict() {
-        try {
-            const res = await fetchWithTimeout(`${USERDATA_URL}?_=${Date.now()}`, {
-                credentials: 'include', cache: 'no-store'
-            });
-            if (!res.ok) return null;
-            const data = await res.json();
-            const ignored = data && data.rgIgnoredApps;
-            return new Set(ignored ? Object.keys(ignored).map(String) : []);
-        } catch (e) {
-            return null;
-        }
-    }
-
-    const ACCOUNT_URL = 'https://store.steampowered.com/account/';
-    async function probeLogin() {
-        try {
-            const res = await fetchWithTimeout(ACCOUNT_URL, { credentials: 'include', cache: 'no-store' });
-            if (!res.ok) return null;
-            return !res.url.includes('/login');
-        } catch (e) { return null; }
     }
 
     // --- gate wrapper ------------------------------------------------------
@@ -241,8 +185,8 @@ importScripts(
             reserve: swReserve,
             reportRateLimited: (ms) => Gate.reportRateLimited(ms)
         },
-        fetchUserdata: fetchIgnoredAppsStrict,
-        probeLogin,
+        fetchUserdata: Net.fetchIgnoredAppsStrict,
+        probeLogin: Net.probeLogin,
         saveStats,
         log: Log ? {
             append: (entry) => Log.append(entry),

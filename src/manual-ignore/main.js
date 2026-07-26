@@ -2,14 +2,22 @@
 (function() {
     'use strict';
 
+    const TOAST_COOLDOWN_MS = 10000;
+
     class IgnoreManager {
-        constructor(badgeRenderer, containerStrategies, enqueue, nameExtractor, sessionState, sessionId) {
-            this.renderer = badgeRenderer;
-            this.strategies = containerStrategies;
-            this.enqueue = enqueue;            // (appid, name, reason) => Promise<{ kind }>
-            this.nameExtractor = nameExtractor;
-            this.session = sessionState;
-            this.sessionId = sessionId;        // () => sessionid|null (logged-out gate)
+        // Injected as a deps object, like the rest of the queue-era code
+        // (UndoService, CuratorQueueDrainer, EnqueueService): the positional
+        // list had grown to seven and a mis-ordered call site would have failed
+        // silently rather than loudly.
+        constructor(deps) {
+            this.renderer = deps.badgeRenderer;
+            this.strategies = deps.containerStrategies;
+            this.enqueue = deps.enqueue;            // (appid, name, reason) => Promise<{ kind }>
+            this.nameExtractor = deps.nameExtractor;
+            this.session = deps.sessionState;
+            this.sessionId = deps.sessionId;        // () => sessionid|null (logged-out gate)
+            this.notifyQueueFull = deps.notifyQueueFull || null;  // () => void, throttled by the adapter
+            this.notifyDropped = deps.notifyDropped || null;      // () => void, same contract
 
             this.sessionMap = new Map();
             this.SESSION_KEY = 'ilap_session_map_v2';
@@ -51,7 +59,15 @@
             // must know it landed before painting the optimistic badge. The POST
             // itself is sent later, paced through the IgnoreGate by the drainer.
             const outcome = await this.enqueue(appid, name, reason);
-            if (!outcome || outcome.kind !== 'added') return;
+            if (!outcome || outcome.kind !== 'added') {
+                // At MI_MAX the enqueue is a no-op, and a swipe that paints
+                // nothing reads as a broken extension. The cap is only reached
+                // when the queue isn't draining at all (no store tab + a halted
+                // SW route, a gate stop, a dead session), so say the honest
+                // thing: the queue is stuck, remove the job and retry.
+                if (outcome && outcome.kind === 'full' && this.notifyQueueFull) this.notifyQueueFull();
+                return;
+            }
             this._onEnqueued(intent);
         }
 
@@ -64,15 +80,23 @@
             this.refreshBadgesForGame(appid);
         }
 
-        // A game this tab badged was deliberately un-ignored (undo drain, signalled
-        // via ilap_unignored). Drop it from the per-tab session map and un-render
-        // its badge, so the page stops showing IGNORED for a rolled-back game.
-        handleUnignored(appid) {
+        // A game this tab badged is no longer ignored (ilap_unignored pulse) —
+        // either an undo drain rolled it back, or its deferred MI POST never
+        // landed. Drop it from the per-tab session map and un-render the badge,
+        // so the page stops showing IGNORED for a game that isn't.
+        //
+        // `reason === 'failed'` is the second case, and it is the only one the
+        // user hasn't asked for: from their side a swipe silently un-did itself
+        // minutes later. Say so — but only in a tab that actually badged this
+        // game (the sessionMap guard above), so the toast lands where the
+        // gesture happened instead of in every open store tab.
+        handleUnignored(appid, reason) {
             appid = String(appid);
             if (!this.sessionMap.has(appid)) return;   // only clear what THIS tab badged
             this.sessionMap.delete(appid);
             this._saveSession();
             this.renderer.unrender(appid);
+            if (reason === 'failed' && this.notifyDropped) this.notifyDropped();
         }
 
         refreshBadgesForGame(appid) {
@@ -133,14 +157,35 @@
                 window.ILAP.Curator.Store.enqueueMi({ appid, name, reason });
             const nameExtractorAdapter = { get: (appid, el) => window.ILAP.resolveGameName(appid, el) };
 
-            this.ignoreManager = new IgnoreManager(
+            // Feedback on the shared push card (src/toast.js), one card per
+            // burst: someone who keeps swiping past the cap — or a drain that
+            // drops several games in a row — must not be buried in cards.
+            const throttledToast = (key) => {
+                let lastAt = 0;
+                return () => {
+                    const now = Date.now();
+                    if (now - lastAt < TOAST_COOLDOWN_MS) return;
+                    lastAt = now;
+                    const t = (k) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k) : k;
+                    window.ILAP.showToast(
+                        window.ILAP.Sanitizer.escapeHTML(t(key)), 5000);
+                };
+            };
+            // The swipe was refused outright (queue at MI_MAX)…
+            const notifyQueueFull = throttledToast('mi_queue_stuck');
+            // …and: the swipe was accepted, but its deferred POST never landed.
+            const notifyDropped = throttledToast('mi_ignore_failed');
+
+            this.ignoreManager = new IgnoreManager({
                 badgeRenderer,
-                strategies,
+                containerStrategies: strategies,
                 enqueue,
-                nameExtractorAdapter,
-                sessionService,
-                () => window.ILAP.getSessionID()
-            );
+                nameExtractor: nameExtractorAdapter,
+                sessionState: sessionService,
+                sessionId: () => window.ILAP.getSessionID(),
+                notifyQueueFull,
+                notifyDropped
+            });
             
             this.eventParser = new MI.EventParser(this.configService);
             this.swipeDetector = new MI.SwipeGestureDetector(this.configService);
@@ -157,13 +202,15 @@
             this.setupInteractions();
             this.setupObserver();
 
-            // A confirmed un-ignore (undo drain) pulses ilap_unignored per appid —
-            // clear that game's badge in this tab if we badged it this session.
+            // A game stopped being ignored (undo drain confirmed, or a deferred
+            // MI POST was dropped) — ilap_unignored pulses per appid. Clear that
+            // game's badge in this tab if we badged it this session; the pulse's
+            // reason decides whether the user also gets told.
             chrome.storage.onChanged.addListener((changes, area) => {
                 if (area !== 'local') return;
                 const p = changes.ilap_unignored;
                 if (p && p.newValue && p.newValue.appid) {
-                    this.ignoreManager.handleUnignored(p.newValue.appid);
+                    this.ignoreManager.handleUnignored(p.newValue.appid, p.newValue.reason);
                 }
             });
 

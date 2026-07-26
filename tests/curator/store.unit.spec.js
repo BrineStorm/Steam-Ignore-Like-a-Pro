@@ -63,6 +63,16 @@ test.describe('Curator storage — pure helpers (unit)', () => {
         expect(S.isFresh(null, now)).toBe(false);
     });
 
+    test('miSourceLabel maps an MI reason to its Last-Ignored label', () => {
+        // One mapping for both drain hosts (the content-script wiring in
+        // drainer.js and the SW's saveStats shim): reason 2 is the
+        // Already-Played swipe, everything else is the default ignore.
+        expect(S.miSourceLabel(2)).toBe('Played Elsewhere');
+        expect(S.miSourceLabel('2')).toBe('Played Elsewhere');   // meta survives a JSON round-trip
+        expect(S.miSourceLabel(0)).toBe('Default Ignore');
+        expect(S.miSourceLabel(undefined)).toBe('Default Ignore');
+    });
+
     test('evictCache drops entries older than the 7-day TTL', () => {
         const now = 1_000_000_000_000;
         const cache = {
@@ -231,6 +241,31 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         expect(data().ilap_curator_queue[0].appids).toEqual(['10']);
     });
 
+    test('a re-swipe of an already-DRAINED appid enqueues again (undo → re-ignore)', async () => {
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: 'job_mi', type: 'mi', curatorId: 'mi', appids: ['10', '11'],
+                meta: { 10: { name: 'A', reason: 0 }, 11: { name: 'B', reason: 0 } },
+                total: 2, status: 'pending',
+            }],
+            ilap_curator_cursor_job_mi: 1,   // '10' drained, '11' still pending
+        });
+        // '10' was ignored, then rolled back by an undo job — which clears its
+        // badge and its session-map entry, so the tab lets the user swipe it
+        // again. Drained entries stay in `appids` until the job completes, so
+        // matching the whole array would drop that swipe while still answering
+        // 'added': a badge for an ignore that never fires.
+        expect(await Store.enqueueMi({ appid: 10, name: 'A', reason: 0 }))
+            .toEqual({ kind: 'added', total: 3 });
+        expect(data().ilap_curator_queue[0].appids).toEqual(['10', '11', '10']);
+
+        // …while a still-PENDING appid is deduped as before — appending there
+        // would genuinely double-POST the same game.
+        expect(await Store.enqueueMi({ appid: 11, name: 'B', reason: 0 }))
+            .toEqual({ kind: 'added', total: 3 });
+        expect(data().ilap_curator_queue[0].appids).toEqual(['10', '11', '10']);
+    });
+
     test('MI_MAX is a hard cap: a swipe past it is a silent no-op (kind:full)', async () => {
         const MI_MAX = loadStore().MI_MAX;   // pure load for the constant
         const appids = Array.from({ length: MI_MAX }, (_, i) => String(i));
@@ -264,6 +299,14 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         const pulse = data()[Store.UNIGNORE_PULSE_KEY];
         expect(pulse.appid).toBe('292030');
         expect(typeof pulse.ts).toBe('number');
+        // Default reason: the undo drain rolled it back on purpose. The MI
+        // listener stays silent for this one — the user asked for it.
+        expect(pulse.reason).toBe('undo');
+
+        // A dropped MI ignore carries the reason that makes the tab explain
+        // itself instead of silently un-badging the game.
+        await Store.signalUnignored(480, 'failed');
+        expect(data()[Store.UNIGNORE_PULSE_KEY]).toMatchObject({ appid: '480', reason: 'failed' });
     });
 
     test('a swipe appended concurrently with completion is never lost (enqueueMi vs removeIfDrained)', async () => {

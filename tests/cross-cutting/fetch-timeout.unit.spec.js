@@ -3,11 +3,12 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-// fetchWithTimeout (src/utils.js) as a Node unit — no browser. Every Steam
-// fetch goes through it so a hung request fails like a network error instead
-// of holding its caller forever (audit #3: e.g. the drainer's `draining`
-// latch). Load utils.js in vm with a signal-honouring fetch stub and drive
-// the exported helper + the fetchIgnoredApps failure contract.
+// fetchWithTimeout (src/steam-net.js, re-exported on the utils.js facade) as a
+// Node unit — no browser. Every Steam fetch goes through it so a hung request
+// fails like a network error instead of holding its caller forever (audit #3:
+// e.g. the drainer's `draining` latch). Load the pair in vm with a
+// signal-honouring fetch stub and drive the exported helper + the
+// fetchIgnoredApps failure contract.
 
 function loadIlap(fetchImpl, setTimeoutImpl) {
     const code = fs.readFileSync(
@@ -21,6 +22,16 @@ function loadIlap(fetchImpl, setTimeoutImpl) {
         Date, Math, Object, Promise, Set, String, RegExp,
     };
     vm.createContext(sandbox);
+    // escape.js owns the shared string helpers (escapeHTML + sanitizeName) for
+    // all three worlds, stats.js the Last-Ignored record shape for the two that
+    // write it, steam-net.js the Steam reads for the two that fetch; all three
+    // load before utils.js wherever it runs — the sandbox mirrors that.
+    vm.runInContext(fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'escape.js'), 'utf8'), sandbox);
+    vm.runInContext(fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'stats.js'), 'utf8'), sandbox);
+    vm.runInContext(fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'steam-net.js'), 'utf8'), sandbox);
     vm.runInContext(code, sandbox);
     return sandbox.window.ILAP;
 }

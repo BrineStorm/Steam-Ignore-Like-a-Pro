@@ -1,11 +1,11 @@
 const { test, expect } = require('../_fixtures.js');
 const {
     SEL,
-    interceptIgnoreApi,
+    DRAIN_TIMEOUT,
     rightClickSwipe,
     pickFirstRow,
     searchRow,
-    waitForContentScript,
+    gotoWithStubs,
 } = require('./_helpers');
 const { clearExtensionStorage } = require('../_extension.js');
 const { searchUrl } = require('../_search.js');
@@ -53,27 +53,23 @@ const SURFACES = [
 test.describe('Manual Ignore — container strategies across Steam surfaces', () => {
 
     test('Swipe lands a badge on: search results — Fallback strategy (grid)', async ({ page, context }) => {
-        const calls = await interceptIgnoreApi(context);
-        await page.goto(searchUrl());
-        await waitForContentScript(page);
+        const calls = await gotoWithStubs(page, context, searchUrl());
 
         // Search rows ARE the /app/ link; the extension resolves them via the
         // Fallback strategy → 'grid' badge appended onto the row.
         const { link, appid } = await pickFirstRow(page);
         await rightClickSwipe(page, link, 60);
 
-        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
+        await expect.poll(() => calls.length, { timeout: DRAIN_TIMEOUT }).toBe(1);
         expect(calls[0].appid).toBe(appid);
         expect(calls[0].reason).toBe(0);
 
-        await expect(searchRow(page, appid).locator(SEL.gridBadge)).toBeVisible({ timeout: 5000 });
+        await expect(searchRow(page, appid).locator(SEL.gridBadge)).toBeVisible({ timeout: DRAIN_TIMEOUT });
     });
 
     for (const surface of SURFACES) {
         test(`Swipe lands a badge on: ${surface.name}`, async ({ page, context }) => {
-            const calls = await interceptIgnoreApi(context);
-            await page.goto('/');
-            await waitForContentScript(page);
+            const calls = await gotoWithStubs(page, context, '/');
 
             // Storefront hydrates widgets asynchronously — give the anchor time
             // to materialize, otherwise skip with a clear message rather than a
@@ -88,14 +84,14 @@ test.describe('Manual Ignore — container strategies across Steam surfaces', ()
             const { link, appid } = await pickFirstRow(page, surface.anchor);
             await rightClickSwipe(page, link, 60);
 
-            await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
+            await expect.poll(() => calls.length, { timeout: DRAIN_TIMEOUT }).toBe(1);
             expect(calls[0].appid).toBe(appid);
             expect(calls[0].reason).toBe(0);
 
             // The badge must carry the variant class of the strategy this
             // surface resolves through AND be tied to the swiped appid.
             const badge = page.locator(`${surface.expectVariant}[data-ilap-appid="${appid}"]`).first();
-            await expect(badge).toBeVisible({ timeout: 5000 });
+            await expect(badge).toBeVisible({ timeout: DRAIN_TIMEOUT });
         });
     }
 
@@ -105,9 +101,8 @@ test.describe('Manual Ignore — container strategies across Steam surfaces', ()
     // swiped appid via data-ilap-appid.
 
     test('Swipe lands a badge on: tag browse (/tag/browse/?tags=19)', async ({ page, context }) => {
-        const calls = await interceptIgnoreApi(context);
-        await page.goto('/tag/browse/?tags=19'); // Action tag — populated reliably.
-        await waitForContentScript(page);
+        // Action tag — populated reliably.
+        const calls = await gotoWithStubs(page, context, '/tag/browse/?tags=19');
 
         // Tag browse hydrates capsules asynchronously. Pick the first /app/ link
         // and wait for its image container to attach before swiping.
@@ -128,13 +123,13 @@ test.describe('Manual Ignore — container strategies across Steam surfaces', ()
 
         await rightClickSwipe(page, link, 60);
 
-        await expect.poll(() => calls.length, { timeout: 5000 }).toBe(1);
+        await expect.poll(() => calls.length, { timeout: DRAIN_TIMEOUT }).toBe(1);
         expect(calls[0].appid).toBe(appid);
 
         // The variant doesn't matter for this surface — what matters is that
         // ContainerStrategyProvider resolved (not fallback-fired into oblivion)
         // and the badge is correctly tagged with this appid.
         const badge = page.locator(`.ilap-ignored-overlay[data-ilap-appid="${appid}"]`).first();
-        await expect(badge).toBeVisible({ timeout: 5000 });
+        await expect(badge).toBeVisible({ timeout: DRAIN_TIMEOUT });
     });
 });

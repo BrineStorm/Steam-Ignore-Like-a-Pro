@@ -214,7 +214,13 @@ test.describe('SW drain host (unit)', () => {
             ilap_curator_queue: [{
                 id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
                 appids: ['10', '11'], total: 2,
-                meta: { 10: { name: 'Alpha', reason: 0 }, 11: { name: 'Beta', reason: 2 } },
+                meta: {
+                    // Alpha's name carries a control char + a whitespace run: the
+                    // SW's stats shim normalizes through the shared sanitizer
+                    // (escape.js), not a reduced local copy of it.
+                    10: { name: 'Al' + String.fromCharCode(0) + 'pha   One', reason: 0 },
+                    11: { name: 'Beta', reason: 2 },
+                },
             }],
         });
         await env.until(() => (env.data().ilap_curator_queue || []).length === 0, 15000);
@@ -222,10 +228,10 @@ test.describe('SW drain host (unit)', () => {
         // Last Ignored, count and history written by the SW stats shim.
         expect(env.data().ilap_last_ignored_name).toBe('Beta');
         expect(env.data().ilap_ignored_count).toBe(2);
-        expect(env.data().ilap_ignored_history.map((h) => h.name)).toEqual(['Beta', 'Alpha']);
+        expect(env.data().ilap_ignored_history.map((h) => h.name)).toEqual(['Beta', 'Al pha One']);
         // Undo log attributes them to MI (name + source), not curator.
         expect(env.data().ilap_ignore_log.map((e) => [e.appid, e.source, e.name || null])).toEqual([
-            ['10', 'mi', 'Alpha'], ['11', 'mi', 'Beta'],
+            ['10', 'mi', 'Al pha One'], ['11', 'mi', 'Beta'],
         ]);
     });
 

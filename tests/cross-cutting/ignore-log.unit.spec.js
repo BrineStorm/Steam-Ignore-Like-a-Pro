@@ -35,6 +35,11 @@ function loadIgnoreLog(storage) {
         setTimeout, clearTimeout,
     };
     vm.createContext(sandbox);
+    // escape.js owns the shared string helpers (escapeHTML + sanitizeName)
+    // for all three worlds and loads before everything else in each of them —
+    // the sandbox mirrors that order.
+    vm.runInContext(fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'escape.js'), 'utf8'), sandbox);
     vm.runInContext(code, sandbox);
     return sandbox.window.ILAP.IgnoreLog;
 }
@@ -168,13 +173,17 @@ test.describe('IgnoreLog (unit)', () => {
         expect(log.every(x => typeof x.ts === 'number')).toBe(true);
     });
 
-    test('append strips tag delimiters from the stored name (fallback path)', async () => {
-        // The vm sandbox has no window.ILAP.sanitizeName (utils.js isn't loaded),
-        // so this exercises the minimal local fallback: no < or > survives.
+    test('append normalizes the stored name through the shared sanitizer', async () => {
+        // The log used to carry its OWN reduced copy of the normalizer (tags +
+        // trim only) for the worlds that don't load utils.js; it now calls the
+        // one definition in escape.js, so control chars and whitespace runs are
+        // collapsed here too — the drift this consolidation removed.
         const storage = {};
         const Log = loadIgnoreLog(storage);
         await Log.append({ appid: '10', name: ' <b>Game</b> ', source: 'mi' });
         expect(storage[Log.LOG_KEY][0].name).toBe('bGame/b');
+        await Log.append({ appid: '11', name: 'Half\tLife' + String.fromCharCode(0) + '2', source: 'mi' });
+        expect(storage[Log.LOG_KEY][1].name).toBe('Half Life 2');
     });
 
     test('markUndone persists through storage', async () => {
