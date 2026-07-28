@@ -120,7 +120,9 @@
 
     // The two STOP conditions, shared by the pre-claim check and the post-wait
     // re-check: 'disabled' (master toggle off), 'no-session' (no sessionid
-    // cookie), or null when clear to fire.
+    // cookie), or null when clear to fire. Exported too: a background drainer
+    // asks it BEFORE opening a pass, so a stopped extension pays no network
+    // read (and schedules no wake-up) just to be refused a slot later.
     async function stopVerdict() {
         const data = await get({ [MASTER_KEY]: true });
         if (data[MASTER_KEY] === false) return 'disabled';
@@ -203,7 +205,7 @@
     }
 
     window.ILAP.IgnoreGate = {
-        reserve, reportRateLimited, nextSlot, nextPenalty, penaltyUntil,
+        reserve, reportRateLimited, stopVerdict, nextSlot, nextPenalty, penaltyUntil,
         GATE_KEY, PENALTY_KEY, FOREGROUND_KEY, MIN_GAP, GAP_FLOOR, MAX_AHEAD, YIELD_MS,
         PENALTY_BASE, PENALTY_MAX, PENALTY_DECAY
     };

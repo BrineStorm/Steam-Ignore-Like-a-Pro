@@ -26,6 +26,7 @@ function loadSurface() {
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 const CLIENT_UA = BROWSER_UA + ' Valve Steam Client';
 const OVERLAY_UA = BROWSER_UA + ' Valve Steam GameOverlay';
+const MAC_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
 test.describe('surface mode (unit)', () => {
     const Surface = loadSurface();
@@ -33,6 +34,15 @@ test.describe('surface mode (unit)', () => {
     test('exports the storage key and the escape-hotkey label', () => {
         expect(Surface.KEY).toBe('ilap_surface_mode');
         expect(Surface.ESCAPE_HOTKEY_LABEL).toBe('Ctrl+Alt+Shift+I');
+        expect(Surface.ESCAPE_HOTKEY_LABEL_MAC).toBe('⌃⌥⇧I');
+    });
+
+    test('escapeHotkeyLabel: mac glyphs on macOS, Ctrl+Alt+Shift wording elsewhere', () => {
+        expect(Surface.isMacUA(MAC_UA)).toBe(true);
+        expect(Surface.isMacUA(BROWSER_UA)).toBe(false);
+        expect(Surface.escapeHotkeyLabel(MAC_UA)).toBe('⌃⌥⇧I');
+        expect(Surface.escapeHotkeyLabel(BROWSER_UA)).toBe('Ctrl+Alt+Shift+I');
+        expect(Surface.escapeHotkeyLabel(undefined)).toBe('Ctrl+Alt+Shift+I'); // fail-safe
     });
 
     test('isSteamClientUA: matches the client/overlay signatures, not browsers', () => {
@@ -59,5 +69,12 @@ test.describe('surface mode (unit)', () => {
         expect(Surface.isEscapeHotkey({ ctrlKey: true, altKey: true, shiftKey: false, code: 'KeyI' })).toBe(false);
         expect(Surface.isEscapeHotkey({ ctrlKey: true, altKey: true, shiftKey: true, code: 'KeyJ' })).toBe(false);
         expect(Surface.isEscapeHotkey(null)).toBe(false);
+    });
+
+    test('isEscapeClick: shift only (the chevron it guards is inert on a plain click)', () => {
+        expect(Surface.isEscapeClick({ shiftKey: true })).toBe(true);
+        expect(Surface.isEscapeClick({ shiftKey: false })).toBe(false);
+        expect(Surface.isEscapeClick({})).toBe(false);
+        expect(Surface.isEscapeClick(null)).toBe(false);
     });
 });

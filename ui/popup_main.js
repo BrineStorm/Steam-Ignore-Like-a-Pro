@@ -12,13 +12,21 @@
     // Compact chip label: primary subtag only (pt-BR -> PT, zh-TW -> ZH).
     const langCode = (lang) => String(lang || 'en').split('-')[0].toUpperCase();
 
-    // Mouse glyph with the right button lit — represents the "hold right-click" gesture.
-    const mouseRightSvg = () => `
-        <svg class="mouse-ico" viewBox="0 0 28 40" width="15" height="21" aria-hidden="true">
-          <rect x="2" y="2" width="24" height="36" rx="12" fill="#0d141c" stroke="#3d4a5d" stroke-width="1.6"/>
-          <path d="M14.8 2.8 H16 C21 2.8 25.2 7 25.2 12 V18.5 H14.8 Z" fill="#45A1FA"/>
-          <line x1="14" y1="3" x2="14" y2="18.5" stroke="#3d4a5d" stroke-width="1.4"/>
-          <rect x="11.6" y="7" width="4.8" height="9" rx="2.4" fill="#cfe9fb"/>
+    // The one mouse glyph, for both shortcut hints: the swipe chip (right button
+    // lit, sized for a .kbd-key row) and the modifier hint (left button lit,
+    // trailing the Ctrl+Click chips). Same body and wheel either way — which
+    // button is lit, the class the CSS hooks and the rendered size are the only
+    // differences, so they are arguments rather than a second drawing.
+    const LIT = '#45A1FA';
+    const UNLIT = '#171a21';
+    const mouseSvg = (isRight, cls, w, h) => `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 14 48 54" width="${w}" height="${h}" fill="none" class="${cls}" aria-hidden="true">
+          <rect x="4" y="18" width="40" height="46" rx="20" ry="20" fill="#1b2838" stroke="#3d4a5d" stroke-width="2"/>
+          <path d="M4 28 C4 22 8 18 14 18 L23 18 L23 38 L4 38 Z" fill="${isRight ? UNLIT : LIT}"/>
+          <line x1="24" y1="18" x2="24" y2="38" stroke="#3d4a5d" stroke-width="2"/>
+          <path d="M25 18 L34 18 C40 18 44 22 44 28 L44 38 L25 38 Z" fill="${isRight ? LIT : UNLIT}"/>
+          <rect x="21" y="22" width="6" height="12" rx="3" fill="#ffffff" opacity="0.85"/>
+          <path d="M4 42 L4 46 C4 57 14 64 24 64 C34 64 44 57 44 46 L44 42 Z" fill="${UNLIT}"/>
         </svg>`;
 
     // Gradient swoosh arrow; flipped horizontally for a left swipe.
@@ -43,24 +51,13 @@
         const sp = stripped.indexOf(' ');
         const first = sp === -1 ? stripped : stripped.slice(0, sp);
         const rest = sp === -1 ? '' : stripped.slice(sp + 1);
-        let inner = `${Sanitizer.escapeHTML(first)}${mouseRightSvg()}`;
+        let inner = `${Sanitizer.escapeHTML(first)}${mouseSvg(true, 'mouse-ico', 15, 21)}`;
         if (rest) inner += Sanitizer.escapeHTML(rest);
         inner += swooshSvg(isRight, slot);
         return `<span class="kbd-key" style="margin-left:0;">${inner}</span>`;
     }
 
     function getShortcutHintHtml(key, slot) {
-        const mouseIcon = (isRight) => `
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 14 48 54" width="16" height="18" fill="none" class="mouse-icon">
-              <rect x="4" y="18" width="40" height="46" rx="20" ry="20" fill="#1b2838" stroke="#3d4a5d" stroke-width="2"/>
-              <path d="M4 28 C4 22 8 18 14 18 L23 18 L23 38 L4 38 Z" fill="${!isRight ? '#45A1FA' : '#171a21'}"/>
-              <line x1="24" y1="18" x2="24" y2="38" stroke="#3d4a5d" stroke-width="2"/>
-              <path d="M25 18 L34 18 C40 18 44 22 44 28 L44 38 L25 38 Z" fill="${isRight ? '#45A1FA' : '#171a21'}"/>
-              <rect x="21" y="22" width="6" height="12" rx="3" fill="#ffffff" opacity="0.85"/>
-              <path d="M4 42 L4 46 C4 57 14 64 24 64 C34 64 44 57 44 46 L44 42 Z" fill="#171a21"/>
-            </svg>
-        `;
-
         if (key === 'swipeRight') return gestureChip('hold_and_swipe_right', true, slot);
         if (key === 'swipeLeft') return gestureChip('hold_and_swipe_left', false, slot);
 
@@ -68,7 +65,7 @@
 
         const safeKeyName = Sanitizer.escapeHTML(names[key] || key);
         const safeLeftClick = Sanitizer.escapeHTML(t('left_click'));
-        return `<span class="kbd-key" style="margin-left:0;">${safeKeyName}</span> <span style="margin: 0 4px;">+</span> <span class="kbd-key">${safeLeftClick}</span> ${mouseIcon(false)}`;
+        return `<span class="kbd-key" style="margin-left:0;">${safeKeyName}</span> <span style="margin: 0 4px;">+</span> <span class="kbd-key">${safeLeftClick}</span> ${mouseSvg(false, 'mouse-icon', 16, 18)}`;
     }
 
     function updateBasicUI(root, data) {
@@ -78,8 +75,7 @@
         if (master) master.checked = isEnabled;
 
         const wrapper = root.getElementById('ui-wrapper');
-        if (isEnabled) wrapper.classList.remove('disabled');
-        else wrapper.classList.add('disabled');
+        if (wrapper) wrapper.classList.toggle('disabled', !isEnabled);
 
         root.getElementById('count-link').textContent = data.ilap_ignored_count || 0;
         root.getElementById('last-game').textContent = data.ilap_last_ignored_name || t('none');

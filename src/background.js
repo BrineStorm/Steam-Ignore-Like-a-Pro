@@ -164,6 +164,12 @@ importScripts(
     // mid-sleep. Pre-check the expected wait WITHOUT claiming a slot: too far →
     // stop the pass and let syncAlarm resume it at the penalty's end. Also the
     // halt flag's enforcement point (before any slot is claimed or burned).
+    //
+    // Accepted residual: the pre-check is not atomic with the claim. A 429 from
+    // another source landing in between means reserve() grants a slot further
+    // out than MAX_WAIT_MS and sleeps through the worker's death — that slot is
+    // burned with no POST. Self-healing (the retry alarm reopens the pass at
+    // the penalty's end) and rare enough not to be worth a second round trip.
     async function swReserve() {
         const d = await get({ [HALT_KEY]: false, [Gate.GATE_KEY]: 0, [Gate.PENALTY_KEY]: null });
         if (d[HALT_KEY]) return { ok: false, reason: 'halted' };
@@ -183,7 +189,8 @@ importScripts(
         api: { ignore: apiIgnore, unignore: apiUnignore },
         gate: {
             reserve: swReserve,
-            reportRateLimited: (ms) => Gate.reportRateLimited(ms)
+            reportRateLimited: (ms) => Gate.reportRateLimited(ms),
+            stopped: () => Gate.stopVerdict()
         },
         fetchUserdata: Net.fetchIgnoredAppsStrict,
         probeLogin: Net.probeLogin,
@@ -212,7 +219,13 @@ importScripts(
         // While halted there is no alarm at all: every firing would only wake
         // the worker to be refused by the gate. The recovery write (a store-page
         // visit clears the flag) arrives as an onChanged kick, which re-arms.
-        if (d[HALT_KEY] || !drainer.hasDrainableWork(queue)) { chrome.alarms.clear(ALARM); return; }
+        // A master-off / dead-session stop is the same situation for the same
+        // reason, and its recovery writes (ilap_master_enabled, ilap_sw_sid) are
+        // both already in the onChanged filter below.
+        if (d[HALT_KEY] || !drainer.hasDrainableWork(queue) || await Gate.stopVerdict()) {
+            chrome.alarms.clear(ALARM);
+            return;
+        }
         const now = Date.now();
         const when = Math.max(now + ALARM_RETRY_MS, Gate.penaltyUntil(d[Gate.PENALTY_KEY], now));
         chrome.alarms.create(ALARM, { when });

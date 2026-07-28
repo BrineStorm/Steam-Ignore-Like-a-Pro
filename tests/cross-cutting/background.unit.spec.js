@@ -235,15 +235,48 @@ test.describe('SW drain host (unit)', () => {
         ]);
     });
 
-    test('no cached sid → no ignore POST, retry alarm armed', async () => {
+    test('a gate-stopped route (no sid / master off) drains nothing and schedules no wake-up', async () => {
+        // The gate refuses every slot without a session or with the master off,
+        // so a pass could only reach that refusal after taking a lease and
+        // spending a userdata GET — and re-arming the alarm would repeat both
+        // forever. The drainer now asks the gate's verdict BEFORE opening a
+        // pass, and syncAlarm treats the stop like the halt flag: no alarm at
+        // all. Both recovery writes (ilap_sw_sid, ilap_master_enabled) are in
+        // the onChanged filter, so the route revives on a real change, not on a
+        // poll — which the sid half asserts below.
         const env = loadBackground({
             ilap_master_enabled: true,
             ilap_curator_queue: [job()],
         });
-        await env.until(() => !!env.alarms[ALARM]);
+        await env.settle();
         expect(env.posts).toEqual([]);
         expect(env.data().ilap_curator_queue).toHaveLength(1);
-        expect(env.alarms[ALARM].when).toBeGreaterThanOrEqual(Date.now() + 30000);
+        expect(env.alarms[ALARM]).toBeUndefined();
+        // No lease was taken and no cursor written: the pass stopped before both.
+        expect(env.data().ilap_curator_lock_c1).toBeUndefined();
+        expect(env.data().ilap_curator_cursor_j1).toBeUndefined();
+
+        // The content script's page-boot sid cache revives it through onChanged.
+        await env.write({ ilap_sw_sid: 'sess-1' });
+        await env.until(() => (env.data().ilap_curator_queue || []).length === 0, 15000);
+        expect(env.posts.map((p) => p.appid)).toEqual(['10', '11']);
+    });
+
+    test('master off stops the pass without a userdata read or a retry alarm', async () => {
+        const env = loadBackground({
+            ilap_master_enabled: false,
+            ilap_sw_sid: 'sess-1',
+            ilap_curator_queue: [job()],
+        });
+        await env.settle();
+        expect(env.posts).toEqual([]);
+        expect(env.alarms[ALARM]).toBeUndefined();
+        expect(env.data().ilap_curator_queue).toHaveLength(1);
+
+        // Re-enabling the master is an onChanged write the drainer listens for.
+        await env.write({ ilap_master_enabled: true });
+        await env.until(() => (env.data().ilap_curator_queue || []).length === 0, 15000);
+        expect(env.posts.map((p) => p.appid)).toEqual(['10', '11']);
     });
 
     test('two consecutive failed POSTs halt the SW route before any appid is burned; a fresh sid revives it', async () => {

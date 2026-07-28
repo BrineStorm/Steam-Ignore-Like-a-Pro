@@ -84,7 +84,7 @@ test.describe('Discovery Queue UI', () => {
     // to run out at least once, exercising the "Continue" interstitial that spins
     // up a fresh queue (the infinite-feed path).
     test('Start runs the loop, ignores ~12 games across a queue boundary (Continue), Stop → idle', async ({ page, context }) => {
-        test.setTimeout(120_000);
+        test.setTimeout(190_000);   // must clear the 150s counter poll below plus the modal open and the Stop assertions
         await openQueueModal(page);
 
         const btn = page.locator(SEL.button);
@@ -111,7 +111,11 @@ test.describe('Discovery Queue UI', () => {
             const txt = (await btn.textContent()) || '';
             const m = txt.match(/(\d+)/);
             return m ? Number(m[1]) : 0;
-        }, { timeout: 100_000, intervals: [1500] }).toBeGreaterThanOrEqual(TARGET);
+        // 150s, not 100s: one confirmed ignore costs ~9s of real time (loop pause
+        // + a paced gate slot + the confirm poll + the slide advance), so twelve
+        // of them plus a Continue interstitial land right on the old budget — a
+        // clean run reached 11, and a run following the rest of the suite only 6.
+        }, { timeout: 150_000, intervals: [1500] }).toBeGreaterThanOrEqual(TARGET);
 
         // Stop → back to idle.
         await btn.click();

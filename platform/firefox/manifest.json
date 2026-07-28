@@ -86,7 +86,7 @@
   ],
   "browser_specific_settings": {
   "gecko": {
-    "id": "{e5c24543-5d3f-4b94-ba55-6632562c3ba4}",
+    "id": "steam-ilap@example.com",
     "strict_min_version": "142.0",
     "data_collection_permissions": {
       "telemetry": false,

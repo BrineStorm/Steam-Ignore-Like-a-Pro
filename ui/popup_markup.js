@@ -26,13 +26,15 @@
           <div class="stat-row" id="total-row">
             <span class="stat-label" data-i18n="total_ignored">Total Ignored:</span>
             <!-- Own tooltip (not the browser title): popup_undo.js render sets the
-                 text in #undo-tip, the wrapper catches hover even when the button is disabled. -->
+                 text in #undo-tip, the wrapper catches hover even when the button is
+                 disabled. The tip is a sibling of the wrapper, not a child: it anchors
+                 to #total-row so it can be clamped to the row's width (see popup.css). -->
             <span class="undo-btn-wrap">
               <button type="button" id="undo-btn" aria-haspopup="true" aria-expanded="false">
                 <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 5V1.8L6.5 6.5 12 11.2V8c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z"/></svg>
               </button>
-              <span class="undo-tip" id="undo-tip" role="tooltip"></span>
             </span>
+            <span class="undo-tip" id="undo-tip" role="tooltip"></span>
             <a id="count-link" href="https://store.steampowered.com/account/notinterested/" target="_blank">0</a>
 
             <!-- Undo droplist: "un-ignore the last X" (by count) / "over the last X
@@ -80,7 +82,7 @@
           </details>
 
           <details id="settings-accordion">
-            <summary><span style="display: flex; align-items: center; gap: 8px;">⚙ <span data-i18n="settings">SETTINGS</span></span><span class="lang-chip" data-i18n-title="language" title="Language:"><span class="lang-chip-code" id="lang-quick-code">EN</span><select id="lang-quick" aria-label="Language"></select></span></summary>
+            <summary><span style="display: flex; align-items: center; gap: 8px;">⚙ <span data-i18n="settings">SETTINGS</span></span><span class="lang-chip"><span class="lang-chip-code" id="lang-quick-code">EN</span><select id="lang-quick" aria-label="Language"></select></span><span class="lang-tip" id="lang-tip" role="tooltip" data-i18n="language">Language:</span></summary>
             <div class="settings-content" id="settings-placeholder"></div>
           </details>
       </div>

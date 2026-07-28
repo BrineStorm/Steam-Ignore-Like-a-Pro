@@ -4,20 +4,55 @@
 
 ### Global Facade (`window.ILAP`)
 
-`src/utils.js` initialises the shared namespace and exports:
+`src/utils.js` initialises the shared namespace and exports what is genuinely
+content-script-bound:
 
 ```js
 window.ILAP.getSessionID      // Steam session cookie
 window.ILAP.apiIgnoreGame     // POST to Steam ignore endpoint
+window.ILAP.apiUnignoreGame   // the same endpoint with remove=1 (undo)
 window.ILAP.saveStats         // Write to chrome.storage.local
 window.ILAP.getGameName       // 5-strategy name extractor (sync)
 window.ILAP.resolveGameName   // async: DOM strategies, then appdetails fallback
 window.ILAP.SteamAuth         // login gate: header DOM check + live /account/ probe
+window.ILAP.fetchIgnoredApps  // lenient userdata read (empty Set on failure)
+window.ILAP.newOwnerId        // collision-resistant lease/slot owner id
 window.ILAP.SessionStateService
+window.ILAP.ResourceService
 window.ILAP.SESSION_IGNORED_KEY
 ```
 
+The rest of the facade is populated by modules that stand alone because more than
+one script world needs them — the popup document and the MV3 service worker never
+load `utils.js`:
+
+```js
+window.ILAP.Sanitizer         // escape.js   — escapeHTML + sanitizeName (all 3 worlds)
+window.ILAP.StatsLogic        // stats.js    — Last-Ignored record shape (content + SW)
+window.ILAP.SteamNet          // steam-net.js— Steam READS: deadline, userdata, login, appdetails
+                              //               + classifyRefusal, the shared 400 verdict (content + SW)
+window.ILAP.IgnoreGate        // gate.js     — aggregate ignore-rate governor + stopVerdict
+window.ILAP.IgnoreLog         // ignore-log.js — the undo data source
+window.ILAP.UndoService       // undo-service.js — undo-job staging
+window.ILAP.Curator.*         // curator/    — Store, Enumerator, EnqueueService, CuratorQueueDrainer
+window.ILAP.Surface           // surface.js  — surface-mode helper
+window.ILAP.showToast         // toast.js    — the shared one-shot push card
+window.ILAP.t / .i18n         // i18n.js     — UI strings + live language switch
+```
+
 Modules reference this facade **only** through thin adapter objects, never directly inside business logic (DIP).
+
+### Three script worlds
+
+The extension runs in three isolated worlds that cannot share a module graph:
+the **content script**, the **popup document** (`ui/popup.html`), and the
+**Chromium MV3 service worker** (`src/background.js`). What may be shared is
+graded by how many worlds actually need it — pure helpers and the Steam reads
+have exactly one definition in a file every relevant world loads (`escape.js`,
+`stats.js`, `steam-net.js`), while the `chrome.storage` plumbing and the ignore
+POST stay duplicated beside their consumers. The canonical statement of that rule
+lives at the top of `src/curator/store.js`; `src/steam-net.js` records the one
+call that stays per-world and why.
 
 ### Module Pattern
 

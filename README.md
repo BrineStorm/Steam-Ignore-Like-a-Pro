@@ -21,6 +21,16 @@ A browser extension that allows you to ignore Steam games directly from the stor
 
 ## What's New
 
+**v1.2**
+
+- **Curator ignore queue** - stage an entire curator's list into a queue and let the extension work through it, paced so it never hammers Steam. Pause, resume, or drop individual jobs from the curator page or the queue view.
+- **Background draining** - on Chrome/Edge the queue keeps going with no Steam tab open at all; close the window and come back to a finished list.
+- **Undo** - a built-in undo applet reverses recent ignores, either by time ("the last hour") or by count ("the last 20"), from the settings interface.
+- **Deferred manual ignore** - swipes and hotkeys now enqueue instead of firing a request immediately, so a burst of ignores is paced like the rest of the queue and the badge still appears instantly.
+- **Ignore-rate governor** - every ignore request from every part of the extension passes through one shared pacer, and stops on its own if you sign out of Steam or switch the extension off.
+- **On-page interface** - the settings/history panel now lives in a launcher on the Steam page itself (with a toolbar-popup mode still available), which also makes it usable inside the Steam desktop client.
+- **19 interface languages**, up from 17.
+
 **v1.1**
 
 - **Multi-language interface** - the popup and on-page UI are now localized, with a language selector in the popup (17 languages).
@@ -47,6 +57,7 @@ This extension allows this.
 
 - **Quick Settings** - Customize gestures or hotkeys, configure ignore modes to suit your browsing style, and toggle specific features or the entire extension directly from the popup.
 - **Ignore History Tracking** - View your recently ignored game titles instantly from the extension popup.
+- **Undo** - Reverse recent ignores without hunting down each store page, either by time (everything from the last hour) or by count (the last N titles).
 
 ### Interface surface
 
@@ -54,8 +65,6 @@ The extension's settings/history interface can live in one of two places:
 
 - **On the page** (default) - a small launcher docked in the top-right of every Steam Store page, so it works everywhere, including the Steam desktop client where the browser toolbar isn't available.
 - **In the toolbar popup** - the classic browser action popup. Switch to it from the interface toggle in the settings. In this mode the on-page launcher steps aside to a faint beacon in the corner. (The toolbar popup is unavailable inside the Steam desktop client, so this mode is disabled there.)
-
-Moving the interface into the toolbar popup is only allowed while the curator **ignore queue is empty**, since draining that queue needs an open Steam page.
 
 **Escape hatch:** press **`Ctrl+Alt+Shift+I`** on any Steam Store page to force the interface back onto the page at any time.
 
@@ -73,6 +82,9 @@ By navigating to a specific tag, genre, or category page (such as Racing, VR or 
   <img src="assets/demo-queue.gif" alt="Demo Discovery Queue" width="600">
 </p>
 
+- **Curator Ignore Queue** - Stage a whole curator's list into an ignore queue from the curator page, optionally filtered, and let the extension work through it at a measured pace. Jobs can be paused, resumed, or dropped while they run, and progress is visible in the interface.
+On Chrome/Edge the queue keeps draining in the background with no Steam tab open; on Firefox it advances while a Steam Store page is open.
+
 ## Privacy
 
 No tracking, no analytics, no external servers.  
@@ -85,22 +97,29 @@ No tracking, no analytics, no external servers.
 
 See [PRIVACY.md](./PRIVACY.md) for the full privacy policy.
 
-## Install locally
+## Install
 
-Store listings are currently under review. In the meantime, you can install manually by building the extension from source:
+The extension is published on both stores - this is the recommended way to install it:
+
+- **Chrome | Edge** - [Chrome Web Store](https://chromewebstore.google.com/detail/odammmlfgeicckclecklaidnogfibanj)
+- **Firefox** - [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/steam-ignore-like-a-pro/)
+
+### From source
+
+For development, or to run a build ahead of the store release:
 
 1. Clone or download the repository.
 2. Open a terminal in the project root and run `npm install`.
 3. Run `npm run build` (or `node build.js`) to generate the `dist/` folders.
 
-### Chrome | Edge
+**Chrome | Edge**
 
 1. Open *chrome://extensions* or *edge://extensions*
 2. Turn on **Developer mode**
 3. Click **Load unpacked**
 4. Select the `dist/chromium` folder from the built project.
 
-### Firefox
+**Firefox**
 
 1. Open *about:debugging#/runtime/this-firefox*
 2. Click **Load Temporary Add-on**
@@ -112,11 +131,14 @@ Store listings are currently under review. In the meantime, you can install manu
 The ignore request is sent via the Steam API rather than the UI (since native UI buttons aren't available on all storefront elements). 
 Additionally, Steam caching can be slow and might temporarily continue displaying ignored games.
 
+- **Why don't my ignores fire instantly?**  
+Ignores are placed in a queue and sent at a deliberate pace, so a large batch never looks like a flood of requests to Steam. The badge appears immediately; the request follows shortly after.
+
 - **Is this compliant with Steam's policies?**  
 Yes. The extension automates standard Steam actions (the same clicks or requests you would make manually). It does not use exploits, backdoors, or undocumented APIs.
 
 - **Can I undo an ignore?**  
-Yes. Steam Ignore Like A Pro applies a standard Steam ignore. You can remove it anytime from the game's store page.
+Yes. Use the undo applet in the extension's interface to reverse the last N ignores or everything from a recent stretch of time. Since Steam Ignore Like A Pro applies a standard Steam ignore, you can also remove it anytime from the game's own store page.
 
 - **Does it work with non-English Steam?**  
 Yes. The extension interacts with page elements and structural DOM classes, not localized text labels, so language settings do not affect it.
@@ -132,6 +154,11 @@ Yes. The extension interacts with page elements and structural DOM classes, not 
 - `src/manual-ignore/` - Modules for handling swipe gestures, hotkeys, and rendering badges on the storefront.
 - `src/discovery-queue/` - Automation logic for the daily modal Discovery Queue.
 - `src/explore-queue/` - Automation logic for tag, genre, and category queues.
+- `src/curator/` - Curator list enumeration, the ignore queue store, and the drainer that works through it.
+- `src/widget/` - The on-page interface launcher and its panel.
+- `src/background.js` - Chromium service worker that drains the queue with no Steam tab open.
+- `src/gate.js` - Shared ignore-rate governor every request passes through.
+- `src/ignore-log.js`, `src/undo-service.js` - Ignore journal and the undo path built on it.
 - `PRIVACY.md` - Privacy policy for users and the Chrome Web Store.
 
 ## Notes

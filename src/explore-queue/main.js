@@ -62,14 +62,23 @@
         // 7. Run
         automator.run();
         
+        // 8. Re-run on same-document navigation (Steam advances the queue without
+        //    a page load). This used to be a childList+subtree MutationObserver on
+        //    document.body — a callback per mutation batch of a React page that
+        //    mutates constantly, to answer a question that is one string compare.
+        //    A patched history.pushState can't replace it: in the isolated world
+        //    the patch never sees the PAGE's own pushState calls. So: popstate for
+        //    back/forward (instant), plus a bounded poll for pushState-driven
+        //    advances. Both live as long as the queue page does — by design, and
+        //    now at a fixed 2 checks/s instead of unbounded work.
         let lastUrl = location.href;
-        const observer = new MutationObserver(() => {
-            if (location.href !== lastUrl) {
-                lastUrl = location.href;
-                automator.run();
-            }
-        });
-        observer.observe(document.body, { subtree: true, childList: true });
+        const onUrlMaybeChanged = () => {
+            if (location.href === lastUrl) return;
+            lastUrl = location.href;
+            automator.run();
+        };
+        window.addEventListener('popstate', onUrlMaybeChanged);
+        setInterval(onUrlMaybeChanged, 500);
     }
 
     if (window.ILAP && window.ILAP.Explore) {

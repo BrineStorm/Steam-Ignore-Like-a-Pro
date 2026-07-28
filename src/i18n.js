@@ -110,6 +110,7 @@
             surface_widget: "On page",
             surface_popup: "Toolbar",
             surface_ghost_hint: "Widget mode off — press {keys} to bring it back",
+            surface_ghost_click_hint: "Or Shift-click this arrow",
             popup_stub_message: "The interface lives on the Steam Store pages — look for the icon in the top-right corner.",
             popup_stub_switch: "Move the interface into this popup",
 
@@ -216,6 +217,7 @@
             surface_widget: "Auf der Seite",
             surface_popup: "Symbolleiste",
             surface_ghost_hint: "Widget-Modus aus — {keys} drücken, um ihn zurückzuholen",
+            surface_ghost_click_hint: "Oder Umschalt-Klick auf diesen Pfeil",
             popup_stub_message: "Die Oberfläche lebt auf den Steam-Shop-Seiten — das Symbol findest du oben rechts.",
             popup_stub_switch: "Oberfläche in dieses Popup verlegen",
 
@@ -322,6 +324,7 @@
             surface_widget: "Sur la page",
             surface_popup: "Barre d'outils",
             surface_ghost_hint: "Mode widget désactivé — appuyez sur {keys} pour le rétablir",
+            surface_ghost_click_hint: "Ou Maj+clic sur cette flèche",
             popup_stub_message: "L'interface vit sur les pages du magasin Steam — cherchez l'icône en haut à droite.",
             popup_stub_switch: "Déplacer l'interface vers ce popup",
 
@@ -428,6 +431,7 @@
             surface_widget: "En la página",
             surface_popup: "Barra de herramientas",
             surface_ghost_hint: "Modo widget desactivado — pulsa {keys} para recuperarlo",
+            surface_ghost_click_hint: "O haz Mayús+clic en esta flecha",
             popup_stub_message: "La interfaz vive en las páginas de la tienda de Steam — busca el icono arriba a la derecha.",
             popup_stub_switch: "Mover la interfaz a este popup",
 
@@ -534,6 +538,7 @@
             surface_widget: "Στη σελίδα",
             surface_popup: "Γραμμή εργαλείων",
             surface_ghost_hint: "Η λειτουργία widget είναι ανενεργή — πατήστε {keys} για επαναφορά",
+            surface_ghost_click_hint: "Ή κάντε Shift+κλικ σε αυτό το βέλος",
             popup_stub_message: "Η διεπαφή ζει στις σελίδες του καταστήματος Steam — αναζητήστε το εικονίδιο πάνω δεξιά.",
             popup_stub_switch: "Μεταφορά της διεπαφής σε αυτό το αναδυόμενο",
 
@@ -640,6 +645,7 @@
             surface_widget: "Sulla pagina",
             surface_popup: "Barra strumenti",
             surface_ghost_hint: "Modalità widget disattivata — premi {keys} per ripristinarla",
+            surface_ghost_click_hint: "Oppure Maiusc+clic su questa freccia",
             popup_stub_message: "L'interfaccia vive nelle pagine del negozio Steam — cerca l'icona in alto a destra.",
             popup_stub_switch: "Sposta l'interfaccia in questo popup",
 
@@ -746,6 +752,7 @@
             surface_widget: "Na página",
             surface_popup: "Barra de ferramentas",
             surface_ghost_hint: "Modo widget desativado — pressione {keys} para trazê-lo de volta",
+            surface_ghost_click_hint: "Ou Shift+clique nesta seta",
             popup_stub_message: "A interface vive nas páginas da loja Steam — procure o ícone no canto superior direito.",
             popup_stub_switch: "Mover a interface para este popup",
 
@@ -852,6 +859,7 @@
             surface_widget: "Sayfada",
             surface_popup: "Araç çubuğu",
             surface_ghost_hint: "Widget modu kapalı — geri getirmek için {keys} tuşlarına basın",
+            surface_ghost_click_hint: "Veya bu oka Shift+tıklayın",
             popup_stub_message: "Arayüz Steam mağaza sayfalarında yaşıyor — simgeyi sağ üst köşede arayın.",
             popup_stub_switch: "Arayüzü bu pencereye taşı",
 
@@ -958,6 +966,7 @@
             surface_widget: "На странице",
             surface_popup: "В тулбаре",
             surface_ghost_hint: "Режим виджета выключен — нажмите {keys}, чтобы вернуть",
+            surface_ghost_click_hint: "Или Shift+клик по этой стрелке",
             popup_stub_message: "Интерфейс живёт на страницах магазина Steam — ищите иконку в правом верхнем углу.",
             popup_stub_switch: "Перенести интерфейс в этот попап",
 
@@ -1064,6 +1073,7 @@
             surface_widget: "На сторінці",
             surface_popup: "У тулбарі",
             surface_ghost_hint: "Режим віджета вимкнено — натисніть {keys}, щоб повернути",
+            surface_ghost_click_hint: "Або Shift+клік по цій стрілці",
             popup_stub_message: "Інтерфейс живе на сторінках крамниці Steam — шукайте іконку у верхньому правому куті.",
             popup_stub_switch: "Перенести інтерфейс у цей попап",
 
@@ -1170,6 +1180,7 @@
             surface_widget: "Na stronie",
             surface_popup: "Pasek narzędzi",
             surface_ghost_hint: "Tryb widżetu wyłączony — naciśnij {keys}, aby go przywrócić",
+            surface_ghost_click_hint: "Albo Shift+kliknij tę strzałkę",
             popup_stub_message: "Interfejs żyje na stronach sklepu Steam — szukaj ikony w prawym górnym rogu.",
             popup_stub_switch: "Przenieś interfejs do tego okienka",
 
@@ -1276,6 +1287,7 @@
             surface_widget: "Na stránce",
             surface_popup: "Panel nástrojů",
             surface_ghost_hint: "Režim widgetu vypnutý — stiskněte {keys} pro obnovení",
+            surface_ghost_click_hint: "Nebo Shift+klikněte na tuto šipku",
             popup_stub_message: "Rozhraní žije na stránkách obchodu Steam — ikonu hledejte vpravo nahoře.",
             popup_stub_switch: "Přesunout rozhraní do tohoto okna",
 
@@ -1382,6 +1394,7 @@
             surface_widget: "Az oldalon",
             surface_popup: "Eszköztár",
             surface_ghost_hint: "Widget mód kikapcsolva — nyomd meg: {keys} a visszahozáshoz",
+            surface_ghost_click_hint: "Vagy Shift+kattints erre a nyílra",
             popup_stub_message: "A felület a Steam áruház oldalain él — az ikont a jobb felső sarokban találod.",
             popup_stub_switch: "Felület áthelyezése ebbe a felugró ablakba",
 
@@ -1488,6 +1501,7 @@
             surface_widget: "Na stranici",
             surface_popup: "Traka sa alatkama",
             surface_ghost_hint: "Režim vidžeta isključen — pritisnite {keys} da ga vratite",
+            surface_ghost_click_hint: "Ili Shift+klik na ovu strelicu",
             popup_stub_message: "Interfejs živi na stranicama Steam prodavnice — potražite ikonicu u gornjem desnom uglu.",
             popup_stub_switch: "Premesti interfejs u ovaj prozor",
 
@@ -1594,6 +1608,7 @@
             surface_widget: "Pe pagină",
             surface_popup: "Bara de instrumente",
             surface_ghost_hint: "Modul widget dezactivat — apăsați {keys} pentru a-l readuce",
+            surface_ghost_click_hint: "Sau Shift+clic pe această săgeată",
             popup_stub_message: "Interfața trăiește pe paginile magazinului Steam — căutați pictograma în colțul din dreapta sus.",
             popup_stub_switch: "Mută interfața în acest popup",
 
@@ -1700,6 +1715,7 @@
             surface_widget: "ページ上",
             surface_popup: "ツールバー",
             surface_ghost_hint: "ウィジェットモードはオフです — {keys} で元に戻せます",
+            surface_ghost_click_hint: "または、この矢印を Shift+クリック",
             popup_stub_message: "インターフェースはSteamストアのページ上にあります — 右上のアイコンを探してください。",
             popup_stub_switch: "インターフェースをこのポップアップに移す",
 
@@ -1806,6 +1822,7 @@
             surface_widget: "페이지에",
             surface_popup: "툴바",
             surface_ghost_hint: "위젯 모드가 꺼져 있습니다 — {keys}로 되돌리기",
+            surface_ghost_click_hint: "또는 이 화살표를 Shift+클릭",
             popup_stub_message: "인터페이스는 Steam 상점 페이지에 있습니다 — 오른쪽 위의 아이콘을 찾아보세요.",
             popup_stub_switch: "인터페이스를 이 팝업으로 옮기기",
 
@@ -1912,6 +1929,7 @@
             surface_widget: "頁面上",
             surface_popup: "工具列",
             surface_ghost_hint: "小工具模式已關閉 — 按 {keys} 恢復",
+            surface_ghost_click_hint: "或按住 Shift 點擊此箭頭",
             popup_stub_message: "介面位於 Steam 商店頁面上 — 請在右上角尋找圖示。",
             popup_stub_switch: "將介面移至此彈出視窗",
 
@@ -2018,6 +2036,7 @@
             surface_widget: "บนหน้าเว็บ",
             surface_popup: "แถบเครื่องมือ",
             surface_ghost_hint: "โหมดวิดเจ็ตปิดอยู่ — กด {keys} เพื่อเรียกกลับ",
+            surface_ghost_click_hint: "หรือกด Shift แล้วคลิกลูกศรนี้",
             popup_stub_message: "อินเทอร์เฟซอยู่บนหน้าร้านค้า Steam — มองหาไอคอนที่มุมขวาบน",
             popup_stub_switch: "ย้ายอินเทอร์เฟซมาที่ป๊อปอัปนี้",
 

@@ -1,13 +1,13 @@
 {
   "name": "steam-ignore-like-a-pro",
-  "version": "1.2.0",
+  "private": true,
   "description": "Helper tool for ignoring games in the Steam Store.",
   "author": "",
   "license": "GPL-3.0-or-later",
   "scripts": {
     "build": "node build.js",
     "build:test": "node build.js --test",
-    "test": "npm run build:test && npx playwright test --project=chromium",
+    "test": "npm run build && npm run build:test && npx playwright test --project=chromium",
     "test:ff": "npm run build:test && npx playwright test --project=firefox",
     "test:units": "npx playwright test --project=chromium unit.spec.js tests/cross-cutting tests/explore-queue/decision-matrix.spec.js",
     "test:auth": "npm run build:test && npx playwright test --project=setup",

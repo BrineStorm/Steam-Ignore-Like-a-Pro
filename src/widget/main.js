@@ -114,14 +114,26 @@
            "expand" hint; sizes to its content up to a cap. */
         .ilap-ghost-tip {
             position: absolute; top: 50%; right: 22px; transform: translateY(-50%);
-            max-width: 190px; background: #171a21; color: #c7d5e0;
+            max-width: 230px; background: #171a21; color: #c7d5e0;
             padding: 8px 12px; border-radius: 4px; border: 1px solid ${SPARED};
-            font-size: 11px; line-height: 1.4; text-align: left;
+            font-size: 13px; line-height: 1.45; text-align: left;
             box-shadow: 0 5px 20px rgba(0,0,0,.8);
             z-index: 1000; pointer-events: none;
             visibility: hidden; opacity: 0; transition: opacity .15s ease, visibility .15s ease;
         }
         .ilap-ghost-tip.shown { visibility: visible; opacity: 1; }
+        /* The hotkey inside the parked-ghost hint is the one thing the user has to
+           read exactly, so it steps out of the prose: bigger, bold, never wrapped
+           mid-combo. */
+        .ilap-ghost-tip .ilap-keys {
+            font-size: 15px; font-weight: 700; color: #fff;
+            white-space: nowrap; letter-spacing: .3px;
+        }
+        /* Mouse fallback on its own dimmer line — see Surface.isEscapeClick for why
+           a gesture backs up a hotkey the OS may have claimed. */
+        .ilap-ghost-tip .ilap-tip-alt {
+            display: block; margin-top: 6px; font-size: 12px; color: #8f98a0;
+        }
         /* The passive "expand" hint is a slim single-line strip, sat well below
            the chevron's centre rather than dead-centre. */
         .ilap-ghost-tip.expand {
@@ -135,9 +147,12 @@
            clears the chevron). */
         .ilap-login-tip { right: ${ICON + 8}px; }
         /* One-shot on-page push shown when the surface flips popup→widget while
-           logged out — styled like the curator's bottom-right toast (icon + text,
-           blue left-accent, slide-up), NOT a tooltip. Copy is the same as the
-           launcher's login tooltip. Lives 10 s; click to dismiss early. */
+           logged out — styled like the shared push card (src/toast.js: icon +
+           text, blue left-accent, slide-up), NOT a tooltip. Deliberately its own
+           element rather than a showToast() call: this one lives inside the
+           widget's shadow root and is interactive (click to dismiss), so sharing
+           would mean rewriting toast.js, not reusing it. Copy is the same as the
+           launcher's login tooltip. Lives 10 s. */
         .ilap-push {
             position: fixed; right: 20px; bottom: 20px; z-index: 2147483000;
             display: flex; align-items: center; gap: 10px; max-width: 320px;
@@ -469,12 +484,27 @@
             pushTimer = setTimeout(() => push.classList.remove('shown'), 10000);
         };
 
-        const ghostHint = () => t('surface_ghost_hint', { keys: ctx.Surface.ESCAPE_HOTKEY_LABEL });
+        // The parked-ghost hint is built as NODES, not as one string: the hotkey
+        // gets its own bold element, and the platform label is substituted here
+        // rather than by t() — so the template is split on the raw {keys} marker.
+        // Nodes over innerHTML means nothing on this path needs escaping.
+        const renderGhostHint = () => {
+            const [before, ...after] = t('surface_ghost_hint').split('{keys}');
+            const keys = document.createElement('b');
+            keys.className = 'ilap-keys';
+            keys.textContent = ctx.Surface.escapeHotkeyLabel(navigator.userAgent);
+            const alt = document.createElement('span');
+            alt.className = 'ilap-tip-alt';
+            alt.textContent = t('surface_ghost_click_hint');
+            chevronTip.textContent = '';
+            chevronTip.append(before, keys, after.join(''), alt);
+        };
         // The chevron never uses a native browser title — it shows our own tooltip
         // box: the parked-ghost "how to get the widget back" hint appears immediately,
         // the passive "expand" hint after a short hover-intent delay.
         const applyChevronTip = () => {
-            chevronTip.textContent = ctx.isGhost() ? ghostHint() : t('widget_expand');
+            if (ctx.isGhost()) renderGhostHint();
+            else chevronTip.textContent = t('widget_expand');
             chevronTip.classList.toggle('expand', !ctx.isGhost());
         };
         let introBurstTimer = null, introCycleTimer = null;
@@ -527,6 +557,14 @@
             if (!ctx.isGhost() || !ctx.Surface.isEscapeHotkey(e)) return;
             chrome.storage.local.set({ [ctx.Surface.KEY]: 'widget' });
         }, true);
+        // …and its mouse twin on our own element, for the case the hotkey never
+        // arrives because something upstream claimed the combo. Separate listener
+        // from the collapse controller's chevron click (which returns early while
+        // parked): stopPropagation there does not silence same-element listeners.
+        chevron.addEventListener('click', (e) => {
+            if (!ctx.isGhost() || !ctx.Surface.isEscapeClick(e)) return;
+            chrome.storage.local.set({ [ctx.Surface.KEY]: 'widget' });
+        });
 
         const applySurface = (mode) => {
             const g = (mode === 'popup');

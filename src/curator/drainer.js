@@ -37,6 +37,12 @@
     const HEARTBEAT_MS = 3000;     // renew the lease well within its 8 s TTL
     const MAX_FAILS = 3;           // give up on a single appid after N failed POSTs
     const RETRY_TICK_MS = 9000;    // standby poll: steal an expired lease / pick up work
+    // How long a drainer sits out after a POST failure that a login probe blamed
+    // on the session (or on the network being down). Without it the standby tick
+    // would re-POST every RETRY_TICK_MS for as long as the tab is open — a hot
+    // retry loop against Steam is exactly what this extension is built not to do.
+    // One minute is short enough that a re-login resumes on its own.
+    const DEAD_SESSION_PARK_MS = 60000;
     // rgIgnoredApps (Steam's userdata) lags a fresh ignore POST by a few
     // seconds. An undo job's inverse dedupe reads "appid absent from the set"
     // as "already rolled back" — but for an appid ignored within this window
@@ -52,6 +58,10 @@
             this.store = deps.store;
             this.api = deps.api;                       // { ignore(appid, reason), unignore(appid) }
             this.gate = deps.gate;                     // { reserve() } — aggregate rate governor
+            // Cheap pre-pass stop check (the gate's own master/session verdict).
+            // Optional: stubs and partial builds fall back to "never stopped",
+            // which only costs the pass the gate would have refused anyway.
+            this.stopped = (deps.gate && deps.gate.stopped) || (async () => null);
             this.fetchUserdata = deps.fetchUserdata;   // () => Promise<Set<string>>
             // Undo log hooks: append on every confirmed curator ignore; markUndone /
             // lastIgnoredAt / wasReIgnoredAfter for undo jobs. Optional so the drainer
@@ -75,6 +85,10 @@
             this.standbyMs = deps.standbyMs === undefined ? RETRY_TICK_MS : deps.standbyMs;
             this.draining = false;
             this._timer = null;
+            // Set when a failed POST was blamed on the session (see _drainJob);
+            // in-memory on purpose — a fresh page load means a fresh drainer, and
+            // a re-login always goes through one.
+            this._parkedUntil = 0;
         }
 
         start() {
@@ -127,7 +141,7 @@
         }
 
         async drain() {
-            if (this.draining) return;
+            if (this.draining || Date.now() < this._parkedUntil) return;
             this.draining = true;
             try {
                 while (true) {
@@ -135,6 +149,15 @@
                     this._syncStandbyTimer(queue.length > 0);
                     const job = this._pickJob(queue);
                     if (!job) break;
+                    // The gate refuses every slot while the master toggle is off
+                    // or the session is dead — but that verdict lands AFTER
+                    // _drainJob has taken a lease and spent a userdata GET, and
+                    // the SW re-arms its retry alarm for as long as drainable
+                    // work exists. A disabled extension therefore kept paying a
+                    // network read per tab per standby tick, forever. Ask the
+                    // same verdict up front instead: re-enabling the master or
+                    // logging back in writes storage, and onChanged kicks us.
+                    if (await this.stopped()) break;
                     const got = await this.store.acquireLock(job.curatorId, this.ownerId);
                     if (!got) break;   // another tab owns this job → we stay standby
                     let result;
@@ -340,6 +363,26 @@
                     await this.store.setCursor(job.id, cursor + 1);
                     fails = 0;
                 } else {
+                    // Before charging this appid for the failure, make sure the
+                    // failure is even about the appid. A session whose cookies are
+                    // still present but no longer accepted by Steam 400s EVERY
+                    // POST while `gate.reserve()` (which only checks that a
+                    // sessionid exists) keeps granting slots — MAX_FAILS would
+                    // then walk the entire job three wasted slots at a time and
+                    // end as a silent "done" with nothing ignored. The appdetails
+                    // classifier above can't catch that: it fires only on a
+                    // region-locked appid. A live login probe can, and the same
+                    // answer covers a network outage. Stop the pass with the
+                    // cursor untouched, and sit out DEAD_SESSION_PARK_MS so the
+                    // standby tick doesn't turn this into a retry loop. (In the
+                    // SW the ilap_sw_halt breaker still counts the failure at the
+                    // api boundary — the two are complementary: it catches a
+                    // stale sid / missing Steam_Language, where the session
+                    // itself is perfectly alive and this probe says so.)
+                    if ((await this.probeLogin()) !== true) {
+                        this._parkedUntil = Date.now() + DEAD_SESSION_PARK_MS;
+                        return 'stop';
+                    }
                     // Don't advance on failure (cursor only moves on confirmed
                     // ignore); retry a few times, then skip so one bad appid can't
                     // wedge the whole job.
@@ -401,7 +444,8 @@
             },
             gate: {
                 reserve: () => window.ILAP.IgnoreGate.reserve(),
-                reportRateLimited: (ms) => window.ILAP.IgnoreGate.reportRateLimited(ms)
+                reportRateLimited: (ms) => window.ILAP.IgnoreGate.reportRateLimited(ms),
+                stopped: () => window.ILAP.IgnoreGate.stopVerdict()
             },
             // Strict (null on failure) — _drainJob falls back to the lenient
             // empty set itself for curator jobs and STOPS for undo jobs.

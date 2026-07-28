@@ -644,6 +644,174 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(cursor).toBe(2);              // both entries stepped over
     });
 
+    test('a gate stop ends the pass before the lease AND before the userdata read', async () => {
+        // The tab half of the contract the SW unit covers from its own side:
+        // the gate refuses every slot while the master toggle is off or the
+        // session is dead, but that verdict used to land only inside _drainJob —
+        // after a lease was taken and a userdata GET spent, once per tab per
+        // standby tick, forever. drain() now asks the same verdict up front.
+        const Drainer = loadDrainerClass();
+        const locks = [];
+        let userdataReads = 0;
+        let verdict = 'disabled';
+        let cursor = 0;
+        let removed = false;
+        const posts = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed
+                    ? []
+                    : [{ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10'] }]),
+                acquireLock: async (curatorId) => { locks.push(curatorId); return true; },
+                releaseLock: async () => {},
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => { removed = true; return true; },
+                signalCompleted: async () => {},
+            },
+            api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
+            gate: { reserve: async () => ({ ok: true }), stopped: async () => verdict },
+            fetchUserdata: async () => { userdataReads += 1; return new Set(); },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+
+        await d.drain();
+        expect(locks).toEqual([]);       // no lease claimed…
+        expect(userdataReads).toBe(0);   // …and no network read behind it
+        expect(posts).toEqual([]);
+
+        verdict = null;                  // master re-enabled / logged back in
+        await d.drain();
+        expect(locks).toEqual(['c1']);
+        expect(userdataReads).toBe(1);
+        expect(posts).toEqual(['10']);
+    });
+
+    test('a drainer built without a gate.stopped adapter still drains (optional dep)', async () => {
+        // Stubs and partial builds pass a bare { reserve } gate; the pre-check
+        // must fall back to "never stopped" rather than throwing.
+        const Drainer = loadDrainerClass();
+        let cursor = 0;
+        let removed = false;
+        const posts = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed
+                    ? []
+                    : [{ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10'] }]),
+                acquireLock: async () => true,
+                releaseLock: async () => {},
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => { removed = true; return true; },
+                signalCompleted: async () => {},
+            },
+            api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
+            gate: { reserve: async () => ({ ok: true }) },   // no `stopped`
+            fetchUserdata: async () => new Set(),
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        await d.drain();
+        expect(posts).toEqual(['10']);
+    });
+
+    test('a failed POST blamed on the session stops the pass and parks the drainer', async () => {
+        // The half-dead session: cookies present (so gate.reserve() keeps
+        // granting slots) but Steam no longer accepts them, and appdetails says
+        // the appid IS available (so the region-lock classifier stays out of it).
+        // Every POST fails. Without the login probe MAX_FAILS would walk the
+        // whole job — three burnt slots per appid — and finish it as a silent
+        // "done" having ignored nothing.
+        let now = 0;
+        const Drainer = loadDrainerClass({ now: () => now });
+        let cursor = 0;
+        let loggedIn = false;
+        let probes = 0;
+        let removed = false;
+        const posts = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed
+                    ? []
+                    : [{ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20'] }]),
+                acquireLock: async () => true,
+                releaseLock: async () => {},
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => { removed = true; return true; },
+                signalCompleted: async () => {},
+            },
+            // The session is what fails — so the POST starts working again at
+            // the same moment the probe starts answering "logged in".
+            api: { ignore: async (appid) => { posts.push(appid); return { ok: loggedIn }; } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            probeLogin: async () => { probes += 1; return loggedIn; },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+
+        await d.drain();
+        expect(posts).toEqual(['10']);   // ONE attempt, not MAX_FAILS worth
+        expect(probes).toBe(1);
+        expect(cursor).toBe(0);          // nothing was skipped — the job is intact
+
+        // Parked: the standby tick must not turn a dead session into a retry
+        // loop against Steam.
+        await d.drain();
+        expect(posts).toEqual(['10']);
+
+        // …and it resumes on its own once the park expires and the session is back.
+        now += 60000;
+        loggedIn = true;
+        await d.drain();
+        expect(posts).toEqual(['10', '10', '20']);   // retried, then moved on
+        expect(cursor).toBe(2);
+    });
+
+    test('a failed POST with the session alive still burns MAX_FAILS and skips', async () => {
+        // The probe must not become a blanket "never skip": a genuine per-appid
+        // rejection on a live session keeps the old give-up-after-3 behaviour,
+        // so one bad game can't wedge the job forever.
+        const Drainer = loadDrainerClass();
+        let cursor = 0;
+        const posts = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => [
+                    { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20'] }],
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => true,
+                signalCompleted: async () => {},
+            },
+            api: {
+                ignore: async (appid) => {
+                    posts.push(appid);
+                    return appid === '10' ? { ok: false } : { ok: true };
+                }
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            probeLogin: async () => true,          // session is fine
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        await d._drainJob({ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20'] });
+        expect(posts).toEqual(['10', '10', '10', '20']);   // 3 tries, then skipped
+        expect(cursor).toBe(2);
+    });
+
     test('_pickJob prefers a drainable MI job over curator/undo work', () => {
         const Drainer = loadDrainerClass();
         const d = new Drainer({

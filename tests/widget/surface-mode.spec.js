@@ -26,9 +26,11 @@ test.describe('on-page widget — surface mode', () => {
         await expect(chevron).toHaveClass(/shown/);
         await expect(page.locator('.ilap-launcher')).toHaveClass(/stashed/);
         // Our own tooltip box (not a native browser title) names the hotkey
-        // (English on the default locale) and reveals on hover.
+        // (English on the default locale) and reveals on hover. The combo sits in
+        // its own bold element, and the mouse fallback is spelled out below it.
         const tip = page.locator('.ilap-chevron-tip');
-        await expect(tip).toContainText('Ctrl+Alt+Shift+I');
+        await expect(tip.locator('b.ilap-keys')).toHaveText('Ctrl+Alt+Shift+I');
+        await expect(tip.locator('.ilap-tip-alt')).toContainText('Shift');
         await chevron.hover();
         await expect(tip).toHaveClass(/shown/);
 
@@ -138,6 +140,25 @@ test.describe('on-page widget — surface mode', () => {
             return data[MODE_KEY];
         }).toBe('widget');
         await expect(page.locator('.ilap-chevron')).not.toHaveClass(/ghost/);
+    });
+
+    test('shift-click on the ghost chevron un-parks too (mouse fallback for a taken hotkey)', async ({ context, page }) => {
+        // The hotkey is a page keydown: anything that claims Ctrl+Alt+Shift+I
+        // upstream swallows it before we see it. The gesture on our own element
+        // can't be taken away, so it must do the same job — while a PLAIN click
+        // on the same chevron stays inert (asserted in the first test).
+        await setExtensionStorage(context, { [MODE_KEY]: 'popup' });
+        await page.goto(searchUrl());
+        const chevron = page.locator('.ilap-chevron');
+        await expect(chevron).toHaveClass(/ghost/);
+
+        await chevron.click({ modifiers: ['Shift'] });
+
+        await expect.poll(async () => {
+            const data = await getExtensionStorage(context, [MODE_KEY]);
+            return data[MODE_KEY];
+        }).toBe('widget');
+        await expect(chevron).not.toHaveClass(/ghost/);
     });
 
     test('settings toggle in the widget panel: switches to popup mode even while curator jobs exist', async ({ context, page }) => {
