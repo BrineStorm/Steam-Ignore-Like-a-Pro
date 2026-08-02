@@ -78,7 +78,7 @@ test.describe('Curator — LIVE drain by the production service worker', () => {
 
     test('the shipping SW really ignores with no Steam tab open, then the queue empties', async ({ browserName }) => {
         test.skip(browserName === 'firefox', 'the SW drain is Chromium-only; Firefox drains from the content script');
-        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session');
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session — run: npm run test:auth');
         test.skip(!fs.existsSync(path.join(PROD_EXT, 'manifest.json')),
             'no production build — run `npm run build` (this spec loads dist/chromium, not the test flavor)');
         test.setTimeout(4 * 60 * 1000);
@@ -93,9 +93,10 @@ test.describe('Curator — LIVE drain by the production service worker', () => {
             // Guard against a vacuous run: userdata must read as logged-in, else
             // every ignore check below would pass against an empty set.
             const auth = await readUserdata(page);
-            test.skip(!auth || auth.ownedCount === 0, 'page session not authenticated for the userdata API');
+            test.skip(!auth || auth.ownedCount === 0,
+                'saved cookies no longer authenticate the userdata API (half-dead session) — refresh: npm run test:auth');
             sid = await readSid(page);
-            test.skip(!sid, 'no sessionid on the page');
+            test.skip(!sid, 'no sessionid cookie on the page — refresh: npm run test:auth');
 
             // Half the contract under test: the worker has no document.cookie, so
             // the content script caches the sessionid for it at page boot. Without

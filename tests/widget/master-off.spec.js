@@ -48,7 +48,7 @@ test.describe('on-page widget — master gate', () => {
     });
 
     test('disabled: launcher not locked, panel opens, and its master toggle re-enables the extension', async ({ context, page }) => {
-        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session'); // panel is login-gated
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session — run: npm run test:auth'); // panel is login-gated
 
         await setExtensionStorage(context, { [MASTER_KEY]: false });
         await page.goto(searchUrl());

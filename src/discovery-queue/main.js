@@ -188,9 +188,11 @@
         }
     }
 
-    // Bootstrap
-    window.addEventListener('load', () => {
-        new DiscoveryQueueController().init();
-    });
+    // Bootstrap. See the readyState note in src/manual-ignore/main.js: on Firefox
+    // the content script can be injected after window.onload has already fired,
+    // and a bare 'load' listener would then never run at all.
+    const boot = () => { new DiscoveryQueueController().init(); };
+    if (document.readyState === 'complete') boot();
+    else window.addEventListener('load', boot);
 
 })();

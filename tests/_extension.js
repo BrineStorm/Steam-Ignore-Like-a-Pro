@@ -20,6 +20,19 @@
 const BRIDGE_URL = 'https://store.steampowered.com/about/';
 
 function isFirefoxContext(context) {
+    // Every helper here funnels through this check, so it is where a context
+    // that never launched surfaces. Name that case: the bare property read threw
+    // "Cannot read properties of null (reading '_ilapFirefoxUuid')" from inside
+    // whichever storage helper ran first, which reads like a helper bug and
+    // buries the real one — the per-test fixture timed out before handing over a
+    // context (on Firefox: the RDP add-on install or the bridge-tab warm-up).
+    if (!context) {
+        throw new Error(
+            'extension helper got no browser context — the test fixture failed to launch. '
+            + 'On Firefox this is usually installTemporaryAddon or the bridge tab timing out; '
+            + 'check the timeout of the hook that called this.'
+        );
+    }
     return !!context._ilapFirefoxUuid;
 }
 

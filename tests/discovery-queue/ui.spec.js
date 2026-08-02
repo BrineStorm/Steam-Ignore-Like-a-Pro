@@ -1,6 +1,7 @@
 const { test, expect } = require('../_fixtures.js');
 const { setExtensionStorage, getExtensionStorage } = require('../_extension.js');
 const { interceptIgnoreApi } = require('../curator/_helpers.js');
+const { tagUrl } = require('../_tags.js'); // random tag page per navigation
 
 const SEL = {
     // The "Explore Your Discovery Queue" widget on a tag page; clicking it opens
@@ -20,8 +21,10 @@ const SEL = {
 // from the "Explore Your Discovery Queue" widget that Steam renders below the
 // fold on tag pages. Navigate to a tag, scroll the widget in, click it. The
 // section is lazy-rendered, so scroll until it attaches before waiting.
+// The tag is random per call — see tests/_tags.js for why a fixed one starves
+// the queue.
 async function openQueueModal(page) {
-    await page.goto('/tags/en/Collectathon', { waitUntil: 'domcontentloaded' });
+    await page.goto(tagUrl(), { waitUntil: 'domcontentloaded' });
 
     const section = page.locator(SEL.queueSection).first();
     for (let i = 0; i < 10 && !(await section.count()); i++) {
@@ -77,13 +80,19 @@ test.describe('Discovery Queue UI', () => {
         await expect(checkbox).not.toBeChecked();
     });
 
-    // DQ automator clicks Steam's in-page Ignore button (no API calls / no rate
-    // limit). This DOES ignore real games on the test account — accepted: a
-    // future cleanup test will undo ignores by date via the popup's ignored-games
-    // link (see CLAUDE.local.md). Driving ~12 real ignores also forces the queue
-    // to run out at least once, exercising the "Continue" interstitial that spins
-    // up a fresh queue (the infinite-feed path).
-    test('Start runs the loop, ignores ~12 games across a queue boundary (Continue), Stop → idle', async ({ page, context }) => {
+    // DQ automator ignores by a LIVE click on Steam's in-page Ignore button —
+    // our code sends no POST, but Steam's page JS fires one in response to the
+    // click, so DQ is an ignore-POST source too and paces through the rate gate
+    // like the drainer and EQ. This DOES ignore real games on the test account —
+    // accepted: globalSetup/globalTeardown remove strictly the diff afterwards
+    // (see tests/_cleanup.js). The target is deliberately PAST one served queue:
+    // a queue holds exactly 12 games (probed live — twelve slides, then a
+    // "Done / Continue" interstitial), so a run of 14 cannot finish unless the
+    // automator clicks "Continue" and keeps going on the fresh queue. That makes
+    // the infinite-feed path guaranteed coverage rather than luck-of-the-pool,
+    // and it is the end-to-end guard on the stale-card regression that used to
+    // wedge the loop here (unit-covered in automator.unit.spec.js).
+    test('Start runs the loop, ignores 14 games across a queue boundary (Continue), Stop → idle', async ({ page, context }) => {
         test.setTimeout(190_000);   // must clear the 150s counter poll below plus the modal open and the Stop assertions
         await openQueueModal(page);
 
@@ -104,17 +113,18 @@ test.describe('Discovery Queue UI', () => {
         await expect(btn).toContainText(/stop/i);
 
         // The running button label carries the processed (ignored) counter. Wait
-        // until it reaches the target — a single served queue is short, so this
-        // can only happen if the automator clicked "Continue" to start a new one.
-        const TARGET = 12;
+        // until it reaches the target.
+        const TARGET = 14;   // > the 12 a single served queue holds — forces one Continue
         await expect.poll(async () => {
             const txt = (await btn.textContent()) || '';
             const m = txt.match(/(\d+)/);
             return m ? Number(m[1]) : 0;
-        // 150s, not 100s: one confirmed ignore costs ~9s of real time (loop pause
-        // + a paced gate slot + the confirm poll + the slide advance), so twelve
-        // of them plus a Continue interstitial land right on the old budget — a
-        // clean run reached 11, and a run following the rest of the suite only 6.
+        // Generous on purpose. A run on an untouched tag pool spends ~1.5 s per
+        // ignore (loop pause + a paced gate slot + the button-signal confirm +
+        // the slide advance) and lands all twelve in well under half a minute;
+        // the budget covers the slow shape instead — a pool the automator has
+        // already been through, where most iterations are Continue interstitials
+        // and confirms fall back to the userdata poll.
         }, { timeout: 150_000, intervals: [1500] }).toBeGreaterThanOrEqual(TARGET);
 
         // Stop → back to idle.

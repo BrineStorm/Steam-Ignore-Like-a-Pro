@@ -48,6 +48,13 @@
         // Re-derive the carousel container from any descendant (hash-independent):
         // the nearest ancestor whose children are the sibling prev/current/next
         // cards (>2 children, at least two holding a game link).
+        //
+        // NB this "≥2 children with a game link" test is deliberately NOT applied
+        // to the hashed container in _getCenterSlot. At the end-of-queue
+        // interstitial the centre slot holds no card, and whether BOTH remaining
+        // neighbours still do is exactly the thing that could not be relied on —
+        // failing the test there would fall through to this fallback, which is
+        // the stale-card infinite loop _getCenterSlot was changed to fix.
         static _findCarousel(node) {
             for (let el = node.parentElement; el; el = el.parentElement) {
                 const kids = Array.from(el.children);
@@ -59,24 +66,39 @@
             return null;
         }
 
-        static getActiveSlide(dialog) {
+        // The CENTERED carousel slot — the only one the automator ever acts on.
+        // Probed live: on a normal slide it holds the active game card, and at the
+        // end-of-queue interstitial it holds the stats panel with Done/Continue.
+        // The neighbouring slots hold off-screen cards (already passed or not yet
+        // reached) whose controls must never be clicked.
+        static _getCenterSlot(dialog) {
             // PRIMARY — the hashed carousel container; children[2] is the centered
-            // (active) card holding the Ignore button. Validate before trusting it.
+            // slot. Once that container has rendered its carousel it is
+            // AUTHORITATIVE, including when the slot holds no game card. Falling
+            // through to the fallback there used to re-derive a stale,
+            // already-passed card from a leftover Ignore icon — the loop then read
+            // that card's button as "already ignored", clicked Next (a no-op on
+            // the interstitial) and spun forever, never reaching the Continue
+            // branch.
             const hashed = dialog.querySelector('._3q6eNRFBrPSFSGEn8uRFZ3');
-            if (hashed && hashed.children.length > 2 && SlideScanner._isSlide(hashed.children[2])) {
-                return hashed.children[2];
-            }
-            // FALLBACK — re-derive the carousel from the Ignore icon (no hashes),
-            // then take its centered card. Survives a container class rename.
+            if (hashed && hashed.children.length > 2) return hashed.children[2];
+
+            // FALLBACK — only when that container is absent (class rename) or has
+            // not rendered its carousel yet: re-derive it from the Ignore icon (no
+            // hashes), then take its centered slot.
             const ignore = Array.from(dialog.querySelectorAll('path'))
                 .find(p => p.getAttribute('d')?.startsWith(SVG_PATHS.IGNORE_ICON));
             const carousel = ignore && SlideScanner._findCarousel(ignore);
-            if (carousel) {
-                const mid = carousel.children[Math.floor(carousel.children.length / 2)];
-                if (SlideScanner._isSlide(mid)) return mid;
-            }
-            // FAIL-SAFE — no confidently-identified active card → stop, never guess.
-            return null;
+            return carousel
+                ? carousel.children[Math.floor(carousel.children.length / 2)]
+                : null;
+        }
+
+        static getActiveSlide(dialog) {
+            // FAIL-SAFE — anything but a confidently-identified card in the
+            // centered slot means "no active slide": stop, never guess.
+            const slot = SlideScanner._getCenterSlot(dialog);
+            return SlideScanner._isSlide(slot) ? slot : null;
         }
 
         static getNextButton(dialog) {
@@ -109,13 +131,28 @@
             return slide.querySelector('div[aria-label="Ignore" i]');
         }
 
-        // The end-of-queue interstitial ("you've reached the end") lives at the
-        // DIALOG level, not inside a slide — it offers OK (dismiss) and a primary
-        // Continue (start a fresh queue). Pick Continue as the rightmost leaf text
-        // button (no icon, no game link, no nested button): OK sits left, the
-        // highlighted Continue sits right. Language-independent (no text match).
+        // The end-of-queue interstitial ("you've reached the end") replaces the
+        // game card in the centered slot with a stats panel offering Done
+        // (dismiss) and a primary Continue (start a fresh queue). Pick Continue as
+        // the rightmost leaf text button (no icon, no game link, no nested
+        // button): Done sits left, the highlighted Continue sits right.
+        // Language-independent (no text match).
+        //
+        // The search is SCOPED to that slot, and only while it holds no game card
+        // — i.e. exactly the state getActiveSlide reports as "no active slide".
+        // That is the whole safety story: a dialog-wide search had nothing tying
+        // the click target to the interstitial, so whenever the caller reached
+        // this branch with a card on screen (Steam renaming the Ignore icon path
+        // is enough) the rightmost leaf button was the card's own — live values
+        // seen while probing: "Install Demo", "Undo", "Very Positive(9,840
+        // English Reviews)". Clicking those is worse than stopping. Off-screen
+        // neighbour cards carry the same controls and are out of reach for the
+        // same reason.
         static getContinueButton(dialog) {
-            const buttons = Array.from(dialog.querySelectorAll('div[class*="Focusable"]'))
+            const slot = SlideScanner._getCenterSlot(dialog);
+            if (!slot || SlideScanner._isSlide(slot)) return null;
+
+            const buttons = Array.from(slot.querySelectorAll('div[class*="Focusable"]'))
                 .filter(el => {
                     const txt = el.textContent.trim();
                     if (!txt || txt.length > 40) return false;               // a short label
@@ -275,8 +312,8 @@
 
             // End of the served queue (no active slide, or a slide with no Next
             // arrow) → click "Continue" to spin up a fresh one, keeping the feed
-            // effectively infinite. The interstitial buttons live at the dialog
-            // level, not inside a slide.
+            // effectively infinite. Only a genuine interstitial yields a Continue
+            // button; with a card still on screen this stops instead.
             if (!slide || !nextBtn) {
                 return this._advanceViaContinue(dialog);
             }

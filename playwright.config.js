@@ -96,13 +96,18 @@ module.exports = defineConfig({
       // Headed Firefox launches heavier than Chromium and each context also
       // installs the add-on over RDP and warms a bridge tab, so setup plus a
       // slow store page can brush past the default 30 s. Give it more room.
-      timeout: 60 * 1000,
+      // 90 s, not 60: on a full run three of the four flaky tests died on this
+      // limit rather than on an assertion — including one in a beforeEach, where
+      // the per-test context launch alone ate the budget.
+      timeout: 90 * 1000,
       // Synthetic mouse-gesture timing and the per-context add-on install get
       // flaky under a long headed run's CPU contention — tests solid in
       // isolation intermittently miss, and the Manual-Ignore swipe/Ctrl+Click
       // suite is especially gesture-heavy (Firefox also emits contextmenu at
-      // mousedown, mid-gesture). Two retries absorb the streaks; a real failure
-      // (e.g. the /tags/ boot-render gap) still fails every attempt.
+      // mousedown, mid-gesture). The boot-render and DQ-panel flakiness that
+      // used to justify these is gone (it was the content-script bootstrap race,
+      // see src/manual-ignore/main.js), but BOTH retries still earn their keep:
+      // on a full run the widget pin-hover test needed retry #2 to land.
       retries: 2,
       testIgnore: [
         /auth\.setup\.spec\.js/,

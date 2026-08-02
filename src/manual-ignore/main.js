@@ -250,10 +250,18 @@
         }
     }
 
-    window.addEventListener('load', () => {
+    // A document_idle content script may be injected as late as "immediately
+    // after the window.onload event fires" — Firefox really does land on that
+    // edge, Chrome practically never. A BARE 'load' listener registered after
+    // the event has already fired never runs, and then this whole module is
+    // dead: no boot render, no observer, no gesture listeners. Guard on
+    // readyState, exactly like the widget and curator boots already do.
+    const boot = () => {
         const defaultConfig = { defaultKey: 'swipeRight', platformKey: 'swipeLeft', enabled: true, maskEnabled: false };
         const configService = new window.ILAP.ManualIgnore.ConfigService(defaultConfig);
         new App(configService).init();
-    });
+    };
+    if (document.readyState === 'complete') boot();
+    else window.addEventListener('load', boot);
 
 })();

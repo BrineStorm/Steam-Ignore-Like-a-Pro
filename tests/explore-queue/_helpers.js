@@ -1,5 +1,13 @@
 // Shared helpers for Explore Queue (EQ) E2E tests.
 // EQ activates on URLs like /app/<id>?queue=1 and injects the Queue Helper toast.
+//
+// WHEN AN EQ SPEC GOES RED, SUSPECT THE SAVED SESSION FIRST — refresh it with
+// `npm run test:auth`. Every EQ spec pulls AUTH_FILE from here into
+// `test.use({ storageState: AUTH_FILE })` and has NO login guard at all, so a
+// stale session neither skips nor reports itself: /explore/next/ just bounces a
+// logged-out visitor and the queue chrome (#nextInDiscoveryQueue) never renders.
+// Symptom: openExploreQueue times out waiting for the Next button, or the toast
+// never appears — which reads like an EQ injection bug rather than a login one.
 
 const { AUTH_FILE } = require('../_fixtures.js');
 

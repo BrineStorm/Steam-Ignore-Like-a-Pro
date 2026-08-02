@@ -8,6 +8,16 @@
 // .ilap-panel resolve straight through #ilap-widget-host. No ignore API is
 // ever reachable here (the panel carries no ignore action), so no route
 // interception is needed.
+//
+// WHEN THIS SUITE GOES RED, SUSPECT THE SAVED SESSION FIRST — refresh it with
+// `npm run test:auth`. The two logged-in tests below guard only on the auth
+// FILE existing, which a half-dead session passes: the cookies in steam.json
+// are still there (and Steam may still paint a logged-in site header), but
+// they no longer authenticate, so `probeLogin`'s GET of /account/ redirects to
+// /login and the widget correctly keeps the launcher locked. Symptom: "stale
+// pre-login" never sees .ilap-panel.open, and "logged in" still reads
+// .ilap-launcher.locked — i.e. the assertions look like a lock-logic
+// regression while the lock is in fact doing its job.
 
 const { test, expect, AUTH_FILE } = require('../_fixtures.js');
 const fs = require('fs');
@@ -45,7 +55,7 @@ test.describe('on-page widget — login lock', () => {
     });
 
     test('stale pre-login page unlocks on click once the session appears', async ({ context, page }) => {
-        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session');
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session — run: npm run test:auth');
 
         await context.clearCookies();
         await page.goto(searchUrl());
@@ -65,7 +75,7 @@ test.describe('on-page widget — login lock', () => {
     });
 
     test('logged in: launcher unlocked, click opens the panel', async ({ page }) => {
-        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session');
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session — run: npm run test:auth');
 
         await page.goto(searchUrl());
         await expandWidget(page);

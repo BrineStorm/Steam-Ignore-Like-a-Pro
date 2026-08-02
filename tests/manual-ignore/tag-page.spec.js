@@ -3,6 +3,7 @@ const {
     waitForContentScript, interceptIgnoreApi, routeUserdata, DRAIN_TIMEOUT,
 } = require('./_helpers');
 const { clearExtensionStorage, setExtensionStorage } = require('../_extension.js');
+const { tagUrl } = require('../_tags.js'); // random tag page per navigation
 
 // The /tags/en/<Tag> sale page is NOT /tag/browse/. It stacks several DISTINCT
 // capsule blocks, each with its own DOM shape and ContainerStrategyProvider path:
@@ -21,18 +22,13 @@ const { clearExtensionStorage, setExtensionStorage } = require('../_extension.js
 // is covered on stable surfaces in swipe-gesture.spec.js; here we seed the session
 // map (same mechanism persistence.spec.js relies on) and assert that the content
 // script's render path resolves a container and badges each block.
-const TAG_URL = '/tags/en/Collectathon';
 
-// KNOWN FIREFOX GAP (chromium-only tests below). The boot-time render path
-// (IgnoreManager.refreshAll reading the session map on load) paints ZERO badges
-// on the /tags/ page under Firefox — verified: with the session map seeded and
-// 14 seeded hover capsules present, globalBadges === 0, whereas Chromium badges
-// them (5/5) and a LIVE ignore badges fine on Firefox too (see the :231 test,
-// which stays enabled). So an already-ignored game is not marked on a /tags/
-// page on Firefox until re-ignored. The tests that assert boot-render badges are
-// skipped on Firefox pending a fix to the content-script refresh/observer path.
-const FF_TAGS_BOOT_RENDER_GAP =
-    'Known Firefox gap: /tags/ boot-render from the session map paints no badges';
+// The boot-render tests below used to be Chromium-only: on Firefox they painted
+// ZERO badges here while a LIVE ignore badged fine. Root cause was not the
+// render path but the bootstrap — src/manual-ignore/main.js registered its
+// window 'load' listener from a document_idle content script that Firefox can
+// inject AFTER load has fired, so the module never started. Fixed with a
+// readyState guard there; these tests now run on both browsers and guard the fix.
 
 const BLOCKS = [
     { name: 'hover-capsule strip ([data-key="hover div"])', sel: 'div[data-key="hover div"]' },
@@ -49,7 +45,7 @@ async function scrollToLoad(page) {
 // reload so the content script boots with them and badges their capsules. Returns
 // the seeded appid set.
 async function seedTagPage(page) {
-    await page.goto(TAG_URL);
+    await page.goto(tagUrl());
     await waitForContentScript(page);
     await scrollToLoad(page);
 
@@ -82,15 +78,14 @@ test.afterEach(async ({ context }) => {
 test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
 
     for (const block of BLOCKS) {
-        test(`Badge resolves and renders in: ${block.name}`, async ({ page, browserName }) => {
-            test.skip(browserName === 'firefox', FF_TAGS_BOOT_RENDER_GAP);
+        test(`Badge resolves and renders in: ${block.name}`, async ({ page }) => {
             const seeded = await seedTagPage(page);
 
             const probe = page.locator(`${block.sel} a[href*="/app/"]`).first();
             try {
                 await probe.waitFor({ state: 'attached', timeout: 15000 });
             } catch {
-                test.skip(true, `${block.sel} did not render on ${TAG_URL}; Steam surface changed.`);
+                test.skip(true, `${block.sel} did not render on the tag page; Steam surface changed.`);
                 return;
             }
 
@@ -128,8 +123,7 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
         });
     }
 
-    test('Hover-preview popover earns its OWN badge (regression)', async ({ page, browserName }) => {
-        test.skip(browserName === 'firefox', FF_TAGS_BOOT_RENDER_GAP);
+    test('Hover-preview popover earns its OWN badge (regression)', async ({ page }) => {
         const seeded = await seedTagPage(page);
 
         const hd = page.locator('div[data-key="hover div"]').first();
@@ -220,8 +214,7 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
         }).toBeGreaterThan(0);
     });
 
-    test('Cover-art blur applies to the image element itself when enabled', async ({ page, context, browserName }) => {
-        test.skip(browserName === 'firefox', FF_TAGS_BOOT_RENDER_GAP); // blur rides boot-render badges
+    test('Cover-art blur applies to the image element itself when enabled', async ({ page, context }) => {
         // Opt-in blur lives on the media element (filter: blur), NOT an overlay on
         // its parent — so it tracks the art's exact box even where a capsule image
         // overflows onto a neighbouring trailer video.
@@ -287,7 +280,7 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
         // real, possibly already-ignored game) and the poll below would
         // self-skip the whole regression test on a harness artifact.
         await routeUserdata(context, []);
-        await page.goto(TAG_URL);
+        await page.goto(tagUrl());
         await waitForContentScript(page);
 
         const hd = page.locator('div[data-key="hover div"]').first();

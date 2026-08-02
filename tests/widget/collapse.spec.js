@@ -117,7 +117,7 @@ test.describe('on-page widget — collapse to chevron', () => {
     });
 
     test('on a short screen the open panel caps to the viewport and scrolls', async ({ page }) => {
-        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session'); // panel is login-gated
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session — run: npm run test:auth'); // panel is login-gated
 
         // The toolbar popup scrolls via the browser; the shadow panel must cap
         // itself (max-height + overflow-y) or its lower part is unreachable on
@@ -140,7 +140,7 @@ test.describe('on-page widget — collapse to chevron', () => {
     });
 
     test('an open panel counts as activity — idle timer bumps instead of collapsing', async ({ context, page }) => {
-        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session'); // panel is login-gated
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session — run: npm run test:auth'); // panel is login-gated
 
         await page.goto(searchUrl());
         await page.locator('.ilap-chevron').click();

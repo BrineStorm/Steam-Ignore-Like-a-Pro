@@ -54,7 +54,7 @@ function curatorJob(over = {}) {
 test.describe('Curator — LIVE drain against the real account', () => {
 
     test('a region-locked appid (Spacewar 480) is classified & skipped; the rest of the queue really ignores', async ({ page, context, browserName }) => {
-        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session');
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session — run: npm run test:auth');
         test.skip(browserName === 'firefox', 'live real-ignore test runs under chromium only');
         test.setTimeout(3 * 60 * 1000);
 
@@ -64,9 +64,10 @@ test.describe('Curator — LIVE drain against the real account', () => {
         // Guard against a vacuous run: userdata must read as logged-in, else the
         // ignore POSTs / checks below would silently no-op against an empty set.
         const auth = await readUserdata(page);
-        test.skip(!auth || auth.ownedCount === 0, 'page session not authenticated for the userdata API');
+        test.skip(!auth || auth.ownedCount === 0,
+            'saved cookies no longer authenticate the userdata API (half-dead session) — refresh: npm run test:auth');
         const sid = await readSid(page);
-        test.skip(!sid, 'no sessionid on the page');
+        test.skip(!sid, 'no sessionid cookie on the page — refresh: npm run test:auth');
 
         try {
             // Clean slate: a pre-ignored appid dedupe-skips (no POST, no log
@@ -116,7 +117,7 @@ test.describe('Curator — LIVE drain against the real account', () => {
     });
 
     test('a freshly-ignored game staged for undo is really un-ignored and its log entry marked', async ({ page, context, browserName }) => {
-        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session');
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session — run: npm run test:auth');
         test.skip(browserName === 'firefox', 'live real-ignore test runs under chromium only');
         test.setTimeout(3 * 60 * 1000);
 
@@ -124,9 +125,10 @@ test.describe('Curator — LIVE drain against the real account', () => {
         await page.goto(randomAppPage());
 
         const auth = await readUserdata(page);
-        test.skip(!auth || auth.ownedCount === 0, 'page session not authenticated for the userdata API');
+        test.skip(!auth || auth.ownedCount === 0,
+            'saved cookies no longer authenticate the userdata API (half-dead session) — refresh: npm run test:auth');
         const sid = await readSid(page);
-        test.skip(!sid, 'no sessionid on the page');
+        test.skip(!sid, 'no sessionid cookie on the page — refresh: npm run test:auth');
 
         try {
             // Deterministic setup: really ignore NORMAL_UNDO and seed its log

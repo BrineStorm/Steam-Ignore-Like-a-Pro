@@ -134,6 +134,13 @@
         .ilap-ghost-tip .ilap-tip-alt {
             display: block; margin-top: 6px; font-size: 12px; color: #8f98a0;
         }
+        /* The parked-ghost hint is the tall one (wrapped prose + the hotkey line
+           + the mouse fallback). Centred on the chevron its top edge reaches the
+           top of the viewport — on the wordier locales it would be clipped — so
+           it hangs 10px below dead-centre. */
+        .ilap-ghost-tip.ilap-chevron-tip:not(.expand) {
+            transform: translateY(calc(-50% + 10px));
+        }
         /* The passive "expand" hint is a slim single-line strip, sat well below
            the chevron's centre rather than dead-centre. */
         .ilap-ghost-tip.expand {

@@ -162,7 +162,7 @@ test.describe('on-page widget — surface mode', () => {
     });
 
     test('settings toggle in the widget panel: switches to popup mode even while curator jobs exist', async ({ context, page }) => {
-        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session'); // panel is login-gated
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session — run: npm run test:auth'); // panel is login-gated
 
         // A busy queue no longer blocks popup mode: since the SW drain landed,
         // jobs progress with no Steam tab, and the popup hosts the same applet.
