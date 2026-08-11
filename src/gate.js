@@ -118,17 +118,69 @@
     // chain, so the chain only serializes the fast claim, not the pacing delay.
     let chain = Promise.resolve();
 
-    // The two STOP conditions, shared by the pre-claim check and the post-wait
-    // re-check: 'disabled' (master toggle off), 'no-session' (no sessionid
-    // cookie), or null when clear to fire. Exported too: a background drainer
-    // asks it BEFORE opening a pass, so a stopped extension pays no network
-    // read (and schedules no wake-up) just to be refused a slot later.
+    // "Is there a live Steam session?" — the one thing this module needs to know
+    // about the session, and the one seam a host replaces.
+    // Tri-state, and the third state matters: `null` is "couldn't ask" (the
+    // probe itself failed — offline, timeout), which is NOT the same situation
+    // as a confirmed logout and does not recover the same way. See stopVerdict.
+    //
+    // The default below answers for the TAB, which is the only world a default
+    // CAN answer for: utils.js loads before this file in both manifests, so its
+    // facade is there to be read. The service worker imports no utils.js and has
+    // no DOM; it supplies its own through configure(). That used to be an
+    // implicit arrangement — the worker assigned `ILAP.getSessionID` at boot to
+    // satisfy a module it cannot see into, and this function walked a ladder of
+    // facade names to discover which world it was running in.
+    async function defaultHasSession() {
+        const ILAP = window.ILAP;
+        // The `sessionid` cookie is the cheap precondition — without it there is
+        // no body to send — but NOT the answer: Steam hands one to anonymous
+        // visitors too (it is a CSRF token, not a credential — steamLoginSecure
+        // is), so its presence alone was TRUE on any store page of a logged-OUT
+        // browser and every source here was granted slots for POSTs that could
+        // only 400. The verdict comes from the shared ignore-side policy
+        // (utils.js SteamAuth.hasLiveSession): the store header when it rendered
+        // signed-IN, otherwise one live /account/ probe cached in steam-net.js.
+        if (!(ILAP.getSessionID && ILAP.getSessionID())) return false;
+        // No SteamAuth in a world that loads utils.js is a broken build, not an
+        // outage: answer the definite "no" rather than the "couldn't ask" a
+        // caller would keep re-asking about.
+        return ILAP.SteamAuth ? ILAP.SteamAuth.hasLiveSession() : false;
+    }
+
+    let hasSession = defaultHasSession;
+
+    // Host-supplied dependencies for a world the default cannot serve. Called
+    // once at boot, before any reservation. Currently one: `hasSession`, with
+    // the contract above (async, tri-state).
+    function configure(deps) {
+        if (deps && deps.hasSession) hasSession = deps.hasSession;
+    }
+
+    // The STOP conditions, shared by the pre-claim check and the post-wait
+    // re-check: 'disabled' (master toggle off), 'no-session' (confirmed no live
+    // Steam session), 'offline' (the session could not be checked at all), or
+    // null when clear to fire. Every non-null verdict stops the pass — callers
+    // that only need "may I fire?" can treat them alike.
+    //
+    // 'offline' is reported apart because "signed out" and "could not ask" are
+    // not the same fact and do not recover the same way: the first ends with the
+    // user doing something, the second with a connection coming back, which
+    // nothing announces. Only ONE stop is a state the extension itself owns and
+    // can be woken from by a storage write — 'disabled' (ilap_master_enabled).
+    // The background worker (src/background.js) parks its retry alarm on exactly
+    // that one and keeps re-asking through both of the others. No caller grants
+    // a slot on any of the three: the gate fails closed whatever the reason.
+    //
+    // Exported too: a background drainer asks it BEFORE opening a pass, so a
+    // stopped extension pays no network read (and schedules no wake-up) just to
+    // be refused a slot later.
     async function stopVerdict() {
         const data = await get({ [MASTER_KEY]: true });
         if (data[MASTER_KEY] === false) return 'disabled';
-        const sid = window.ILAP.getSessionID && window.ILAP.getSessionID();
-        if (!sid) return 'no-session';
-        return null;
+        const live = await hasSession();
+        if (live === true) return null;
+        return live === null ? 'offline' : 'no-session';
     }
 
     // A source calls this before every ignore. `opts.foreground` marks a VISIBLE
@@ -138,40 +190,53 @@
     // Resolves:
     //   { ok:true }                    once the reserved slot arrives — fire now.
     //   { ok:false, reason:'disabled' }   master toggle off — STOP this pass.
-    //   { ok:false, reason:'no-session' } no sessionid cookie — STOP this pass
+    //   { ok:false, reason:'no-session' } no live Steam session — STOP this pass
     //                                     (a dead session must not burn work).
+    //   { ok:false, reason:'offline' }    the session couldn't be checked at all
+    //                                     — same refusal, different recovery
+    //                                     (see stopVerdict).
     //   { ok:false, reason:'yield' }      background pass deferring to visible work.
     // Callers treat !ok as "stop the whole pass", not "skip one item".
     function reserve(opts) {
         const foreground = !!(opts && opts.foreground);
-        const claim = chain.then(async () => {
-            const stop = await stopVerdict();
+        // The stop verdict is asked OUTSIDE the chain, and must stay outside:
+        // it can cost a live /account/ probe (up to the fetch deadline), and it
+        // takes part in no read-modify-write, so holding the chain across it
+        // would make every other source in this context queue behind one
+        // network round trip for nothing.
+        const claim = stopVerdict().then((stop) => {
             if (stop) return { stop };
-            const data = await get({ [GATE_KEY]: 0, [PENALTY_KEY]: null, [FOREGROUND_KEY]: 0 });
-            const now = Date.now();
-            // The background yields to visible work: while the foreground stamp is
-            // fresh, the drainer takes no slot (the pass stops and retries on the
-            // standby tick / alarm). Visible (foreground) sources never yield.
-            if (!foreground && (now - (data[FOREGROUND_KEY] || 0)) < YIELD_MS) {
-                return { yield: true };
-            }
-            // An active rate-limit penalty folds into the slot: the first
-            // reservation lands at the penalty's end, later ones queue past it
-            // with normal gap spacing.
-            const slot = Math.max(
-                nextSlot(data[GATE_KEY], now, nextGap()),
-                penaltyUntil(data[PENALTY_KEY], now)
-            );
-            const write = { [GATE_KEY]: slot };
-            // A visible source marks activity — the drainer yields to it.
-            if (foreground) write[FOREGROUND_KEY] = now;
-            await set(write);
-            return { slot };
+            // Only the claim below — read → compute → write of the gate
+            // timestamp — is serialized. `chain` is read and re-assigned with no
+            // await between, so two reservations arriving here cannot interleave.
+            const run = chain.then(async () => {
+                const data = await get({ [GATE_KEY]: 0, [PENALTY_KEY]: null, [FOREGROUND_KEY]: 0 });
+                const now = Date.now();
+                // The background yields to visible work: while the foreground stamp is
+                // fresh, the drainer takes no slot (the pass stops and retries on the
+                // standby tick / alarm). Visible (foreground) sources never yield.
+                if (!foreground && (now - (data[FOREGROUND_KEY] || 0)) < YIELD_MS) {
+                    return { yield: true };
+                }
+                // An active rate-limit penalty folds into the slot: the first
+                // reservation lands at the penalty's end, later ones queue past it
+                // with normal gap spacing.
+                const slot = Math.max(
+                    nextSlot(data[GATE_KEY], now, nextGap()),
+                    penaltyUntil(data[PENALTY_KEY], now)
+                );
+                const write = { [GATE_KEY]: slot };
+                // A visible source marks activity — the drainer yields to it.
+                if (foreground) write[FOREGROUND_KEY] = now;
+                await set(write);
+                return { slot };
+            });
+            // Keep the chain alive across a thrown claim so one failure can't wedge
+            // every future reservation. The next claim waits only for this claim's
+            // storage write, never for the sleep below.
+            chain = run.then(() => {}, () => {});
+            return run;
         });
-        // Keep the chain alive across a thrown claim so one failure can't wedge
-        // every future reservation. The next claim waits only for this claim's
-        // storage write, never for the sleep below.
-        chain = claim.then(() => {}, () => {});
         return claim.then(async (r) => {
             if (r.stop) return { ok: false, reason: r.stop };
             if (r.yield) return { ok: false, reason: 'yield' };
@@ -205,6 +270,7 @@
     }
 
     window.ILAP.IgnoreGate = {
+        configure,
         reserve, reportRateLimited, stopVerdict, nextSlot, nextPenalty, penaltyUntil,
         GATE_KEY, PENALTY_KEY, FOREGROUND_KEY, MIN_GAP, GAP_FLOOR, MAX_AHEAD, YIELD_MS,
         PENALTY_BASE, PENALTY_MAX, PENALTY_DECAY

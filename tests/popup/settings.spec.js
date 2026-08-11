@@ -167,6 +167,111 @@ test.describe('Popup — settings accordion', () => {
         const shiftOpt = page.locator('#default-key option[value="shiftKey"]');
         await expect(shiftOpt).toBeDisabled();
     });
+
+    test('Un-ignore select: defaults to the gesture and writes ilap_unignore_key', async ({ page, context }) => {
+        await openPopupAndExpandSettings(page, context);
+
+        const select = page.locator('#unignore-key');
+        await expect(select).toHaveValue('zigzag');
+
+        // A modifier-click is a valid un-ignore binding now, not just a gesture.
+        await select.selectOption('ctrlKey');
+        await page.waitForTimeout(400);
+        expect((await getExtensionStorage(context, 'ilap_unignore_key')).ilap_unignore_key)
+            .toBe('ctrlKey');
+
+        await select.selectOption('off');
+        await page.waitForTimeout(400);
+        expect((await getExtensionStorage(context, 'ilap_unignore_key')).ilap_unignore_key)
+            .toBe('off');
+    });
+
+    test('The three selects offer the SAME bindings, the circle included', async ({ page, context }) => {
+        // Any action can take any binding — ignoring by circle while un-ignoring
+        // by swipe is a supported setup, not a special case — so the three option
+        // lists must not drift apart. 'off' is the only asymmetry (Default Ignore
+        // can't be switched off, and the un-ignore's 'off' means the badge).
+        await openPopupAndExpandSettings(page, context);
+
+        // As SETS: each select leads with its own default (the un-ignore opens on
+        // the circle, the ignore selects on their swipes), so the order differs
+        // on purpose and only the offer has to match.
+        const values = async (sel) => (await page.locator(`#${sel} option`).evaluateAll(
+            (opts) => opts.map((o) => o.value))).filter((v) => v !== 'off').sort();
+
+        const dflt = await values('default-key');
+        expect(dflt).toContain('zigzag');
+        expect(await values('platform-key')).toEqual(dflt);
+        expect(await values('unignore-key')).toEqual(dflt);
+    });
+
+    test('The un-ignore row hints the zigzag the circle label leaves out', async ({ page, context }) => {
+        // The selects name only the circle — one gesture per label, in a 320px
+        // row — but the detector reads the X axis alone, so a flat left-right
+        // zigzag fires the same binding. It is genuinely useful on capsules too
+        // short to circle over and there is nowhere else to learn it, so the row
+        // carries it as a hover hint. A NATIVE title on purpose: the browser
+        // paints it outside the document, where the panel's overflow:hidden
+        // cannot clip it (see tests/popup/tooltips.spec.js for the tips that CAN
+        // be clipped) — which is also why it is asserted here and not there.
+        await openPopupAndExpandSettings(page, context);
+
+        const label = page.locator('[data-i18n="solo_unignore"]');
+        await expect(label).toHaveAttribute('title', /zigzag/i);
+
+        // Localized like every other tooltip, not a stuck English default.
+        await setExtensionStorage(context, { ilap_lang: 'ru' });
+        await expect(label).toHaveAttribute('title', /зигзаг/i);
+    });
+
+    test("Un-ignore 'off' says what it leaves behind: off, except the badge click", async ({ page, context }) => {
+        // The value stays 'off' (storage compat) but it never switches the
+        // un-ignore off — a click on the badge is wired unconditionally — so the
+        // option must say both halves, unlike the ignore selects' bare Off.
+        await openPopupAndExpandSettings(page, context);
+
+        await expect(page.locator('#unignore-key option[value="off"]')).toHaveText(/off.*badge/i);
+        await expect(page.locator('#platform-key option[value="off"]')).toHaveText(/^off$/i);
+
+        await page.locator('#unignore-key').selectOption('off');
+        await page.waitForTimeout(400);
+        await expect(page.locator('#unignore-key-display')).toHaveText(/off.*badge/i);
+    });
+
+    test('A stored value the select has no option for falls back to the default', async ({ page, context }) => {
+        // Self-healing, and the popup does it against its own <option> list —
+        // it cannot reach ManualIgnore.UNIGNORE_KEYS, which is what the content
+        // script clamps with. Assigning an unknown value leaves .value empty,
+        // and a blank control is the one outcome worse than a wrong one.
+        await setExtensionStorage(context, { ilap_unignore_key: 'nonsense' });
+        await openPopupAndExpandSettings(page, context);
+
+        await expect(page.locator('#unignore-key')).toHaveValue('zigzag');
+    });
+
+    test('All three selects mutually exclude their chosen values', async ({ page, context }) => {
+        // The collision guard is what keeps the three apart now that they share a
+        // vocabulary: the resolvers are first-match-wins, so a value bound twice
+        // would leave the later binding silently dead.
+        await setExtensionStorage(context, {
+            ilap_shortcut_key: 'ctrlKey',
+            ilap_platform_key: 'shiftKey',
+            ilap_unignore_key: 'altKey',
+        });
+        await openPopupAndExpandSettings(page, context);
+
+        await expect(page.locator('#unignore-key option[value="ctrlKey"]')).toBeDisabled();
+        await expect(page.locator('#unignore-key option[value="shiftKey"]')).toBeDisabled();
+        await expect(page.locator('#default-key option[value="altKey"]')).toBeDisabled();
+        await expect(page.locator('#platform-key option[value="altKey"]')).toBeDisabled();
+
+        // Nothing has taken the circle, so it stays free in all three…
+        await expect(page.locator('#unignore-key option[value="zigzag"]')).not.toBeDisabled();
+        await expect(page.locator('#default-key option[value="zigzag"]')).not.toBeDisabled();
+        // …and 'off' is a sentinel several selects may sit on at once.
+        await expect(page.locator('#platform-key option[value="off"]')).not.toBeDisabled();
+        await expect(page.locator('#unignore-key option[value="off"]')).not.toBeDisabled();
+    });
 });
 
 test.describe('Popup — settings open-state persistence', () => {

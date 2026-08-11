@@ -9,10 +9,11 @@
     // source ∈ 'mi' | 'eq' | 'dq' | 'curator'. `undoneAt` marks entries the undo
     // drainer already rolled back (kept, not deleted — a second "undo last N"
     // must not re-undo them, and the curator soft re-stage warning reads them).
-    // `skipped` ('unavailable') marks an appid a curator drain could NOT ignore
-    // (permanent 400 — no store object in the account's region): a durable
-    // record that the job wasn't a full "done". Nothing was ignored, so every
-    // undo selector treats these entries as inert.
+    // `skipped` marks an appid a drain could NOT ignore — 'unavailable'
+    // (permanent 400: no store object in the account's region) or 'failed'
+    // (every retry refused): a durable record that the job wasn't a full "done".
+    // Nothing was ignored, so every undo selector treats these entries as inert
+    // (they all test `skipped` for truthiness, never for a particular value).
     //
     // Loaded in BOTH worlds (content_scripts and popup.html), like store.js.
     // The selectors are pure so they unit-test in Node without chrome.

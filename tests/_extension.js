@@ -16,8 +16,21 @@
 
 // A static store page carries the injected bridge content script without
 // touching search history or recommendations, and renders the same whether or
-// not the session is logged in.
-const BRIDGE_URL = 'https://store.steampowered.com/about/';
+// not the session is logged in. Drawn at random per context rather than fixed:
+// every Firefox test opens one of these, so a single URL would be hundreds of
+// hits on one page from one account per run. Legal/info pages only — anything
+// that redirects to the storefront root (valvecookiepolicy,
+// steam_hardware_returnpolicy) would land on the recommendation-driven front
+// page, which is exactly what this list avoids.
+const BRIDGE_URLS = [
+    'https://store.steampowered.com/about/',
+    'https://store.steampowered.com/legal/',
+    'https://store.steampowered.com/privacy_agreement/',
+    'https://store.steampowered.com/subscriber_agreement/',
+    'https://store.steampowered.com/steam_refunds/',
+    'https://store.steampowered.com/mobile/',
+];
+const bridgeUrl = () => BRIDGE_URLS[Math.floor(Math.random() * BRIDGE_URLS.length)];
 
 function isFirefoxContext(context) {
     // Every helper here funnels through this check, so it is where a context
@@ -85,7 +98,7 @@ async function getBridgePage(context) {
         return context._ilapBridgePage;
     }
     const page = await context.newPage();
-    await page.goto(BRIDGE_URL, {
+    await page.goto(bridgeUrl(), {
         waitUntil: 'domcontentloaded',
         timeout: 30000,
     });
@@ -101,6 +114,22 @@ async function getBridgePage(context) {
         }
     }
     throw new Error('Firefox storage bridge never became ready on the store tab');
+}
+
+// Drop the bridge tab so the next storage call opens a fresh one. For tests that
+// change the SESSION mid-test: the bridge tab is a real store page with the full
+// content-script stack, drainer included, and it was loaded with the fixture's
+// cookies — so its store header reads signed-IN for as long as it lives. The
+// ignore-side login gate trusts a signed-in header without probing
+// (SteamAuth.hasLiveSession), which makes that tab a second, still-authorised
+// drainer sitting behind a test that believes the whole context is signed out.
+// Chromium has no bridge tab at all (storage goes through the SW), which is why
+// this is a no-op there and why the divergence only ever shows up on Firefox.
+async function resetBridgePage(context) {
+    if (!isFirefoxContext(context)) return;
+    const page = context._ilapBridgePage;
+    context._ilapBridgePage = null;
+    if (page && !page.isClosed()) await page.close();
 }
 
 // Write keys into chrome.storage.local. Pass a plain object: { ilap_q_master: false, ... }
@@ -151,6 +180,7 @@ module.exports = {
     getExtensionId,
     getServiceWorker,
     getBridgePage,
+    resetBridgePage,
     setExtensionStorage,
     getExtensionStorage,
     clearExtensionStorage,

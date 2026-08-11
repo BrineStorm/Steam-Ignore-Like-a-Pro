@@ -241,6 +241,20 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         expect(data().ilap_curator_queue[0].appids).toEqual(['10']);
     });
 
+    test('a de-duped re-swipe still refreshes the meta (last gesture wins)', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.enqueueMi({ appid: 10, name: 'A', reason: 0 });
+        // The per-tab session map blocks a re-swipe inside ONE tab; from a
+        // second tab the same game can be swiped with the OTHER reason, and
+        // that tab paints the badge its gesture chose. The queued entry must
+        // follow, or the POST contradicts the badge the user is looking at.
+        expect(await Store.enqueueMi({ appid: 10, name: 'A', reason: 2 }))
+            .toEqual({ kind: 'added', total: 1 });
+        const job = data().ilap_curator_queue[0];
+        expect(job.appids).toEqual(['10']);                          // still one POST
+        expect(job.meta['10']).toEqual({ name: 'A', reason: 2 });    // …with the newer reason
+    });
+
     test('a re-swipe of an already-DRAINED appid enqueues again (undo → re-ignore)', async () => {
         const { Store, data } = loadStoreWithChrome({
             ilap_curator_queue: [{
@@ -293,11 +307,11 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         expect(q.filter(j => j.type === 'mi')).toHaveLength(1);
     });
 
-    test('signalUnignored writes the per-appid un-ignore pulse', async () => {
+    test('signalUnignored writes the un-ignore pulse (one appid or a whole list)', async () => {
         const { Store, data } = loadStoreWithChrome({});
         await Store.signalUnignored(292030);
         const pulse = data()[Store.UNIGNORE_PULSE_KEY];
-        expect(pulse.appid).toBe('292030');
+        expect(pulse.appids).toEqual(['292030']);
         expect(typeof pulse.ts).toBe('number');
         // Default reason: the undo drain rolled it back on purpose. The MI
         // listener stays silent for this one — the user asked for it.
@@ -306,7 +320,56 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         // A dropped MI ignore carries the reason that makes the tab explain
         // itself instead of silently un-badging the game.
         await Store.signalUnignored(480, 'failed');
-        expect(data()[Store.UNIGNORE_PULSE_KEY]).toMatchObject({ appid: '480', reason: 'failed' });
+        expect(data()[Store.UNIGNORE_PULSE_KEY]).toMatchObject({ appids: ['480'], reason: 'failed' });
+
+        // A removed MI job drops its whole undrained tail — one write rather
+        // than N onChanged fan-outs across every open tab.
+        await Store.signalUnignored([10, '11'], 'failed');
+        expect(data()[Store.UNIGNORE_PULSE_KEY])
+            .toMatchObject({ appids: ['10', '11'], reason: 'failed' });
+    });
+
+    test('signalUndoFailed reports a rollback that will never land', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.signalUndoFailed();
+        // No appid: nothing on the page is wrong (the game IS still ignored),
+        // so there is nothing to correct — just something to say. The default
+        // reason is the one that says it.
+        expect(data()[Store.UNDO_FAILED_KEY]).toMatchObject({ reason: 'failed' });
+        expect(typeof data()[Store.UNDO_FAILED_KEY].ts).toBe('number');
+    });
+
+    test('removing an MI job un-badges its UNDRAINED tail only', async () => {
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: 'job_mi', type: 'mi', curatorId: 'mi', appids: ['10', '11', '12'],
+                meta: {}, total: 3, status: 'pending',
+            }],
+            ilap_curator_cursor_job_mi: 1,      // '10' was really ignored
+            ilap_curator_skipped_job_mi: 1,
+        });
+        await Store.removeJob('job_mi');
+        expect(data().ilap_curator_queue).toEqual([]);
+        expect(data().ilap_curator_cursor_job_mi).toBeUndefined();
+        expect(data().ilap_curator_skipped_job_mi).toBeUndefined();
+        // '10' landed, so its badge is honest and stays. '11'/'12' were badged
+        // optimistically for POSTs that will now never fire — the queue-stuck
+        // card tells the user to remove the job, so this is the routine path.
+        // Reason 'removed', not 'failed': the user did this, so the tab drops
+        // the badges silently instead of blaming Steam for refusing an ignore
+        // it was never asked to perform.
+        expect(data()[Store.UNIGNORE_PULSE_KEY])
+            .toMatchObject({ appids: ['11', '12'], reason: 'removed' });
+    });
+
+    test('removing a curator job pulses nothing (no optimistic badges to correct)', async () => {
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [
+                { id: 'j1', curatorId: 'c1', appids: ['10', '11'], status: 'pending' }],
+        });
+        await Store.removeJob('j1');
+        expect(data().ilap_curator_queue).toEqual([]);
+        expect(data()[Store.UNIGNORE_PULSE_KEY]).toBeUndefined();
     });
 
     test('a swipe appended concurrently with completion is never lost (enqueueMi vs removeIfDrained)', async () => {
@@ -327,5 +390,182 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         const mi = (data().ilap_curator_queue || []).find(j => j.type === 'mi');
         expect(mi).toBeTruthy();            // an MI job still exists
         expect(mi.appids).toContain('11');  // the swipe was never wiped
+    });
+
+    test('enqueueMiUndo creates its OWN job — direction is a property of the job', () => {
+        // Not a flag on an MI entry: the drainer reads isUndo from job.type and it
+        // governs the whole pass (strict userdata, inverse dedupe, probeLogin on an
+        // empty set). A mixed job would force MI onto the strict path permanently.
+        return (async () => {
+            const { Store, data } = loadStoreWithChrome({});
+            const out = await Store.enqueueMiUndo({ appid: 480 });
+            expect(out).toMatchObject({ kind: 'added', total: 1 });
+            const q = data().ilap_curator_queue;
+            expect(q).toHaveLength(1);
+            expect(q[0]).toMatchObject({
+                id: Store.MIUNDO_JOB_ID, type: 'miundo',
+                curatorId: Store.MIUNDO_ID, appids: ['480'], status: 'pending',
+            });
+            // Its own lease id, so it hands off independently of the MI job.
+            expect(q[0].curatorId).not.toBe(Store.MI_ID);
+        })();
+    });
+
+    test('MIUNDO_MAX caps the un-ignore job on its OWN budget', async () => {
+        // Its own cap, counted over its own job: a full ignore queue must not
+        // refuse the rollbacks that are the way OUT of one, and vice versa.
+        const S = loadStore();
+        const appids = Array.from({ length: S.MIUNDO_MAX }, (_, i) => String(i));
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: S.MIUNDO_JOB_ID, type: 'miundo', curatorId: S.MIUNDO_ID,
+                appids, meta: {}, total: appids.length, status: 'pending',
+            }],
+        });
+        expect(await Store.enqueueMiUndo({ appid: 99999 })).toEqual({ kind: 'full' });
+        expect(data().ilap_curator_queue[0].appids).toHaveLength(S.MIUNDO_MAX);
+
+        // …and a swipe still goes through: the ignore job is empty, and the two
+        // caps are independent (this is what makes the two "queue is stuck"
+        // cards different cards — each names its own job).
+        expect(await Store.enqueueMi({ appid: 12345, name: 'A', reason: 0 }))
+            .toEqual({ kind: 'added', total: 1 });
+    });
+
+    test('a full IGNORE job does not block the rollbacks that empty it', async () => {
+        const S = loadStore();
+        const appids = Array.from({ length: S.MI_MAX }, (_, i) => String(i));
+        const { Store } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: S.MI_JOB_ID, type: 'mi', curatorId: S.MI_ID,
+                appids, meta: {}, total: appids.length, status: 'pending',
+            }],
+        });
+        expect(await Store.enqueueMi({ appid: 99999, name: 'Z', reason: 0 })).toEqual({ kind: 'full' });
+        expect(await Store.enqueueMiUndo({ appid: '0' })).toMatchObject({ kind: 'added' });
+    });
+
+    test('an ignore job and an un-ignore job coexist without touching each other', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.enqueueMi({ appid: 10, name: 'A', reason: 2 });
+        await Store.enqueueMiUndo({ appid: 20 });
+        const q = data().ilap_curator_queue;
+        expect(q.map(j => j.type).sort()).toEqual(['mi', 'miundo']);
+        expect(q.find(j => j.type === 'mi').appids).toEqual(['10']);
+        expect(q.find(j => j.type === 'miundo').appids).toEqual(['20']);
+    });
+
+    test('each un-ignore entry carries its OWN gesture time, not one job-level snapshot', async () => {
+        // The job auto-fills for as long as it lives, so a single job-level
+        // snapshotTs would be the moment the FIRST gesture created it — a game
+        // ignored after that and un-ignored by a later gesture would read as
+        // "re-ignored after the snapshot" and be skipped by the drainer.
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.enqueueMiUndo({ appid: 10 });
+        const first = data().ilap_curator_queue[0].meta['10'].ts;
+        await new Promise(r => setTimeout(r, 5));
+        await Store.enqueueMiUndo({ appid: 11 });
+        const second = data().ilap_curator_queue[0].meta['11'].ts;
+        expect(typeof first).toBe('number');
+        expect(second).toBeGreaterThanOrEqual(first);
+    });
+
+    test('a re-gesture on a still-pending appid does not double-queue it', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.enqueueMiUndo({ appid: 10 });
+        const out = await Store.enqueueMiUndo({ appid: 10 });
+        expect(out.kind).toBe('added');   // accepted, but…
+        expect(data().ilap_curator_queue[0].appids).toEqual(['10']);  // …not appended twice
+    });
+
+    test('cancelMiEntry marks a still-pending swipe instead of splicing it out', async () => {
+        // Splicing would slide entry '12' into index 1, which the cursor has
+        // already passed — the drainer would skip a game it never sent.
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: 'job_mi', type: 'mi', curatorId: 'mi',
+                appids: ['10', '11', '12'], meta: { 11: { name: 'B', reason: 2 } },
+                total: 3, status: 'pending',
+            }],
+            ilap_curator_cursor_job_mi: 1,
+        });
+        expect(await Store.cancelMiEntry(11)).toBe(true);
+        const mi = data().ilap_curator_queue[0];
+        expect(mi.appids).toEqual(['10', '11', '12']);   // indices untouched
+        expect(mi.meta['11']).toMatchObject({ name: 'B', reason: 2, cancelled: true });
+    });
+
+    test('cancelMiEntry refuses an entry the drain has already passed', async () => {
+        // The ignore was sent — there is nothing to cancel, and reporting true
+        // would un-badge a game that IS ignored. The caller must fall back to a
+        // real rollback instead.
+        const { Store } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: 'job_mi', type: 'mi', curatorId: 'mi',
+                appids: ['10', '11'], meta: {}, total: 2, status: 'pending',
+            }],
+            ilap_curator_cursor_job_mi: 2,
+        });
+        expect(await Store.cancelMiEntry(10)).toBe(false);
+        expect(await Store.cancelMiEntry(11)).toBe(false);
+    });
+
+    test('cancelMiEntry on an appid that was never swiped (or no MI job) is false', async () => {
+        const { Store } = loadStoreWithChrome({});
+        expect(await Store.cancelMiEntry(10)).toBe(false);
+        await Store.enqueueMi({ appid: 10, name: 'A', reason: 0 });
+        expect(await Store.cancelMiEntry(99)).toBe(false);
+    });
+
+    test('re-swiping a cancelled game revives the entry (meta is rewritten whole)', async () => {
+        // The de-dup keeps the appid where it is, so the revival has to come from
+        // the meta rewrite — otherwise the swipe would be silently cancelled.
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.enqueueMi({ appid: 10, name: 'A', reason: 0 });
+        expect(await Store.cancelMiEntry(10)).toBe(true);
+        const out = await Store.enqueueMi({ appid: 10, name: 'A', reason: 2 });
+        expect(out.kind).toBe('added');
+        const mi = data().ilap_curator_queue[0];
+        expect(mi.appids).toEqual(['10']);
+        expect(mi.meta['10'].cancelled).toBeUndefined();
+        expect(mi.meta['10'].reason).toBe(2);
+    });
+
+    test('cancelMiEntry never touches the un-ignore job', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.enqueueMiUndo({ appid: 10 });
+        expect(await Store.cancelMiEntry(10)).toBe(false);
+        expect(data().ilap_curator_queue[0].meta['10'].cancelled).toBeUndefined();
+    });
+
+    test('removing an un-ignore job with work left reports the stranded rollbacks', async () => {
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: 'job_mi_undo', type: 'miundo', curatorId: 'miundo',
+                appids: ['10', '11'], meta: {}, total: 2, status: 'pending',
+            }],
+            ilap_curator_cursor_job_mi_undo: 1,
+        });
+        await Store.removeJob('job_mi_undo');
+        // Nothing is un-badged — the games stay ignored, which is what their
+        // badges say — but the rollback the user gestured for is gone, and this
+        // pulse is what drops the pending mark from those badges.
+        expect(data()[Store.UNIGNORE_PULSE_KEY]).toBeUndefined();
+        // Reason 'removed', so the marks come off SILENTLY: the user dropped the
+        // job themselves, and "Steam refused some rollbacks" would blame Steam
+        // for what they just did. Same distinction the MI tail's pulse makes.
+        expect(data()[Store.UNDO_FAILED_KEY]).toMatchObject({ reason: 'removed' });
+    });
+
+    test('removing a FULLY DRAINED un-ignore job reports nothing', async () => {
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: 'job_mi_undo', type: 'miundo', curatorId: 'miundo',
+                appids: ['10'], meta: {}, total: 1, status: 'pending',
+            }],
+            ilap_curator_cursor_job_mi_undo: 1,   // every rollback landed
+        });
+        await Store.removeJob('job_mi_undo');
+        expect(data()[Store.UNDO_FAILED_KEY]).toBeUndefined();
     });
 });

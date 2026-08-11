@@ -45,6 +45,9 @@ function loadBackground(initial, opts) {
         // Appids whose appdetails probe answers success:false (region-locked);
         // everything else probes available.
         unavailableApps: opts.unavailableApps || [],
+        // Whether the /account/ login probe can reach Steam at all; tests flip
+        // it mid-run to simulate an outage and its recovery.
+        accountFails: opts.accountFails || (() => false),
     };
 
     const fireChanged = (changes) =>
@@ -108,6 +111,9 @@ function loadBackground(initial, opts) {
                 });
             }
             if (url.startsWith(ACCOUNT_URL)) {
+                // `accountFails` is the network being down, which the login
+                // check must report apart from a logout (see the offline test).
+                if (state.accountFails()) return Promise.reject(new Error('offline'));
                 return Promise.resolve({
                     ok: true, status: 200,
                     url: opts.loggedIn === false ? ACCOUNT_URL + 'login/' : url,
@@ -235,15 +241,14 @@ test.describe('SW drain host (unit)', () => {
         ]);
     });
 
-    test('a gate-stopped route (no sid / master off) drains nothing and schedules no wake-up', async () => {
-        // The gate refuses every slot without a session or with the master off,
-        // so a pass could only reach that refusal after taking a lease and
-        // spending a userdata GET — and re-arming the alarm would repeat both
-        // forever. The drainer now asks the gate's verdict BEFORE opening a
-        // pass, and syncAlarm treats the stop like the halt flag: no alarm at
-        // all. Both recovery writes (ilap_sw_sid, ilap_master_enabled) are in
-        // the onChanged filter, so the route revives on a real change, not on a
-        // poll — which the sid half asserts below.
+    test('a session-less route drains nothing, spends nothing, and keeps re-asking', async () => {
+        // The gate refuses every slot without a session, so a pass could only
+        // reach that refusal after taking a lease and spending a userdata GET.
+        // The drainer asks the gate's verdict BEFORE opening a pass, so neither
+        // is spent — but the alarm stays armed, because a sign-in does not
+        // reliably write anything this worker listens for (see the logout test
+        // below). The sid write asserted at the end is the fast path, not the
+        // only one.
         const env = loadBackground({
             ilap_master_enabled: true,
             ilap_curator_queue: [job()],
@@ -251,7 +256,7 @@ test.describe('SW drain host (unit)', () => {
         await env.settle();
         expect(env.posts).toEqual([]);
         expect(env.data().ilap_curator_queue).toHaveLength(1);
-        expect(env.alarms[ALARM]).toBeUndefined();
+        expect(env.alarms[ALARM]).toBeDefined();
         // No lease was taken and no cursor written: the pass stopped before both.
         expect(env.data().ilap_curator_lock_c1).toBeUndefined();
         expect(env.data().ilap_curator_cursor_j1).toBeUndefined();
@@ -368,6 +373,53 @@ test.describe('SW drain host (unit)', () => {
         env.fireAlarm(ALARM);
         await env.until(() => (env.data().ilap_curator_queue || []).length === 0, 15000);
         expect(env.posts.map((p) => p.appid)).toEqual(['10']);
+    });
+
+    test('an unreachable login probe keeps the retry alarm — the drain is not stranded by a blip', async () => {
+        // The one stop this worker parks on recovers through a storage write it
+        // already listens for: 'disabled' → ilap_master_enabled. A NETWORK
+        // outage has no such write — nothing fires onChanged when the connection
+        // returns — so dropping the alarm on it would strand the drain until a
+        // store tab happened to open, which is precisely the case this worker
+        // exists to cover. The alarm stays armed and re-asks.
+        let offline = true;
+        const env = loadBackground({
+            ilap_master_enabled: true,
+            ilap_sw_sid: 'sess-1',
+            ilap_curator_queue: [job()],
+        }, { accountFails: () => offline });
+
+        // Refused, but still scheduled to re-ask.
+        await env.until(() => !!env.alarms[ALARM]);
+        await env.settle();
+        expect(env.posts).toEqual([]);
+        expect(env.data().ilap_curator_cursor_j1).toBeUndefined();
+
+        // Connection back — and nothing wrote storage to say so. The alarm is
+        // the only thing that can notice, and it does.
+        offline = false;
+        env.fireAlarm(ALARM);
+        await env.until(() => (env.data().ilap_curator_queue || []).length === 0, 15000);
+        expect(env.posts.map((p) => p.appid)).toEqual(['10', '11']);
+    });
+
+    test('a confirmed logout keeps it too — a sign-in need not write storage', async () => {
+        // The tempting shortcut is to park on 'no-session' because signing in
+        // refreshes ilap_sw_sid. It does not, reliably: that write is
+        // change-only (curator/drainer.js), and the verdict is a live probe now
+        // rather than "is a sessionid cached" — so a session that comes back
+        // under the SAME sessionid produces no write, no onChanged, no kick.
+        // Only the master toggle is a stop this worker can be woken from.
+        const env = loadBackground({
+            ilap_master_enabled: true,
+            ilap_sw_sid: 'sess-1',
+            ilap_curator_queue: [job()],
+        }, { loggedIn: false });
+        await env.settle();
+        expect(env.posts).toEqual([]);
+        expect(env.alarms[ALARM]).toBeDefined();
+        // ...and the master toggle still is: that one parks the alarm outright
+        // (asserted by the master-off test above).
     });
 
     test('a live foreign lease is respected: no steal, no POST, alarm re-armed', async () => {

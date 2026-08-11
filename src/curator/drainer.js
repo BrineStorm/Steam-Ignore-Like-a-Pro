@@ -53,6 +53,23 @@
 
     const uuid = () => window.ILAP.newOwnerId('d_');
 
+    // Job-type predicates. Direction is a property of the JOB (see the twin-job
+    // note in curator/store.js): 'undo' is the droplist rollback, 'miundo' the
+    // solo un-ignore gesture — both POST remove=1 and both need the undo pass
+    // policy (strict userdata, live probe on an empty set, INVERTED dedupe,
+    // "last user intent wins"). 'mi' and 'miundo' are the two gesture jobs and
+    // share the drainer's foreground priority.
+    const isUndoType = (type) => type === 'undo' || type === 'miundo';
+    const isForeground = (type) => type === 'mi' || type === 'miundo';
+
+    // Half of "is this job drainable": it is MEANT to run and carries a list.
+    // Anything else is 'paused' (user intent) or 'enumerating' (a filter switch
+    // re-resolving the list). Says nothing about progress — that half needs the
+    // job's cursor, which is a storage read, so it lives in `_drainable` below.
+    const runnable = (j) =>
+        (j.status === 'running' || j.status === 'pending')
+        && Array.isArray(j.appids);
+
     class CuratorQueueDrainer {
         constructor(deps) {
             this.store = deps.store;
@@ -122,22 +139,165 @@
             }
         }
 
-        // A job is drainable if it's meant to run and still has work left.
-        // Manual-Ignore jobs (type:'mi') are picked FIRST: an MI ignore is a live
-        // user action and must clear ahead of background curator/undo work.
-        _pickJob(queue) {
-            const drainable = (j) =>
-                (j.status === 'running' || j.status === 'pending')
-                && Array.isArray(j.appids)
-                && (j.cursor || 0) < j.appids.length;
-            return queue.find(j => j.type === 'mi' && drainable(j))
-                || queue.find(drainable) || null;
+        // The two GESTURE jobs are picked FIRST: an MI ignore and a solo
+        // un-ignore are live user actions and must clear ahead of background
+        // curator/undo work.
+        //
+        // Between the two, the ROLLBACK goes first. They cannot share a bucket
+        // and be fair: the bucket resolves by array position, so whichever job
+        // happens to sit earlier is looked at first — "whichever the user did
+        // last" is not something position can express. Given that, un-ignore is
+        // the right winner twice over: a rollback is by construction the later
+        // intent (you can only take back a game you already swiped), and it is
+        // the one leaving a VISIBLE provisional mark on the page while it waits
+        // — an MI ignore's badge is painted the moment the swipe lands, so its
+        // wait shows nothing. The reverse starvation is also far cheaper: you do
+        // not gesture hundreds of rollbacks.
+        //
+        // Order alone would only settle which job a pass STARTS on, and a pass
+        // runs its job to the end — see `_preemptedBy`, which is what makes this
+        // priority mean anything for a gesture made mid-drain.
+        async _pickJob(queue) {
+            const ready = [];
+            for (const j of queue) if (await this._drainable(j)) ready.push(j);
+            return ready.find(j => j.type === 'miundo')
+                || ready.find(j => isForeground(j.type))
+                || ready[0] || null;
+        }
+
+        // A job's real drain progress. The cursor lives in a key of its OWN (the
+        // partitioning note in curator/store.js) — the `cursor` FIELD on the queue
+        // record is a legacy pre-cursor-key value that no build has written since,
+        // so reading it alone reports 0 for every job the drainer has ever
+        // touched. The same read the drain loop takes for the job it is on, and
+        // the reason the two predicates below are async at all.
+        async _cursorOf(job) {
+            const keyCursor = await this.store.getCursor(job.id);
+            return keyCursor != null ? keyCursor : (job.cursor || 0);
+        }
+
+        // The whole question: meant to run, and something left to do.
+        async _drainable(job) {
+            return runnable(job) && (await this._cursorOf(job)) < job.appids.length;
+        }
+
+        // Hand the drain over to a solo un-ignore gestured while this pass was
+        // already running. Without it `_pickJob`'s priority is only consulted
+        // BETWEEN passes, so the rollback waited out whatever was draining: a
+        // 200-entry MI backlog at ~0.6 s a POST is minutes, a curator job is
+        // hours — and all of it spent on a badge dimmed as "rolling back",
+        // which is precisely the wait the priority exists to prevent.
+        // The queue here is the read the loop already takes, and the one extra
+        // storage read is spent only when a rollback job is actually there (its
+        // id is fixed, so there is at most one). Returning ends the pass;
+        // `drain()` releases the lease on the way out, picks the rollback, and
+        // comes back to this job afterwards — it resumes from its cursor, having
+        // lost nothing but the userdata GET at the top of the next pass.
+        //
+        // Only the ROLLBACK preempts, deliberately. Letting an MI swipe cut into
+        // a curator job would pay that GET once per swipe, and swipes are the
+        // frequent direction — while the swipe's own badge is already painted
+        // and its wait invisible.
+        async _preemptedBy(queue, job) {
+            if (job.type === 'miundo') return false;
+            const rollback = queue.find(j => j.type === 'miundo');
+            return !!rollback && await this._drainable(rollback);
         }
 
         // Public probe for host schedulers (the SW's alarm re-arm): does the
         // queue hold a job this drainer could pick up?
-        hasDrainableWork(queue) {
-            return !!this._pickJob(queue);
+        async hasDrainableWork(queue) {
+            return !!(await this._pickJob(queue));
+        }
+
+        // A job with a live status whose cursor already sits at the end: a
+        // completion that did not finish. `_drainJob` drops the job the moment it
+        // sees that state, but the pass can die in the window between the last
+        // setCursor and the next loop top — a stolen lease, a closed tab, a killed
+        // worker — and while the picker was blind to progress the leftover was
+        // collected by simply being picked again. A picker that only takes real
+        // work would never look at it, and it would sit there for good: 100 % in
+        // the queue applet, the standby tick armed forever, the SW re-arming its
+        // alarm for nothing. So the pass that finds nothing to drain collects it.
+        // `removeIfDrained` re-checks emptiness inside the queue mutation (a
+        // gesture may have appended meanwhile) and takes no lease, being a
+        // serialized queue write like every other one here.
+        async _collectDrained(queue) {
+            for (const j of queue) {
+                if (!runnable(j)) continue;
+                const cursor = await this._cursorOf(j);
+                if (cursor < j.appids.length) continue;
+                if (await this.store.removeIfDrained(j.id, cursor)) {
+                    await this.store.signalCompleted();
+                }
+            }
+        }
+
+        // An entry the drain is stepping over WITHOUT performing it (a permanent
+        // per-appid refusal, or every retry failed). The two job types that show
+        // the user something need opposite corrections:
+        //  - MI badged the game optimistically at swipe time and that badge now
+        //    lies → drop it, tagged 'failed' so the swiping tab can say why;
+        //  - undo has nothing to un-badge (the game stays ignored, which is what
+        //    its badge already says) — but the rollback the user asked for will
+        //    never happen, so pulse that instead of ending as a silent "done".
+        // Both signals are optional deps (stubs / partial builds skip them).
+        async _reportDropped(job, appid) {
+            if (job.type === 'mi') {
+                if (this.store.signalUnignored) await this.store.signalUnignored(appid, 'failed');
+            } else if (isUndoType(job.type)) {
+                // Both rollback types report the same way — and for the solo
+                // gesture this pulse doubles as "drop the pending mark", since
+                // the badge it left dimmed has to go back to looking ignored.
+                if (this.store.signalUndoFailed) await this.store.signalUndoFailed('failed');
+            }
+        }
+
+        // The one cancel window the cursor cannot describe. `Store.cancelMiEntry`
+        // answers "was this swipe still pending?" from the cursor — but the cursor
+        // only advances once the POST has RETURNED, so a gesture landing while the
+        // request is in flight is told it cancelled an ignore that was by then
+        // already sent. The tab drops the badge, the user believes the swipe never
+        // happened, and Steam has the game ignored: silent, and the opposite of
+        // what they asked for. A slow POST is all it takes.
+        // Checked AFTER the cursor moved, which is what closes the window rather
+        // than narrowing it: a cancel arriving any later reads the advanced cursor,
+        // is refused, and the tab queues the rollback itself.
+        // The correction is a real rollback, not a repainted badge — the ignore
+        // did land, and stays counted and logged exactly as it happened. The new
+        // entry carries the gesture's own `ts`, so "last intent wins" still points
+        // the right way, and the confirmed un-ignore clears the badge everywhere
+        // through the usual pulse.
+        async _compensateCancelled(job, appid) {
+            if (!this.store.enqueueMiUndo) return;
+            const after = (await this.store.getQueue()).find(j => j.id === job.id);
+            const meta = after && after.meta ? after.meta[appid] : null;
+            if (meta && meta.cancelled) await this.store.enqueueMiUndo({ appid });
+        }
+
+        // Step over an entry that will never be performed, leaving the honest
+        // record. The two callers differ only in WHY: 'unavailable' (a permanent
+        // per-appid refusal, classified from a 400) and 'failed' (every retry
+        // refused) — and 'unavailable' additionally counts into the job row's
+        // skip line, whose label names the region lock and so cannot speak for
+        // the other case.
+        //
+        // The log entry is what survives a dropped entry: the per-job skip
+        // counter dies with the job and the live push card needs a listening tab
+        // (the SW route has none by design). It costs no extra volume — a game
+        // that had landed would have been appended here anyway — and `skipped`
+        // keeps it inert for every undo selector. Undo jobs are excluded on
+        // purpose: a rollback that failed must stay LIVE in the log so the next
+        // "undo the last N" picks it up again.
+        async _dropEntry(cur, cursor, appid, miMeta, why) {
+            if (why === 'unavailable') await this.store.bumpSkipped(cur.id);
+            if (!isUndoType(cur.type) && this.log) {
+                await this.log.append(cur.type === 'mi'
+                    ? { appid, name: miMeta ? miMeta.name : '', source: 'mi', skipped: why }
+                    : { appid, source: 'curator', curatorId: cur.curatorId, skipped: why });
+            }
+            await this._reportDropped(cur, appid);
+            await this.store.setCursor(cur.id, cursor + 1);
         }
 
         async drain() {
@@ -147,16 +307,23 @@
                 while (true) {
                     const queue = await this.store.getQueue();
                     this._syncStandbyTimer(queue.length > 0);
-                    const job = this._pickJob(queue);
-                    if (!job) break;
+                    const job = await this._pickJob(queue);
+                    // Nothing to drain — but the queue can still hold a job that
+                    // finished without being removed (see _collectDrained).
+                    if (!job) {
+                        await this._collectDrained(queue);
+                        break;
+                    }
                     // The gate refuses every slot while the master toggle is off
                     // or the session is dead — but that verdict lands AFTER
                     // _drainJob has taken a lease and spent a userdata GET, and
                     // the SW re-arms its retry alarm for as long as drainable
                     // work exists. A disabled extension therefore kept paying a
                     // network read per tab per standby tick, forever. Ask the
-                    // same verdict up front instead: re-enabling the master or
-                    // logging back in writes storage, and onChanged kicks us.
+                    // same verdict up front instead: re-enabling the master
+                    // writes storage and onChanged kicks us, and the stops that
+                    // announce nothing (a logout, an outage) are re-asked by the
+                    // standby tick — or, in the SW, by its retry alarm.
                     if (await this.stopped()) break;
                     const got = await this.store.acquireLock(job.curatorId, this.ownerId);
                     if (!got) break;   // another tab owns this job → we stay standby
@@ -182,7 +349,7 @@
             // No stored 'running' status: the UI derives "running" from the live
             // lease. The drainer's only queue-array write is the final removeJob,
             // so it can never clobber a concurrent pause/remove from the applet.
-            const isUndoJob = job.type === 'undo';
+            const isUndoJob = isUndoType(job.type);
             // Curator jobs tolerate a failed userdata read: an empty set only
             // disables the dedupe (every POST fires — safe). An undo job must
             // NOT fall back to empty: its skip direction is inverted, so
@@ -204,12 +371,15 @@
             let fails = 0;
 
             while (true) {
-                const cur = (await this.store.getQueue()).find(j => j.id === job.id);
+                const queue = await this.store.getQueue();
+                const cur = queue.find(j => j.id === job.id);
                 if (!cur) return;                       // removed from the queue
                 // Anything but a drainable status stops this pass: 'paused' (user
                 // intent) or 'enumerating' (filter switch re-resolving the list).
                 // 'running' is a legacy stored value from the pre-cursor-key model.
                 if (cur.status !== 'pending' && cur.status !== 'running') return;
+                // A rollback gestured since this pass started takes over.
+                if (await this._preemptedBy(queue, cur)) return;
                 if (!(await this.store.holdsLock(job.curatorId, this.ownerId))) return; // lost lease
 
                 // Renew the lease on EVERY loop path, not just after a POST: a
@@ -221,9 +391,7 @@
                     lastBeat = Date.now();
                 }
 
-                const keyCursor = await this.store.getCursor(job.id);
-                // Legacy records (pre-cursor-key) kept the cursor inline.
-                const cursor = keyCursor != null ? keyCursor : (cur.cursor || 0);
+                const cursor = await this._cursorOf(cur);
                 if (cursor >= cur.appids.length) {
                     // Finished: drop the job entirely (no lingering "done" record) and
                     // emit a completion pulse so the widget blinks once. removeIfDrained
@@ -235,7 +403,7 @@
                     return;
                 }
 
-                const isUndo = cur.type === 'undo';
+                const isUndo = isUndoType(cur.type);
                 const isMi = cur.type === 'mi';
                 const appid = String(cur.appids[cursor]);
                 // MI entries carry their own name + ignore reason (a swipe can be
@@ -243,6 +411,25 @@
                 // ignores with the default reason.
                 const miMeta = isMi && cur.meta ? cur.meta[appid] : null;
                 const miReason = miMeta && Number.isFinite(miMeta.reason) ? miMeta.reason : REASON;
+
+                // The swipe was taken back before it was ever sent (Store
+                // .cancelMiEntry): step over it silently. Nothing to report —
+                // the gesture already un-badged it, and an ignore that never
+                // happened has nothing to log, count or roll back.
+                if (isMi && miMeta && miMeta.cancelled) {
+                    await this.store.setCursor(job.id, cursor + 1);
+                    fails = 0;
+                    continue;
+                }
+                // "Last user intent wins" boundary. The droplist undo job is a
+                // one-shot STATIC snapshot, so one job-level ts is right for it.
+                // The solo-un-ignore job auto-fills for as long as it lives, so a
+                // job-level ts would be the moment the FIRST gesture created it —
+                // a game ignored after that but un-ignored by a later gesture
+                // would look "re-ignored after the snapshot" and be skipped. Its
+                // entries therefore carry their own gesture time in `meta`.
+                const entryTs = (cur.meta && cur.meta[appid] && cur.meta[appid].ts)
+                    || cur.snapshotTs || 0;
 
                 // Dedupe against the live ignore state — inverted for undo jobs:
                 // a curator job skips an appid that's ALREADY ignored; an undo job
@@ -264,7 +451,7 @@
                         && Date.now() - (await this.log.lastIgnoredAt(appid)) < UNDO_FRESH_MS;
                     if (!freshIgnore) {
                         if (isUndo && this.log) {
-                            await this.log.markUndone(appid, cur.snapshotTs || 0);
+                            await this.log.markUndone(appid, entryTs);
                         }
                         await this.store.setCursor(job.id, cursor + 1);
                         fails = 0;
@@ -276,7 +463,7 @@
                 // undo job's snapshot was a deliberate later action — skip it, and
                 // don't mark its log entries undone (they weren't).
                 if (isUndo && this.log
-                    && await this.log.wasReIgnoredAfter(appid, cur.snapshotTs || 0)) {
+                    && await this.log.wasReIgnoredAfter(appid, entryTs)) {
                     await this.store.setCursor(job.id, cursor + 1);
                     fails = 0;
                     continue;
@@ -296,6 +483,15 @@
                 // status check at the top of the loop ran before the wait).
                 const fresh = (await this.store.getQueue()).find(j => j.id === job.id);
                 if (!fresh || (fresh.status !== 'pending' && fresh.status !== 'running')) return;
+                // A cancel landing during that same wait is the race the whole
+                // cancel path exists for: this entry is the one the gesture was
+                // aimed at, and it has NOT been posted yet. Re-check on the
+                // fresh record, not the snapshot taken before the wait.
+                if (isMi && fresh.meta && fresh.meta[appid] && fresh.meta[appid].cancelled) {
+                    await this.store.setCursor(job.id, cursor + 1);
+                    fails = 0;
+                    continue;
+                }
                 // The lease can be stolen during the same wait (e.g. this tab was
                 // backgrounded and its heartbeat lapsed): the single-drainer
                 // invariant needs a live lease at POST time, not just at loop top.
@@ -309,7 +505,7 @@
                         ignored.delete(appid);
                         // Mark the rolled-back log entries so a later undo can't
                         // re-undo them (and the re-stage warning can see them).
-                        if (this.log) await this.log.markUndone(appid, cur.snapshotTs || 0);
+                        if (this.log) await this.log.markUndone(appid, entryTs);
                         // Clear this game's on-page IGNORED badge in every MI tab
                         // (per-appid pulse; the badge otherwise lingers and lies).
                         if (this.store.signalUnignored) await this.store.signalUnignored(appid);
@@ -331,6 +527,7 @@
                         });
                     }
                     await this.store.setCursor(job.id, cursor + 1);
+                    if (isMi) await this._compensateCancelled(job, appid);
                     fails = 0;
                 } else if (res && res.rateLimited) {
                     // 429: the server is throttling the ACCOUNT, not this appid —
@@ -346,28 +543,16 @@
                     // no MAX_FAILS burn — and count it honestly instead of
                     // letting the job end as a silent "done". A skipped appid
                     // was never ignored, so an undo job neither logs nor marks
-                    // anything for it, and a curator job's log entry carries the
-                    // `skipped` marker that keeps it out of every undo selector.
-                    await this.store.bumpSkipped(job.id);
-                    if (!isUndo && this.log) await this.log.append(isMi
-                        ? { appid, source: 'mi', skipped: 'unavailable' }
-                        : { appid, source: 'curator', curatorId: job.curatorId, skipped: 'unavailable' });
-                    // An MI game was badged optimistically at swipe time; this
-                    // permanent refusal means it was never ignored, so clear the
-                    // on-page badge (it would otherwise linger and lie). Reuses the
-                    // undo un-badge pulse, tagged 'failed' so the swiping tab can
-                    // say why the badge went away instead of just dropping it.
-                    if (isMi && this.store.signalUnignored) {
-                        await this.store.signalUnignored(appid, 'failed');
-                    }
-                    await this.store.setCursor(job.id, cursor + 1);
+                    // anything for it.
+                    await this._dropEntry(cur, cursor, appid, miMeta, 'unavailable');
                     fails = 0;
                 } else {
                     // Before charging this appid for the failure, make sure the
-                    // failure is even about the appid. A session whose cookies are
-                    // still present but no longer accepted by Steam 400s EVERY
-                    // POST while `gate.reserve()` (which only checks that a
-                    // sessionid exists) keeps granting slots — MAX_FAILS would
+                    // failure is even about the appid. A session that dies mid-pass
+                    // 400s EVERY POST while `gate.reserve()` keeps granting slots:
+                    // its own login check is cheap on purpose (a signed-in store
+                    // header is trusted, a confirmed probe is cached for a minute),
+                    // so it lags the session by up to that much — MAX_FAILS would
                     // then walk the entire job three wasted slots at a time and
                     // end as a silent "done" with nothing ignored. The appdetails
                     // classifier above can't catch that: it fires only on a
@@ -388,13 +573,12 @@
                     // wedge the whole job.
                     fails += 1;
                     if (fails >= MAX_FAILS) {
-                        // Same as the unavailable skip: an MI game we badged
-                        // optimistically failed every retry — drop its lying badge
-                        // as we step past it, and let the tab explain itself.
-                        if (isMi && this.store.signalUnignored) {
-                            await this.store.signalUnignored(appid, 'failed');
-                        }
-                        await this.store.setCursor(job.id, cursor + 1);
+                        // Same disposition as the unavailable skip above, for an
+                        // entry that failed every retry instead. It does NOT
+                        // count into the job row's skip line — that label names
+                        // the region lock — but it leaves the same durable log
+                        // record, which is the only trace a drop leaves at all.
+                        await this._dropEntry(cur, cursor, appid, miMeta, 'failed');
                         fails = 0;
                     }
                 }

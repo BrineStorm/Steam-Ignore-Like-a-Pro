@@ -44,22 +44,44 @@
         </svg>`;
     };
 
+    // The circle gesture's loop, in the swoosh's slot: an open ring closing
+    // counter-clockwise into an arrowhead. Same drawing as the settings glyph
+    // (ui/popup_settings.js — the two files each own their copy of every
+    // miniature, like the mouse and the swoosh above), sized for this row.
+    const ringSvg = (slot) => {
+        const gid = 'ring-' + slot;
+        return `
+        <svg class="sw-arrow" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true">
+          <defs><linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#3ca8fc" stop-opacity=".35"/>
+            <stop offset="1" stop-color="#3ca8fc"/>
+          </linearGradient></defs>
+          <path d="M5.4 6.64 A6 6 0 1 0 10 4.5" fill="none" stroke="url(#${gid})" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M0,-2.6 L4.6,0 L0,2.6 Z" fill="#3ca8fc" transform="translate(10,4.5) rotate(180)"/>
+        </svg>`;
+    };
+
     // Build "Hold [mouse] & Swipe [swoosh]" from the localized label, dropping its
-    // trailing text arrow in favour of the SVG swoosh.
-    function gestureChip(labelKey, isRight, slot) {
+    // trailing text arrow in favour of the SVG motion glyph. `motion`: true/false
+    // = swoosh right/left, 'circle' = the loop.
+    function gestureChip(labelKey, motion, slot) {
         const stripped = t(labelKey).replace(/\s*[→←➜]\s*$/, '').trim();
         const sp = stripped.indexOf(' ');
         const first = sp === -1 ? stripped : stripped.slice(0, sp);
         const rest = sp === -1 ? '' : stripped.slice(sp + 1);
         let inner = `${Sanitizer.escapeHTML(first)}${mouseSvg(true, 'mouse-ico', 15, 21)}`;
         if (rest) inner += Sanitizer.escapeHTML(rest);
-        inner += swooshSvg(isRight, slot);
+        inner += motion === 'circle' ? ringSvg(slot) : swooshSvg(motion, slot);
         return `<span class="kbd-key" style="margin-left:0;">${inner}</span>`;
     }
 
     function getShortcutHintHtml(key, slot) {
         if (key === 'swipeRight') return gestureChip('hold_and_swipe_right', true, slot);
         if (key === 'swipeLeft') return gestureChip('hold_and_swipe_left', false, slot);
+        // The circle can carry an ignore now, so the hint has to be able to draw
+        // it. Its own label ("Right-Click + Circle") already names the button, so
+        // it goes through the same chip as the swipes — first word, mouse, rest.
+        if (key === 'zigzag') return gestureChip('shortcut_zigzag', 'circle', slot);
 
         const names = { 'ctrlKey': 'Ctrl', 'shiftKey': 'Shift', 'altKey': 'Alt' };
 

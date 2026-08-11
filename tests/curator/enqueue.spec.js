@@ -20,6 +20,19 @@ const CURATOR_ID = '45186708';          // "No AI"
 const CURATOR_PATH = `/curator/${CURATOR_ID}/`;
 const BTN = '#ilap-curator-enqueue';
 
+// A seeded job stands in for one the user already staged, purely to put the
+// button in its Added state — but it has to carry REAL work to survive: the
+// drainer collects a zero-appid pending job as an unfinished completion the
+// moment it runs (CuratorQueueDrainer._collectDrained), which would yank the
+// button back to the add-variant mid-test. So the list is:
+//  - synthetic (9_000_001+, no such app), so the drain-time userdata dedupe
+//    reads the real account's ignores and can never skip these — a skipped
+//    appid advances the cursor with no POST, i.e. with no pacing at all;
+//  - long enough that the gate's ~0.5 s pace (src/gate.js MIN_GAP) cannot walk
+//    it to the end inside the 75 s per-test limit, whatever a spec does.
+// Every POST is route-faked by interceptIgnoreApi, so none of it reaches Steam.
+const FAKE_APPIDS = Array.from({ length: 150 }, (_, i) => String(9000001 + i));
+
 function makeJob(curatorId, filter = 'not_recommended') {
     return {
         id: 'job_' + curatorId + '_' + Date.now() + '_' + curatorId,
@@ -27,9 +40,9 @@ function makeJob(curatorId, filter = 'not_recommended') {
         curatorName: 'Curator ' + curatorId,
         curatorUrl: 'https://store.steampowered.com/curator/' + curatorId + '/',
         filter,
-        appids: [],
+        appids: FAKE_APPIDS.slice(),
         cursor: 0,
-        total: 0,
+        total: FAKE_APPIDS.length,
         status: 'pending',
         addedAt: Date.now(),
     };

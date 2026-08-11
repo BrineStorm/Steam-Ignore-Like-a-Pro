@@ -132,11 +132,20 @@ test.describe('on-page widget — collapse to chevron', () => {
         await page.locator('.ilap-panel #settings-accordion summary').first().click();
 
         const root = page.locator('.ilap-panel #popup-root');
+        // Polled, not sampled once: the accordion expands over a transition, and
+        // for the first ~50 ms scrollHeight still equals clientHeight (measured:
+        // 314/314 at the click, 475/393 once settled). A single read right after
+        // the click lands inside that window whenever the machine is loaded —
+        // green in isolation, red on a full run, and about the harness rather
+        // than the cap.
+        await expect.poll(
+            () => root.evaluate((el) => el.scrollHeight > el.clientHeight),
+            { timeout: 5000 }
+        ).toBe(true);
+        // …and having overflowed, the panel still caps itself to the viewport
+        // instead of running off the bottom.
         const box = await root.boundingBox();
-        expect(box.y + box.height).toBeLessThanOrEqual(500); // fits the viewport
-        // …and the overflowing content is reachable by scrolling inside the panel.
-        const scrollable = await root.evaluate((el) => el.scrollHeight > el.clientHeight);
-        expect(scrollable).toBe(true);
+        expect(box.y + box.height).toBeLessThanOrEqual(500);
     });
 
     test('an open panel counts as activity — idle timer bumps instead of collapsing', async ({ context, page }) => {

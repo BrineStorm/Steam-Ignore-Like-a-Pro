@@ -69,6 +69,14 @@ const test = base.test.extend({
         // idle timer, a window the lazy bridge-open latency would blow past.
         if (browserName === 'firefox') {
             await getBridgePage(context);
+            // …and then hand the window back to the tab the test drives. Opening
+            // the bridge tab raises it, so without this the whole Firefox run is
+            // watched from the wrong tab: the store page under test sits behind
+            // a static legal page for its entire life. Cosmetic for the asserts
+            // (Playwright dispatches into a background tab just as well), but it
+            // also puts the test page's visibilityState where Chromium's already
+            // is — visible.
+            await context.pages()[0].bringToFront();
         }
 
         await use(context);

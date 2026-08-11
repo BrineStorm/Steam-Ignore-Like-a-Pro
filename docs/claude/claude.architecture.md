@@ -8,13 +8,14 @@
 content-script-bound:
 
 ```js
-window.ILAP.getSessionID      // Steam session cookie
+window.ILAP.getSessionID      // sessionid cookie (a CSRF token — NOT a login check; anonymous visitors get one too)
 window.ILAP.apiIgnoreGame     // POST to Steam ignore endpoint
 window.ILAP.apiUnignoreGame   // the same endpoint with remove=1 (undo)
 window.ILAP.saveStats         // Write to chrome.storage.local
 window.ILAP.getGameName       // 5-strategy name extractor (sync)
 window.ILAP.resolveGameName   // async: DOM strategies, then appdetails fallback
 window.ILAP.SteamAuth         // login gate: header DOM check + live /account/ probe
+                              // (hasLiveSession = the ignore-side flavour, shared with IgnoreGate)
 window.ILAP.fetchIgnoredApps  // lenient userdata read (empty Set on failure)
 window.ILAP.newOwnerId        // collision-resistant lease/slot owner id
 window.ILAP.SessionStateService

@@ -1,6 +1,6 @@
 # Privacy Policy for Steam Ignore Like a Pro
 
-**Effective Date:** July 23, 2026
+**Effective Date:** August 11, 2026
 
 Steam Ignore Like a Pro is a free, open-source browser extension. This Privacy Policy explains our commitment to your privacy.
 
@@ -15,7 +15,7 @@ Specifically:
 * **No data** is sent to us or to any third-party server. The extension communicates only with Steam's own endpoints on `store.steampowered.com`, and only to carry out the ignore and un-ignore actions you initiate in the extension, to read the account state those actions need (which of your games are already ignored, and whether you are signed in), and to look up a game's public store details.
 
 ### Permissions & Local Storage
-The extension requires the `storage` browser permission to function. This permission is used **solely** to save your personal preferences, ignore history, and pending ignore queue locally on your device — that data never leaves your browser — and to cache the Steam session token described below. Nothing in it is ever transmitted to us or to any third party.
+The extension requires the `storage` browser permission to function. This permission is used **solely** to save your personal preferences, ignore history, pending ignore queue, and a temporary cache of the public game lists you stage from curator pages, locally on your device — that data never leaves your browser — and to cache the Steam session token described below. Nothing in it is ever transmitted to us or to any third party.
 
 On Chrome and Edge the extension additionally requires the `alarms` permission. It is used **solely** to wake the extension's own background worker on a timer, so a queued list of ignores keeps progressing while no Steam tab is open. It grants no access to your data.
 

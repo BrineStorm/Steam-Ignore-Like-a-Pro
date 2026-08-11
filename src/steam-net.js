@@ -77,6 +77,48 @@
         } catch (e) { return null; }
     }
 
+    // Cached flavour of the probe above, for the two IGNORE-side gates that ask
+    // "is there a live session?" on a hot path: the rate governor (once per
+    // reserved slot — i.e. once per POST of a bulk drain) and the Manual-Ignore
+    // gestures. Both carried their own timestamp cache with their own constant;
+    // one policy belongs in one place, and that place is beside the probe.
+    // Everything that wants a FRESH answer (the widget lock, the drainer's
+    // dead-session check, which exists precisely to notice a session that just
+    // died) keeps calling probeLogin directly.
+    //
+    //  - a CONFIRMED session is reused for OK_TTL: long, because that answer
+    //    only changes when the user signs out;
+    //  - a confirmed signed-OUT verdict for NEG_TTL: short, so a page opened
+    //    BEFORE the user signed in elsewhere recovers on the next gesture
+    //    instead of swallowing them until a reload;
+    //  - a FAILED probe (null — offline, timeout) is never cached. The caller
+    //    decides what "couldn't ask" means, and the next call asks again.
+    //
+    // Concurrent callers share the in-flight request, so a burst of swipes (or
+    // several sources reaching the gate at once) costs exactly one GET — which
+    // is stronger than the stamp-before-await trick it replaces, where the
+    // callers alongside the probe read the PREVIOUS verdict instead of this one.
+    // In memory, per world: a reloaded page or a re-spawned worker starts cold.
+    const LOGIN_OK_TTL_MS = 60000;
+    const LOGIN_NEG_TTL_MS = 10000;
+    let loginVerdict = null;    // { ok: boolean, at: epoch-ms }
+    let loginInFlight = null;
+    async function probeLoginCached() {
+        const now = Date.now();
+        if (loginVerdict) {
+            const ttl = loginVerdict.ok ? LOGIN_OK_TTL_MS : LOGIN_NEG_TTL_MS;
+            if (now - loginVerdict.at < ttl) return loginVerdict.ok;
+        }
+        // probeLogin resolves null instead of throwing (see its try/catch), so
+        // the latch below cannot be stranded by a rejection.
+        if (!loginInFlight) {
+            loginInFlight = probeLogin().then((v) => { loginInFlight = null; return v; });
+        }
+        const verdict = await loginInFlight;
+        if (verdict !== null) loginVerdict = { ok: verdict, at: Date.now() };
+        return verdict;
+    }
+
     // 400-classifier for the curator drainer: the ignore endpoint answers a
     // permanent 400 for an appid with no purchasable store object in the
     // account's region (CDPR titles in RU, Spacewar anywhere) — verified to
@@ -131,6 +173,7 @@
     window.ILAP.SteamNet.fetchWithTimeout = fetchWithTimeout;
     window.ILAP.SteamNet.fetchIgnoredAppsStrict = fetchIgnoredAppsStrict;
     window.ILAP.SteamNet.probeLogin = probeLogin;
+    window.ILAP.SteamNet.probeLoginCached = probeLoginCached;
     window.ILAP.SteamNet.checkAppUnavailable = checkAppUnavailable;
     window.ILAP.SteamNet.classifyRefusal = classifyRefusal;
 

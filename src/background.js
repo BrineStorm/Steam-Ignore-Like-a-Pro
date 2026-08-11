@@ -58,11 +58,23 @@ importScripts(
     const set = (o) => new Promise(r => chrome.storage.local.set(o, r));
 
     // --- cached sessionid --------------------------------------------------
-    // gate.js's stopVerdict reads ILAP.getSessionID() synchronously, so the
-    // cache is mirrored into memory (loaded at boot, tracked via onChanged).
-    // No sid cached yet → 'no-session' stop, exactly right.
+    // The sessionid the content script cached for us: under a storage-only
+    // permission set this worker cannot read document.cookie. Mirrored into
+    // memory (loaded at boot, tracked via onChanged) because the POST below
+    // needs it synchronously as its CSRF field.
     let cachedSid = null;
-    ILAP.getSessionID = () => cachedSid;
+
+    // …and the same cache answers the rate gate's one session question, folded
+    // with the live probe the tab's SteamAuth would have run. Injected rather
+    // than discovered: gate.js used to walk a ladder of facade names to work out
+    // which world it was in, and this file satisfied it by ASSIGNING
+    // `ILAP.getSessionID` — faking a facade of a module it cannot see into.
+    // No sid cached yet → 'no-session' stop, exactly right; a sid that Steam no
+    // longer honours → the probe says so, and the pass stops instead of burning
+    // the queue on POSTs that can only 400.
+    Gate.configure({
+        hasSession: () => cachedSid ? Net.probeLoginCached() : false
+    });
 
     // --- Steam API from the SW ---------------------------------------------
     // The READS (deadline wrapper, userdata, login probe, appdetails
@@ -219,10 +231,27 @@ importScripts(
         // While halted there is no alarm at all: every firing would only wake
         // the worker to be refused by the gate. The recovery write (a store-page
         // visit clears the flag) arrives as an onChanged kick, which re-arms.
-        // A master-off / dead-session stop is the same situation for the same
-        // reason, and its recovery writes (ilap_master_enabled, ilap_sw_sid) are
-        // both already in the onChanged filter below.
-        if (d[HALT_KEY] || !drainer.hasDrainableWork(queue) || await Gate.stopVerdict()) {
+        if (d[HALT_KEY] || !(await drainer.hasDrainableWork(queue))) {
+            chrome.alarms.clear(ALARM);
+            return;
+        }
+        // A master-off stop is the same situation for the same reason: nothing
+        // to do until the toggle comes back, and that IS a storage write
+        // (ilap_master_enabled) sitting in the onChanged filter below. Asked
+        // only once there IS work, so an idle profile pays no login probe per
+        // pass.
+        //
+        // Every OTHER stop keeps the alarm, because none of them is guaranteed
+        // to END with a write this worker hears. 'offline' plainly isn't one —
+        // nothing writes storage when a connection comes back, and parking on a
+        // 10-second blip would strand the drain until a store tab happened to
+        // open, the one situation this worker exists to cover. Neither is
+        // 'no-session': the verdict is a live probe now, not "is a sessionid
+        // cached", so a sign-in that reuses the same sessionid never reaches the
+        // change-only ilap_sw_sid write (curator/drainer.js) and no kick
+        // arrives. The price of covering both is one login probe per
+        // ALARM_RETRY_MS for as long as work sits queued.
+        if ((await Gate.stopVerdict()) === 'disabled') {
             chrome.alarms.clear(ALARM);
             return;
         }

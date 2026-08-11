@@ -97,7 +97,14 @@ input:checked + .slider { background-color: var(--toggle); }
 input:checked + .slider:before { transform: translateX(18px); }
 
 /* === SEGMENTED MODE SWITCH === */
-.wide-switch { position: relative; display: block; width: 100%; height: 34px; background: var(--inset); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; user-select: none; overflow: hidden; margin-top: 6px; }
+/* 80% (a quarter narrower than the row) and centred: the popup's tallest state
+   — SETTINGS open on the Manual Ignore subcategory — has to fit the browser's
+   600px action-popup window, and the vertical trim that buys that (no
+   "Interface:" caption above the surface switch, tighter subcategory spacing)
+   left the two full-width switches looking like the only oversized controls in
+   the panel. Both are narrowed, not just the surface one, so they read as a
+   pair. .wide-bg is a % of the track, so the knob follows the new width. */
+.wide-switch { position: relative; display: block; width: 80%; margin-inline: auto; height: 34px; background: var(--inset); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; user-select: none; overflow: hidden; margin-top: 6px; }
 .wide-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
 .wide-track { display: flex; width: 100%; height: 100%; position: relative; }
 .wide-label { flex: 1; text-align: center; line-height: 34px; font-size: 12px; font-weight: 700; z-index: 2; color: var(--muted); transition: color 0.35s ease; }
@@ -249,15 +256,27 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     font-size: 11px;
     z-index: 999; box-shadow: 0 4px 15px rgba(0,0,0,0.8); color: var(--text); border-radius: 8px; opacity: 0;
 
-    max-height: 120px; overflow-y: auto; overflow-x: hidden;
+    /* Both caps are budgets against the window the tooltip is drawn in, not taste:
+       it hangs from a fixed anchor 137px down the panel, and anything past the
+       window's bottom edge is what puts a scrollbar on the toolbar popup.
+       160px = the collapsed panel (308px) minus that anchor and a bottom margin,
+       which is just enough for the worst measured content (three entries with
+       long wrapped names ≈ 153px) to show without scrolling inside itself. */
+    max-height: 160px; overflow-y: auto; overflow-x: hidden;
     transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
 }
 
 .history-trigger:hover .history-tooltip { visibility: visible; opacity: 1; transition-delay: 0.4s; }
 
+/* Settings open = a taller panel, so the tooltip gets more room — but a number,
+   not `none`. The panel's tallest state (SETTINGS + Manual Ignore, the taller of
+   the two mutually-exclusive subcategories) already runs to ~590px of the
+   browser's 600px popup window; an uncapped tooltip could only be free of the
+   window edge by luck. 260px clears the same worst-case content twice over and
+   still ends well above the edge. Asserted in tests/popup/popup-height.spec.js. */
 #popup-root:has(#settings-accordion[open]) .history-tooltip {
-    max-height: none;
-    overflow-y: visible;
+    max-height: 260px;
+    overflow-y: auto;
     padding-bottom: 8px; /* Remove extra padding when fully visible */
 }
 
@@ -357,15 +376,31 @@ details[open] > summary::after { transform: rotate(90deg); }
    the undo tip vs its droplist. */
 #popup-root:has(.lang-menu.open) .lang-tip { display: none; }
 
-.settings-content { padding: 6px 0 0 0; display: flex; flex-direction: column; gap: 8px; }
+.settings-content { padding: 6px 0 0 0; display: flex; flex-direction: column; gap: 6px; }
 .section-title { font-size: 11px; color: var(--text); text-transform: uppercase; font-weight: 700; letter-spacing: .5px; }
 
-/* Collapsible feature subcategories inside SETTINGS (Discovery Queue / Manual Ignore). */
-.settings-subcat { margin-top: 8px; interpolate-size: allow-keywords; }
-.settings-subcat > summary { padding: 6px 0 5px 0; color: var(--text); }
+/* The surface switch opens SETTINGS with no caption of its own (the "Interface:"
+   label was dropped to buy vertical room), so it needs neither the caption gap
+   above it nor a margin below — the .settings-content flex gap alone separates
+   it from the first subcategory. */
+#surface-row .wide-switch { margin-top: 0; }
+
+/* Collapsible feature subcategories inside SETTINGS (Discovery Queue / Manual Ignore).
+   Spacing comes from the .settings-content flex gap alone: a margin of their own
+   stacked on top of it, and the pair of summaries carried that doubled air even
+   collapsed. Same reason the summary padding is tight — see the 600px budget in
+   tests/popup/popup-height.spec.js. */
+.settings-subcat { interpolate-size: allow-keywords; }
+.settings-subcat > summary { padding: 4px 0 2px 0; color: var(--text); }
 .settings-subcat > summary .section-title { flex: 1; }
 .settings-subcat > summary .switch { margin-right: 2px; }
-.subcat-content { padding: 8px 0 2px 0; display: flex; flex-direction: column; gap: 8px; }
+.subcat-content { padding: 6px 0 0 0; display: flex; flex-direction: column; gap: 6px; }
+/* .stat-row carries its own margin-bottom for the stats block at the top of the
+   panel, where rows are not in a flex column. Here they are, so that margin
+   stacked on the gap and every row sat 15px from the next instead of 8 — four
+   times over in the Manual Ignore subcategory, which is the state that has to
+   fit the 600px action-popup window. */
+.subcat-content .stat-row { margin-bottom: 0; }
 
 /* Smooth expand/collapse. ::details-content keeps the body rendered while it
    animates height (0 ↔ auto via interpolate-size), so a close still animates
@@ -450,6 +485,12 @@ select option { background: #16202d; color: #fff; }
 }
 .select-shell:hover .select-display { background: #22303f; }
 .mini-arrow { display: inline-block; vertical-align: middle; flex-shrink: 0; }
+/* The un-ignore ring is a 16px square where the swipe swoosh is 22px wide, so its
+   button ends ~8px short of the two above it. This margin is the padding that
+   buys the alignment back — cosmetic only, and calibrated on the ENGLISH labels
+   (a right-aligned button in a locale whose words run longer or shorter simply
+   sits where its own text puts it). */
+.mini-arrow.ring { margin-left: 8px; }
 
 /* Custom dropdown menu (replaces the OS-rendered <select> list) */
 .select-menu {

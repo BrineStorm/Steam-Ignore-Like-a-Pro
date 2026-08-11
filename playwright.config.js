@@ -66,6 +66,16 @@ module.exports = defineConfig({
     {
       name: 'chromium',
       testIgnore: /auth\.setup\.spec\.js/,
+      // 75 s, over the 30 s default, because the heaviest Manual-Ignore specs
+      // spend their budget in three sequential live waits, not one: a storefront
+      // widget hydrating (15 s), the deferred swipe reaching its POST
+      // (DRAIN_TIMEOUT), then the badge rendering (DRAIN_TIMEOUT again). At the
+      // default those add up past the per-test limit, so DRAIN_TIMEOUT was never
+      // reachable in full — the test died on the global lid first, and raising
+      // the one without the other would have changed nothing. Costs a green run
+      // nothing (every wait exits on its condition); it only lets a slow machine
+      // or a slow connection finish instead of reporting a product bug.
+      timeout: 75 * 1000,
       use: {
         ...devices['Desktop Chrome'],
         // Chrome-specific args to load the unpacked extension
@@ -99,7 +109,13 @@ module.exports = defineConfig({
       // 90 s, not 60: on a full run three of the four flaky tests died on this
       // limit rather than on an assertion — including one in a beforeEach, where
       // the per-test context launch alone ate the budget.
-      timeout: 90 * 1000,
+      // 110 s, not 90, for the same reason one step further out: the fixture now
+      // raises the tab under test back to the front (tests/_fixtures.js), so its
+      // store page actually renders instead of idling as a background tab.
+      // Measured across a full run that cost a median of +1.4 s per test — cheap,
+      // except at the tail, where three tests went from green to dying on the
+      // limit itself ("Target page… has been closed", not an assertion).
+      timeout: 110 * 1000,
       // Synthetic mouse-gesture timing and the per-context add-on install get
       // flaky under a long headed run's CPU contention — tests solid in
       // isolation intermittently miss, and the Manual-Ignore swipe/Ctrl+Click

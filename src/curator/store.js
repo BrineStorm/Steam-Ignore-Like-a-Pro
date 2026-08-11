@@ -32,10 +32,15 @@
     const CURSOR_PREFIX = 'ilap_curator_cursor_';
     const SKIPPED_PREFIX = 'ilap_curator_skipped_';
     const PULSE_KEY = 'ilap_curator_pulse';
-    // Per-appid pulse a confirmed un-ignore (undo drain) writes so the Manual-
-    // Ignore content scripts can clear that game's on-page IGNORED badge in every
+    // Pulse a confirmed un-ignore (undo drain) writes so the Manual-Ignore
+    // content scripts can clear those games' on-page IGNORED badges in every
     // tab (sessionMap + badge are per-tab; onChanged is the only cross-tab reach).
     const UNIGNORE_PULSE_KEY = 'ilap_unignored';
+    // The undo counterpart of an `ilap_unignored` 'failed' pulse: a rollback the
+    // user asked for that will never land. Nothing to un-badge (the game stays
+    // ignored, which is exactly what its badge says) — this key exists only to
+    // tell them, so it carries a timestamp and no appid.
+    const UNDO_FAILED_KEY = 'ilap_undo_failed';
 
     const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;  // 7 days
     const CACHE_MAX = 10;                        // LRU cap on cached curators
@@ -57,6 +62,20 @@
     const MI_ID = 'mi';
     const MI_JOB_ID = 'job_mi';
     const MI_MAX = 200;
+
+    // Solo un-ignore deferral job — the mirror of the MI job, and a SEPARATE one
+    // on purpose. Direction is a property of the JOB, not of the entry: the
+    // drainer reads `isUndo` from `job.type` and it governs the policy of the
+    // whole pass (strict vs lenient userdata read, the live login probe on an
+    // empty set, the INVERTED dedupe, the snapshotTs "last intent wins" rule).
+    // Folding un-ignores into `job_mi` as a per-appid flag would force that
+    // policy to "strict if any entry is an undo" — i.e. always strict — and MI's
+    // lenient path would disappear. So: same shape, same auto-create/auto-delete,
+    // same cap discipline, own lease (ilap_curator_lock_miundo), and the drainer
+    // treats it as an undo job that shares MI's foreground priority.
+    const MIUNDO_ID = 'miundo';
+    const MIUNDO_JOB_ID = 'job_mi_undo';
+    const MIUNDO_MAX = 200;
 
     // --- pure helpers (unit-tested) ---------------------------------------
 
@@ -175,10 +194,42 @@
         return next.find(j => j.id === id) || null;
     }
 
+    // Dropping a job drops the intent behind it — and for an MI job that intent
+    // is already painted on the page: every entry the drainer has NOT reached
+    // yet was badged optimistically at swipe time, and its POST is now never
+    // going to fire. The badges have to go with the job, or they lie until the
+    // tab is reloaded. Not an edge case: the `mi_queue_stuck` card tells the
+    // user in so many words to remove the job and retry.
+    // The cursor is read AFTER the removal on purpose — `setCursor` refuses to
+    // write for a job that left the queue, so by then the value is frozen and a
+    // concurrent advance can't make us un-badge an appid that WAS ignored.
+    // (Residual: a POST already in flight for `appids[cursor]` still lands after
+    // its badge went; same no-CAS class as the rest of the cross-tab races.)
     async function removeJob(id) {
-        await mutateQueue(queue => queue.filter(j => j.id !== id));
+        let job = null;
+        await mutateQueue((queue) => {
+            job = queue.find(j => j.id === id) || null;
+            return queue.filter(j => j.id !== id);
+        });
+        const orphaned = job && job.type === 'mi'
+            ? (job.appids || []).slice((await getCursor(id)) || 0)
+            : [];
+        // A dropped SOLO UN-IGNORE job is the mirror case: nothing on the page is
+        // wrong (the games stay ignored, which is what their badges say), but the
+        // rollbacks the user gestured for will never fire — so the pending marks
+        // those gestures left have to come off, which is the other half of what
+        // the undo-failed pulse does.
+        const strandedUndo = !!job && job.type === 'miundo'
+            && (job.appids || []).length > ((await getCursor(id)) || 0);
         // The job's drainer-owned progress keys die with it.
         await remove([CURSOR_PREFIX + id, SKIPPED_PREFIX + id]);
+        // Reason 'removed', not 'failed', on BOTH pulses and for the same reason:
+        // the marks do have to come off, but the user dropped the job themselves
+        // — "Steam didn't accept this ignore" / "Steam refused some rollbacks"
+        // would each name the wrong culprit. Silent, like every other correction
+        // they asked for.
+        if (orphaned.length) await signalUnignored(orphaned, 'removed');
+        if (strandedUndo) await signalUndoFailed('removed');
     }
 
     // Completion-safe removal, called by the drainer when its snapshot showed the
@@ -212,19 +263,21 @@
     // stored data) and deliberately stays where it is.
     const miSourceLabel = (reason) => (Number(reason) === 2 ? 'Played Elsewhere' : 'Default Ignore');
 
-    // Append-or-create the single Manual-Ignore deferral job (see the MI_* consts).
-    // One serialized mutateQueue closes the create/complete race: a swipe landing
-    // as the drainer removes the just-emptied job either finds the job (append) or
-    // recreates it — the swipe is never lost. Each entry carries the resolved name
-    // + ignore reason (in a per-appid `meta` map) so the drainer can stamp Last
-    // Ignored and POST the correct reason at drain time; `appids` stays a plain
-    // string array so the generic drainer/cursor/dedupe paths are untouched.
-    // Returns { kind:'added', total } or { kind:'full' } (MI_MAX reached → the
-    // caller no-ops: no badge, no POST). Never checks MAX_JOBS — MI is the one
-    // type allowed to exceed the cap.
-    async function enqueueMi(entry) {
-        const appid = String(entry.appid);
-        const meta = { name: entry.name || '', reason: entry.reason || 0 };
+    // Append-or-create one of the two AUTO-FILLED gesture jobs: the Manual-Ignore
+    // deferral job (see the MI_* consts) and its mirror, the solo un-ignore job
+    // (MIUNDO_*). Identical machinery, different direction — factored into one
+    // function because it is race-critical and two copies would drift: the single
+    // serialized mutateQueue is what closes the create/complete race, so a gesture
+    // landing exactly as the drainer removes the just-emptied job either finds the
+    // job (append) or recreates it, and is never lost.
+    // Each entry carries a per-appid `meta` record (the ignore direction decides
+    // what's in it) while `appids` stays a plain string array, so the generic
+    // drainer/cursor/dedupe paths are untouched.
+    // Returns { kind:'added', total } or { kind:'full' } (the cap was reached → the
+    // caller no-ops entirely). Never checks MAX_JOBS — these two are the types
+    // allowed to exceed it, being live user actions that drain first and fastest.
+    async function appendToAutoJob(spec, appid, meta) {
+        appid = String(appid);
         // Dedupe only against the entries the drainer has NOT reached yet.
         // `appids` keeps drained entries until the job completes, so matching
         // the whole array would swallow a LEGITIMATE re-swipe: ignore a game,
@@ -239,14 +292,14 @@
         // where the old behaviour survives. Erring the other way would cost a
         // duplicate POST, which Steam accepts idempotently — but this direction
         // needs no extra request at all.
-        const drained = (await getCursor(MI_JOB_ID)) || 0;
+        const drained = (await getCursor(spec.jobId)) || 0;
         let outcome = { kind: 'full' };
         await mutateQueue((queue) => {
-            const idx = queue.findIndex(j => j.type === 'mi');
+            const idx = queue.findIndex(j => j.type === spec.type);
             const job = idx === -1 ? null : queue[idx];
-            if (job && (job.appids || []).length >= MI_MAX) return null;  // full → no-op
+            if (job && (job.appids || []).length >= spec.max) return null;  // full → no-op
             const base = job || {
-                id: MI_JOB_ID, type: 'mi', curatorId: MI_ID, curatorName: '',
+                id: spec.jobId, type: spec.type, curatorId: spec.curatorId, curatorName: '',
                 appids: [], meta: {}, total: 0, status: 'pending', addedAt: Date.now()
             };
             // De-dup within the job's PENDING tail (see `drained` above): the
@@ -254,12 +307,81 @@
             // would double-POST the same game.
             const already = base.appids.indexOf(appid, drained) !== -1;
             const appids = already ? base.appids : base.appids.concat([appid]);
-            const nextMeta = already ? base.meta : Object.assign({}, base.meta, { [appid]: meta });
+            // Meta is refreshed even on a de-duped swipe, so the LAST gesture
+            // wins. The session map only blocks a re-swipe inside ONE tab; from
+            // a second tab the same game can be swiped with the other reason
+            // (blue "Played Elsewhere" vs the default), and that tab paints the
+            // badge its gesture chose. Keeping the first reason would send a
+            // POST that contradicts the badge the user is looking at.
+            const nextMeta = Object.assign({}, base.meta, { [appid]: meta });
             const nextJob = Object.assign({}, base, { appids, meta: nextMeta, total: appids.length });
             outcome = { kind: 'added', total: appids.length };
             return idx === -1 ? queue.concat([nextJob]) : queue.map((j, i) => i === idx ? nextJob : j);
         });
         return outcome;
+    }
+
+    const MI_SPEC = { jobId: MI_JOB_ID, type: 'mi', curatorId: MI_ID, max: MI_MAX };
+    const MIUNDO_SPEC = {
+        jobId: MIUNDO_JOB_ID, type: 'miundo', curatorId: MIUNDO_ID, max: MIUNDO_MAX
+    };
+
+    // A swipe: the entry carries the resolved name + ignore reason, so the drainer
+    // can POST the right reason and stamp Last Ignored when it actually lands.
+    async function enqueueMi(entry) {
+        return appendToAutoJob(MI_SPEC, entry.appid,
+            { name: entry.name || '', reason: entry.reason || 0 });
+    }
+
+    // The mirror gesture: un-ignore ONE game. The entry carries the moment of the
+    // gesture instead of a reason — the drainer's undo path needs a "last user
+    // intent wins" boundary, and for an auto-filling job the JOB-level snapshotTs
+    // the undo droplist uses would be wrong: the job is created once and appended
+    // to for as long as it lives, so a game ignored AFTER the job was created but
+    // BEFORE this gesture would look re-ignored-after-the-snapshot and be skipped.
+    // Per-appid, the boundary is exactly what it should be — this gesture, now.
+    async function enqueueMiUndo(entry) {
+        return appendToAutoJob(MIUNDO_SPEC, entry.appid, { ts: Date.now() });
+    }
+
+    // Immediate regret: the user gestured a rollback for a game whose ignore has
+    // not been SENT yet. Cancel the ignore instead of reversing it — no POST in
+    // either direction, no rate budget spent, no ignore-log entry for something
+    // that never happened, and no dependence on comparing the two intents'
+    // timestamps (which is what made the reverse path lose this race: the log
+    // entry is stamped when the POST lands, not when the user swiped).
+    //
+    // The entry is MARKED, not spliced out. `appids` indices are the drain
+    // cursor's coordinate system, so removing one would slide an innocent entry
+    // underneath a cursor already advanced past it — the drainer would skip a
+    // game it never sent. The drainer checks the mark before spending a rate
+    // slot and again after the wait; a re-swipe of the same game rewrites the
+    // whole meta entry, which clears the mark by construction.
+    //
+    // Returns true only if the entry was still PENDING. `getCursor` is read
+    // OUTSIDE the mutation, so it can be stale-low and the tail we search is a
+    // superset of the real one; re-reading it afterwards is what makes the
+    // answer trustworthy — losing the race reports false, and the caller falls
+    // back to a real rollback rather than un-badging a game that IS ignored.
+    async function cancelMiEntry(appid) {
+        appid = String(appid);
+        const drained = (await getCursor(MI_JOB_ID)) || 0;
+        let markedAt = -1;
+        await mutateQueue((queue) => {
+            const idx = queue.findIndex(j => j.type === 'mi');
+            if (idx === -1) return null;
+            const job = queue[idx];
+            const at = (job.appids || []).indexOf(appid, drained);
+            if (at === -1) return null;
+            markedAt = at;
+            const entry = Object.assign({}, (job.meta || {})[appid], { cancelled: true });
+            const nextJob = Object.assign({}, job, {
+                meta: Object.assign({}, job.meta, { [appid]: entry })
+            });
+            return queue.map((j, i) => i === idx ? nextJob : j);
+        });
+        if (markedAt === -1) return false;
+        return markedAt >= ((await getCursor(MI_JOB_ID)) || 0);
     }
 
     // --- drain cursor -------------------------------------------------------
@@ -307,18 +429,40 @@
         await set({ [PULSE_KEY]: Date.now() });
     }
 
-    // Per-appid pulse the undo drainer fires after each CONFIRMED un-ignore, so
-    // every Manual-Ignore content script can drop that game from its per-tab
-    // sessionMap and un-render its on-page IGNORED badge (which otherwise lingers
-    // and lies). Written per appid (not batched at job end) so the badge clears
-    // as each game rolls back.
-    // `reason` tells the MI listener WHY the badge is going away: 'undo' (the
-    // user rolled the ignore back — silent, they asked for it) or 'failed' (the
-    // deferred MI POST never landed: region-locked appid, or every retry
-    // refused). Only the second warrants telling the user anything.
-    async function signalUnignored(appid, reason) {
+    // Pulse the undo drainer fires after each CONFIRMED un-ignore, so every
+    // Manual-Ignore content script can drop those games from its per-tab
+    // sessionMap and un-render their on-page IGNORED badges (which otherwise
+    // linger and lie). The drainer pulses ONE appid at a time (not batched at
+    // job end) so the badge clears as each game rolls back; the payload is a
+    // list because `removeJob` drops a whole undrained MI tail at once, and one
+    // write beats a burst of N onChanged fan-outs.
+    // `reason` tells the MI listener WHY the badges are going away: 'undo' (the
+    // user rolled the ignore back), 'removed' (they dropped the whole MI job
+    // with entries still undrained) or 'failed' (the deferred MI POST never
+    // landed: region-locked appid, or every retry refused). Only the last
+    // warrants telling the user anything — the other two they asked for.
+    async function signalUnignored(appids, reason) {
+        const list = (Array.isArray(appids) ? appids : [appids]).map(String);
+        if (!list.length) return;
         await set({
-            [UNIGNORE_PULSE_KEY]: { appid: String(appid), ts: Date.now(), reason: reason || 'undo' }
+            [UNIGNORE_PULSE_KEY]: { appids: list, ts: Date.now(), reason: reason || 'undo' }
+        });
+    }
+
+    // The mirror image of a 'failed' un-badge pulse, for an UNDO job's entries:
+    // a rollback the user asked for is not going to happen, so the game stays
+    // ignored. There is no badge to correct — the page is already truthful —
+    // but the pending marks a solo gesture left have to come off, and (usually)
+    // the user has to be told: "of N" only ever showed up as a job-row skip line
+    // that dies with the finished job.
+    // `reason` carries the SAME distinction as signalUnignored's: 'failed' (the
+    // remove POST was permanently refused or failed every retry) raises the
+    // card; 'removed' (the user dropped the whole job from the queue applet)
+    // clears the marks and stays silent, because naming Steam for something the
+    // user just did would be a lie. No appid in either case.
+    async function signalUndoFailed(reason) {
+        await set({
+            [UNDO_FAILED_KEY]: { ts: Date.now(), reason: reason || 'failed' }
         });
     }
 
@@ -364,14 +508,17 @@
         // cache
         getCache, putCache,
         // queue
-        getQueue, setQueue, mutateQueue, updateJob, removeJob, removeIfDrained, enqueueMi,
-        signalCompleted, signalUnignored,
+        getQueue, setQueue, mutateQueue, updateJob, removeJob, removeIfDrained,
+        enqueueMi, enqueueMiUndo, cancelMiEntry,
+        signalCompleted, signalUnignored, signalUndoFailed,
         // drain cursor
         getCursor, setCursor, bumpSkipped,
         // lock
         acquireLock, renewLock, holdsLock, releaseLock,
         // constants
         CACHE_KEY, QUEUE_KEY, LOCK_PREFIX, CURSOR_PREFIX, SKIPPED_PREFIX, PULSE_KEY,
-        UNIGNORE_PULSE_KEY, CACHE_TTL, CACHE_MAX, LEASE_MS, MAX_JOBS, MI_ID, MI_JOB_ID, MI_MAX
+        UNIGNORE_PULSE_KEY, UNDO_FAILED_KEY,
+        CACHE_TTL, CACHE_MAX, LEASE_MS, MAX_JOBS, MI_ID, MI_JOB_ID, MI_MAX,
+        MIUNDO_ID, MIUNDO_JOB_ID, MIUNDO_MAX
     };
 })();

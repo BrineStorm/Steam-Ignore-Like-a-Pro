@@ -26,6 +26,7 @@ A browser extension that allows you to ignore Steam games directly from the stor
 - **Curator ignore queue** - stage an entire curator's list into a queue and let the extension work through it, paced so it never hammers Steam. Pause, resume, or drop individual jobs from the curator page or the queue view.
 - **Background draining** - on Chrome/Edge the queue keeps going with no Steam tab open at all; close the window and come back to a finished list.
 - **Undo** - a built-in undo applet reverses recent ignores, either by time ("the last hour") or by count ("the last 20"), from the settings interface.
+- **Un-ignore a single game** - the mirror gesture of the ignore swipe: hold `Right-Click` and draw a circle (either direction) or a right-left zigzag across a badged capsule, and that one game is un-ignored on Steam - no store page, no undo batch. All three actions - *Ignore*, *Already Played*, *Un-ignore* - now draw from the same set of bindings (`Ctrl`/`Shift`/`Alt` + click, either swipe, the circle), so you can ignore by circling and un-ignore by swiping if that suits your hand better; no two actions may share one binding. And a **click on the IGNORED badge**, either button, always un-ignores, whatever the settings say.
 - **Deferred manual ignore** - swipes and hotkeys now enqueue instead of firing a request immediately, so a burst of ignores is paced like the rest of the queue and the badge still appears instantly.
 - **Ignore-rate governor** - every ignore request from every part of the extension passes through one shared pacer, and stops on its own if you sign out of Steam or switch the extension off.
 - **On-page interface** - the settings/history panel now lives in a launcher on the Steam page itself (with a toolbar-popup mode still available), which also makes it usable inside the Steam desktop client.
@@ -42,8 +43,14 @@ A browser extension that allows you to ignore Steam games directly from the stor
 ## What it does
 
 - **One-Click Ignore** - Hold `Right-Click` + `Swipe Right` over any game capsule to ignore the game. This adds a red badge ![IGNORED](https://img.shields.io/badge/IGNORED-red) on each appearance of the game on the page and requests Steam to **ignore** these titles.
-- **Alternative Hotkeys** - Configure to hold `Ctrl`, `Shift`, or `Alt` + `Left-Click` instead of swiping.
+- **Alternative Hotkeys** - Configure to hold `Ctrl`, `Shift`, or `Alt` + `Left-Click`, or to draw a circle, instead of swiping.
 - **Already Played Mode** - Mark games you played on other platforms as **Already Played** by `swiping Left` or clicking. This adds a blue badge ![IGNORED](https://img.shields.io/badge/IGNORED-blue) and Steam stops suggesting these titles while **keeping** your recommendations relevant.
+- **Un-Ignore One Game** - Changed your mind about a single game? Hold `Right-Click` and draw a circle over its capsule - clockwise or counter-clockwise, both work, and so does a plain right-left (or left-right) zigzag, since all the gesture needs is one decisive change of direction. The badge comes off and the extension tells Steam to un-ignore that game, so it is a real rollback rather than a local hide.
+  - **Where it works** - on the games *this tab* badged, on any Steam Store page, including reloads of that tab. Games ignored long ago (or in another tab) are rolled back from the **Undo** applet instead.
+  - **Regret before it was sent** - manual ignores are queued, so a gesture made before the request went out simply cancels the queued job; the badge disappears everywhere, and Steam never hears about it.
+  - **Rebinding** - *Ignore*, *Already Played* and *Un-ignore* all offer the same bindings: either swipe, the circle, and `Ctrl`, `Shift` or `Alt` + `Left-Click`. Bind them however you like - ignoring by circle and un-ignoring by swipe is as valid as the shipped default. The three settings are cross-guarded, so a binding already given to one action can't be handed to another: one binding, one action.
+  - **Always there** - a **click on the IGNORED badge** - left or right - un-ignores the game no matter how the settings are bound (the badge never was a link: it has always swallowed clicks so it couldn't navigate). That is what the *Un-ignore* setting's last option, `Off - only Click on Badge`, leaves you with: it drops the rebindable gesture, not the un-ignore. Switching the whole extension off switches this off too.
+  - **Safety rail** - a game you just ignored is not rollback-able for a couple of seconds, so an over-enthusiastic swipe can't ignore and un-ignore in one motion.
 
 ## Why not just use Steam's built-in ignore?
 
@@ -57,7 +64,7 @@ This extension allows this.
 
 - **Quick Settings** - Customize gestures or hotkeys, configure ignore modes to suit your browsing style, and toggle specific features or the entire extension directly from the popup.
 - **Ignore History Tracking** - View your recently ignored game titles instantly from the extension popup.
-- **Undo** - Reverse recent ignores without hunting down each store page, either by time (everything from the last hour) or by count (the last N titles).
+- **Undo** - Reverse recent ignores without hunting down each store page, either by time (everything from the last hour) or by count (the last N titles). It is the bulk counterpart to the per-game un-ignore gesture, and reaches games the gesture can't - anything ignored in another tab, by the Discovery Queue automator, or by the curator queue. Rollbacks are paced through the same rate governor as the ignores themselves.
 
 ### Interface surface
 
@@ -92,7 +99,7 @@ No tracking, no analytics, no external servers.
 - Runs exclusively on https://store.steampowered.com/*
 - Your settings and ignore history are stored locally in `chrome.storage` and never leave your browser.
 - API calls go directly to Steam's official endpoints.
-- **No personal Steam API tokens are stored or copied.** It strictly uses your active session data.
+- **No Steam API keys, passwords, or personal Steam data are stored or copied outside your browser.** It strictly uses your active session data.
 - It does not send data to third-party servers, inject remote code, or use analytics.
 
 See [PRIVACY.md](./PRIVACY.md) for the full privacy policy.

@@ -155,6 +155,31 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect.poll(async () => (await readQueue(context)).length).toBe(0);
     });
 
+    test('Removing an MI job un-badges its undrained tail (ilap_unignored pulse)', async ({ page, context }) => {
+        // The `mi_queue_stuck` card tells the user in so many words to remove
+        // the MI job — and every entry the drainer never reached was badged
+        // optimistically at swipe time, for a POST that now never fires. The
+        // badges have to go with the job, or they lie until the tab reloads.
+        const mi = makeJob({
+            id: 'job_mi', type: 'mi', curatorId: 'mi', curatorName: '',
+            appids: ['10', '11', '12'], meta: {}, total: 3,
+        });
+        await setExtensionStorage(context, {
+            ilap_curator_queue: [mi],
+            ilap_curator_cursor_job_mi: 1,   // '10' was really ignored
+        });
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        await page.locator('.queue-act-del').first().click();
+
+        // '10' keeps its badge (honest); the undrained tail loses its own —
+        // silently ('removed'), because the user asked for exactly this. Only
+        // 'failed' raises a card, and Steam refused nothing here.
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, 'ilap_unignored')).ilap_unignored
+        ).toMatchObject({ appids: ['11', '12'], reason: 'removed' });
+    });
+
     test('Barber-pole running indicator: .has-running only while a job holds a live drain lease', async ({ page, context }) => {
         // Pending job, no lease → not running.
         await seedQueue(context, [makeJob()]);
@@ -219,6 +244,70 @@ test.describe('Popup — ignore-queue applet', () => {
         // Still a normal job: pause/remove controls present.
         await expect(row.locator('.queue-act[data-act="pause"]')).toBeVisible();
         await expect(row.locator('.queue-act[data-act="remove"]')).toBeVisible();
+    });
+
+    test('The un-ignore job renders like its twin but under its OWN name', async ({ page, context }) => {
+        // Both gesture jobs auto-fill and share the .mi treatment (the drainer
+        // calls the same bucket `isForeground`) — the name is what has to differ,
+        // because the two rows are what the user picks between when a "queue is
+        // stuck" card tells them to remove one.
+        const job = makeJob({
+            id: 'job_mi_undo', type: 'miundo', curatorId: 'miundo', curatorName: '',
+            total: 4, appids: ['1', '2', '3', '4'],
+        });
+        await setExtensionStorage(context, {
+            ilap_curator_queue: [job],
+            ['ilap_curator_cursor_' + job.id]: 1,   // 1 rolled back → 3 remaining
+        });
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+
+        const row = page.locator('.queue-job.mi');
+        await expect(row).toBeVisible();
+        await expect(row.locator('.queue-job-name')).toHaveText('Manual un-ignores');
+        await expect(row.locator('.queue-job-count')).toHaveText('In queue: 3');
+        await expect(row.locator('.queue-job-sub')).toHaveCount(0);
+        await expect(row.locator('.queue-bar')).toHaveCount(0);
+        await expect(row.locator('.queue-act[data-act="remove"]')).toBeVisible();
+    });
+
+    test('Both gesture jobs show side by side, each named for its own direction', async ({ page, context }) => {
+        // They coexist by construction (separate jobs, separate leases, separate
+        // caps), so the applet has to tell them apart on screen too.
+        await seedQueue(context, [
+            makeJob({ id: 'job_mi', type: 'mi', curatorId: 'mi', curatorName: '', total: 2, appids: ['1', '2'] }),
+            makeJob({ id: 'job_mi_undo', type: 'miundo', curatorId: 'miundo', curatorName: '', total: 1, appids: ['3'] }),
+        ]);
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+
+        await expect(page.locator('.queue-job.mi')).toHaveCount(2);
+        await expect(page.locator('.queue-job-name')).toHaveText(
+            ['Manual ignores', 'Manual un-ignores']);
+    });
+
+    test('Removing an un-ignore job with work left reports the stranded rollbacks', async ({ page, context }) => {
+        // The mirror of the MI removal above: nothing on the page is wrong (the
+        // games stay ignored), but the pending marks those gestures left have to
+        // come off — silently, since the user dropped the job themselves.
+        const job = makeJob({
+            id: 'job_mi_undo', type: 'miundo', curatorId: 'miundo', curatorName: '',
+            total: 3, appids: ['20', '21', '22'],
+        });
+        await setExtensionStorage(context, {
+            ilap_curator_queue: [job],
+            ilap_curator_cursor_job_mi_undo: 1,
+        });
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        await page.locator('.queue-act-del').first().click();
+
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, 'ilap_undo_failed')).ilap_undo_failed
+        ).toMatchObject({ reason: 'removed' });
+        // No un-badge pulse: an un-ignore job never badged anything.
+        expect((await getExtensionStorage(context, 'ilap_unignored')).ilap_unignored)
+            .toBeUndefined();
     });
 
     test('Filter label uses the Steam category colour (orange for Not Recommended)', async ({ page, context }) => {

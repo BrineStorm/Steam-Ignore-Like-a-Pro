@@ -190,6 +190,21 @@
             document.querySelectorAll(`.ilap-blur-backdrop[data-ilap-blur="${appid}"]`).forEach(el => el.remove());
         }
 
+        // Reconcile the "un-ignore queued" mark across every badge in the document.
+        // Deliberately NOT optimistic: a solo un-ignore does not remove the badge,
+        // because putting it back on failure would need the original ignore reason
+        // after the session map already dropped it. The badge only dims; it is
+        // removed by the CONFIRMED un-ignore pulse that undo drains already emit,
+        // and un-dimmed if the rollback is refused. Re-applied after every render
+        // pass — Steam rebuilds capsules constantly and a fresh badge starts clean.
+        syncPending(appids) {
+            const wanted = new Set((appids || []).map(String));
+            document.querySelectorAll('.ilap-ignored-overlay').forEach(badge => {
+                badge.classList.toggle('ilap-undo-pending',
+                    wanted.has(badge.dataset.ilapAppid));
+            });
+        }
+
         // Live toggle: reconcile blur for already-rendered badges. OFF strips the
         // blur class from every art element (badges stay); ON re-applies it to each
         // badged game's art for the given appids.

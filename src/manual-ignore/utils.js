@@ -22,9 +22,22 @@
         SHORTCUT: 'ilap_shortcut_key',
         PLATFORM: 'ilap_platform_key',
         MASTER: 'ilap_master_enabled',
-        MASK: 'ilap_mask_enabled'
+        MASK: 'ilap_mask_enabled',
+        UNIGNORE: 'ilap_unignore_key'
     };
     const CONFIG_STORAGE_KEYS = Object.values(CONFIG_KEYS);
+
+    // The un-ignore binding's vocabulary — the same one the two IGNORE selects
+    // offer, since the popup cross-guards all three and one binding can never be
+    // handed to two actions (see the precedence note in SwipeGestureDetector).
+    // Clamped rather than trusted: a value from an older build (or a hand-edited
+    // storage key) that matches nothing would otherwise silently disable the
+    // gesture with no way to tell from the page.
+    // No legacy shim here, unlike window.ILAP.normalizeShortcut's for the ignore
+    // keys: this binding ships with its first release, so no build has ever
+    // written another vocabulary into the key.
+    const UNIGNORE_KEYS = ['zigzag', 'swipeRight', 'swipeLeft',
+                           'ctrlKey', 'shiftKey', 'altKey', 'off'];
 
     class ConfigReader {
         constructor(defaultConfig) {
@@ -54,6 +67,12 @@
             if (res[CONFIG_KEYS.PLATFORM] !== undefined) this.config.platformKey = normalize(res[CONFIG_KEYS.PLATFORM]);
             if (res[CONFIG_KEYS.MASTER] !== undefined) this.config.enabled = res[CONFIG_KEYS.MASTER];
             if (res[CONFIG_KEYS.MASK] !== undefined) this.config.maskEnabled = res[CONFIG_KEYS.MASK];
+            // Clamped against UNIGNORE_KEYS: an unrecognised stored value (a
+            // hand-edited key) keeps the current setting rather than becoming an
+            // inert binding no page could explain.
+            if (UNIGNORE_KEYS.includes(res[CONFIG_KEYS.UNIGNORE])) {
+                this.config.unignoreKey = res[CONFIG_KEYS.UNIGNORE];
+            }
         }
     }
 
@@ -262,23 +281,80 @@
         }
     }
 
+    // A back-and-forth gesture, measured on X ONLY — the same axis rule the swipe
+    // uses, and for the same ergonomic reason (see decisions.md: direction from
+    // `dx` alone is deliberate and must not be "fixed"). Consequence, accepted on
+    // purpose: a circle traced clockwise and one traced counter-clockwise produce
+    // the SAME x trajectory, so they cannot be told apart here. The gesture is
+    // therefore "a circle either way, or a right-left / left-right zigzag" — one
+    // reversal with both legs long enough to be intentional.
+    //
+    // `legs` collects the horizontal travel between direction changes. A plain
+    // swipe yields one leg; the reversal is what makes it a zigzag. HYST both
+    // filters hand jitter and sets how decisive a reversal must be, so a swipe
+    // that drifts back a few pixels at release is still a swipe.
+    const ZIGZAG_HYST = 12;      // px of counter-travel before a reversal counts
+    const ZIGZAG_LEG_MIN = 30;   // px each leg must cover for the gesture to fire
+
+    class ZigzagTracker {
+        reset(x) {
+            this.legStartX = x;
+            this.extremeX = x;
+            this.dir = 0;        // 0 = no committed direction yet
+            this.legs = [];
+        }
+
+        move(x) {
+            if (this.dir === 0) {
+                if (Math.abs(x - this.legStartX) >= ZIGZAG_HYST) {
+                    this.dir = x > this.legStartX ? 1 : -1;
+                    this.extremeX = x;
+                }
+                return;
+            }
+            // Still travelling the same way — push the turning point out.
+            if ((x - this.extremeX) * this.dir > 0) {
+                this.extremeX = x;
+                return;
+            }
+            // Came back far enough to count as a turn: bank the finished leg and
+            // start the next one AT the turning point, not at the current cursor.
+            if ((this.extremeX - x) * this.dir >= ZIGZAG_HYST) {
+                this.legs.push(Math.abs(this.extremeX - this.legStartX));
+                this.dir = -this.dir;
+                this.legStartX = this.extremeX;
+                this.extremeX = x;
+            }
+        }
+
+        // True when the trajectory turned at least once and both of the first two
+        // legs were long enough to be deliberate.
+        isZigzag() {
+            const legs = this.legs.concat(
+                this.dir === 0 ? [] : [Math.abs(this.extremeX - this.legStartX)]);
+            return legs.length >= 2 && legs[0] >= ZIGZAG_LEG_MIN && legs[1] >= ZIGZAG_LEG_MIN;
+        }
+    }
+
     class SwipeGestureDetector {
         constructor(configService, thresholdPx = 40) {
             this.configService = configService;
             this.threshold = thresholdPx;
-            
+
             this.startX = 0;
             this.startY = 0;
             this.startEl = null;
             this.isSwiping = false;
             this.blockNextMenu = false;
-            
+            this.zigzag = new ZigzagTracker();
+
             this.onGestureCallback = null;
         }
 
         attach(rootElement, callback) {
             this.onGestureCallback = callback;
             rootElement.addEventListener('mousedown', (e) => this.onMouseDown(e), true);
+            rootElement.addEventListener('mousemove', (e) => this.onMouseMove(e), true);
             rootElement.addEventListener('mouseup', (e) => this.onMouseUp(e), true);
             rootElement.addEventListener('contextmenu', (e) => this.onContextMenu(e), true);
         }
@@ -286,17 +362,46 @@
         onMouseDown(e) {
             if (!e.isTrusted) return; // real pointer input only, not synthesized events
             if (e.button !== 2) return;
-            
+
+            // The menu-suppression latch belongs to the gesture that set it and
+            // to nothing else. Firefox dispatches contextmenu at mouse-DOWN,
+            // BEFORE onMouseUp arms the latch, so a recognised gesture there
+            // leaves it armed forever — and the next, unrelated right-click gets
+            // its menu swallowed by a gesture that ended long ago (by a disabled
+            // extension, even: onContextMenu answers to the latch alone).
+            // Chromium fires contextmenu after mouse-up, so the latch is spent
+            // by its own menu and this clears an already-false flag.
+            this.blockNextMenu = false;
+
             this.startX = e.clientX;
             this.startY = e.clientY;
             this.startEl = e.target;
             this.isSwiping = true;
+            this.zigzag.reset(e.clientX);
+        }
+
+        // Only sampled while the button is down, so an idle page pays nothing but
+        // the early return (the listener is passive — it never touches the event).
+        onMouseMove(e) {
+            if (!this.isSwiping || !e.isTrusted) return;
+            this.zigzag.move(e.clientX);
         }
 
         onMouseUp(e) {
             if (!e.isTrusted) return; // a synthetic mouseup must not complete a gesture
             if (!this.isSwiping || e.button !== 2) return;
             this.isSwiping = false;
+
+            const config = this.configService.get();
+            if (!config.enabled) return;
+
+            // The circle/zigzag is classified FIRST and wins outright: it
+            // necessarily also clears the swipe's distance threshold, so letting
+            // both run would fire two of the three bindings from one gesture.
+            // Which action it performs is now the user's choice like any other
+            // binding — ignore by circle and un-ignore by swipe is a legitimate
+            // setup — so it resolves through the same table as the swipes.
+            if (this.zigzag.isZigzag() && this._fire(config, 'zigzag')) return;
 
             const dx = e.clientX - this.startX;
             const dy = e.clientY - this.startY;
@@ -307,23 +412,30 @@
             // still register as a left/right swipe so the gesture is easy to perform.
             // Do NOT "fix" this to require horizontal dominance.
             if (distance >= this.threshold) {
-                const directionName = dx > 0 ? 'Right' : 'Left';
-                const swipeKey = `swipe${directionName}`;
-
-                const config = this.configService.get();
-                if (!config.enabled) return;
-
-                let reason = -1;
-                if (config.defaultKey === swipeKey) reason = 0;
-                else if (config.platformKey === swipeKey) reason = 2;
-
-                if (reason !== -1) {
-                    this.blockNextMenu = true;
-                    if (this.onGestureCallback) {
-                        this.onGestureCallback({ startEl: this.startEl, reason: reason });
-                    }
-                }
+                this._fire(config, `swipe${dx > 0 ? 'Right' : 'Left'}`);
             }
+        }
+
+        /**
+         * Hand a recognised gesture to whichever action is bound to it, and say
+         * whether anything took it. The two IGNORE bindings are read first: the
+         * popup cross-guards all three selects, so a value bound twice can only
+         * come from an older build or a hand-edited storage key, and when it does
+         * the collision must cost the rollback rather than the ignore the user
+         * was performing.
+         */
+        _fire(config, key) {
+            let payload = null;
+            if (config.defaultKey === key) payload = { reason: 0 };
+            else if (config.platformKey === key) payload = { reason: 2 };
+            else if (config.unignoreKey === key) payload = { action: 'unignore' };
+            if (!payload) return false;
+
+            this.blockNextMenu = true;
+            if (this.onGestureCallback) {
+                this.onGestureCallback(Object.assign({ startEl: this.startEl }, payload));
+            }
+            return true;
         }
 
         onContextMenu(e) {
@@ -348,8 +460,19 @@
             if (event[config.defaultKey]) reason = 0;
             else if (config.platformKey !== 'off' && event[config.platformKey]) reason = 2;
 
-            if (reason === -1) return null;
-            return this.createIntent(event.target, reason);
+            // …and the un-ignore binding, which may now be a modifier-click as
+            // well. Tested last for the same reason the swipe path does it (see
+            // onMouseUp): with the three cross-guarded in the popup they cannot
+            // clash, and if a stale storage state ever does, ignore wins.
+            // A gesture value ('zigzag'/'swipe*') is simply not a property of
+            // the event, so it reads false here without a guard.
+            const unignore = reason === -1
+                && config.unignoreKey !== 'off' && !!event[config.unignoreKey];
+
+            if (reason === -1 && !unignore) return null;
+            const intent = this.createIntent(event.target, reason);
+            if (intent && unignore) intent.action = 'unignore';
+            return intent;
         }
 
         createIntent(startElement, reason) {
@@ -369,6 +492,8 @@
     window.ILAP.ManualIgnore.ContainerStrategyProvider = ContainerStrategyProvider;
     window.ILAP.ManualIgnore.ContextScanner = ContextScanner;
     window.ILAP.ManualIgnore.SwipeGestureDetector = SwipeGestureDetector;
+    window.ILAP.ManualIgnore.ZigzagTracker = ZigzagTracker;
+    window.ILAP.ManualIgnore.UNIGNORE_KEYS = UNIGNORE_KEYS;
     window.ILAP.ManualIgnore.EventParser = EventParser;
  
 })();

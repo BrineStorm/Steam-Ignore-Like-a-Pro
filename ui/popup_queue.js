@@ -179,16 +179,23 @@
             // highlighted (a special auto-filling job) and renders differently —
             // see the progress branch below.
             const isUndo = job.type === 'undo';
-            const isMi = job.type === 'mi';
-            const name = isMi ? esc(t('mi_job_name'))
+            // The two AUTO-FILLING gesture jobs render alike: no curator, no
+            // filter line, and a live remaining count instead of a percent bar
+            // (see the progress branch below). `isGesture` covers both — the same
+            // bucket the drainer calls `isForeground`; do not read it as "the MI
+            // job", which is only the ignore half.
+            const isMiUndo = job.type === 'miundo';
+            const isGesture = job.type === 'mi' || isMiUndo;
+            const name = isMiUndo ? esc(t('miundo_job_name'))
+                : isGesture ? esc(t('mi_job_name'))
                 : isUndo ? esc(t('undo_job_name'))
                 : esc(job.curatorName || job.curatorId || '');
             const total = job.total || 0;
             const done = Math.min(cursor, total || cursor);
             const status = esc(t(STATUS_LABELS[effStatus] || 'queue_status_pending'));
             const statusColor = STATUS_COLORS[effStatus];
-            const isCurrent = !isUndo && !isMi && !!cur && job.curatorId === cur;
-            const filter = (isUndo || isMi) ? '' : esc(t(Filters.labelKey(job.filter)));
+            const isCurrent = !isUndo && !isGesture && !!cur && job.curatorId === cur;
+            const filter = (isUndo || isGesture) ? '' : esc(t(Filters.labelKey(job.filter)));
             const pct = total > 0 ? Math.round(done / total * 100) : 0;
             const count = total > 0 ? `${done} / ${total}` : '—';
             const jobId = esc(job.id || '');
@@ -208,7 +215,7 @@
             // An MI job auto-fills while it drains, so its total is a moving target:
             // a percent bar would jump backward on a fresh swipe (5/10 → 5/15). Show
             // a live remaining COUNT ("In queue: N") instead of the bar/percent.
-            const progress = isMi
+            const progress = isGesture
                 ? `${skipLine}
                     <div class="queue-job-foot">
                         <span class="queue-job-count">${esc(t('queue_mi_remaining', { n: Math.max(total - done, 0) }))}</span>${actions}
@@ -220,12 +227,12 @@
                     </div>`;
 
             return `
-                <div class="queue-job${isCurrent ? ' current' : ''}${isMi ? ' mi' : ''}">
+                <div class="queue-job${isCurrent ? ' current' : ''}${isGesture ? ' mi' : ''}">
                     <div class="queue-job-head">
                         <span class="queue-job-name">${name}</span>
                         <span class="queue-job-status"${statusColor ? ` style="color:${statusColor}"` : ''}>${status}</span>
                     </div>
-                    ${(isUndo || isMi) ? '' : `<div class="queue-job-sub" style="${filterStyle(job.filter)}">${filter}</div>`}
+                    ${(isUndo || isGesture) ? '' : `<div class="queue-job-sub" style="${filterStyle(job.filter)}">${filter}</div>`}
                     ${progress}
                 </div>`;
         }

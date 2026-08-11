@@ -72,6 +72,19 @@
             const dom = this.isLoggedInDom();
             if (dom !== null) return dom;
             return (await this.probeLogin()) === true;
+        },
+        // The IGNORE-side login gate — one definition for the rate governor
+        // (gate.js) and the Manual-Ignore gestures, which used to carry a copy
+        // each. A DIFFERENT policy from resolveLogin above, deliberately: the
+        // header is trusted only when it rendered signed-IN, because a page
+        // opened before the user signed in elsewhere reads logged-out forever
+        // and would swallow every gesture until a reload. Anything else costs
+        // the cached live probe (steam-net.js owns the caching).
+        // Tri-state, so a caller can tell "signed out" from "couldn't ask":
+        // true / false / null, the last straight from a failed probe.
+        async hasLiveSession() {
+            if (this.isLoggedInDom() === true) return true;
+            return Net.probeLoginCached();
         }
     };
 

@@ -6,13 +6,17 @@ const vm = require('vm');
 // Aggregate ignore-rate governor (src/gate.js) as a Node unit — no browser. The
 // pacing is pure math (nextSlot) plus a serialized claim over an async
 // chrome.storage stub. Guards the contract the drainer / EQ / DQ rely on:
-//   - the two STOP verdicts (master off, no session) resolve without a slot;
+//   - the two STOP verdicts (master off, no session) resolve without a slot —
+//     and "no session" means no LIVE session, not a missing sessionid cookie:
+//     Steam hands that cookie to anonymous visitors too, so the verdict comes
+//     from the store header / a live /account/ probe (stubbed here);
 //   - a granted reservation advances the shared timestamp monotonically by at
 //     least MIN_GAP, so stacked sources stay ≥ MIN_GAP apart;
 //   - a reported 429 escalates a shared penalty (nextPenalty) that the next
 //     reservation waits out, so every source backs off together.
 
-function loadGate(initial) {
+function loadGate(initial, opts) {
+    opts = opts || {};
     const code = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'gate.js'), 'utf8');
     const clone = (v) => JSON.parse(JSON.stringify(v));
     let data = clone(initial || {});
@@ -28,15 +32,30 @@ function loadGate(initial) {
             }
             cb(out);
         }, 0),
-        set: (obj, cb) => setTimeout(() => {
-            for (const k of Object.keys(obj)) data[k] = clone(obj[k]);
-            if (cb) cb();
-        }, 0),
+        // `setThrows` lets a test blow up the write that happens INSIDE the
+        // serialized claim — the only part of reserve() the chain still covers.
+        set: (obj, cb) => {
+            if (opts.setThrows && opts.setThrows()) throw new Error('boom');
+            setTimeout(() => {
+                for (const k of Object.keys(obj)) data[k] = clone(obj[k]);
+                if (cb) cb();
+            }, 0);
+        },
     };
     const sandbox = { window: {}, chrome: { storage: { local } }, setTimeout, Date, Math, JSON };
     vm.createContext(sandbox);
     vm.runInContext(code, sandbox);
-    return { Gate: sandbox.window.ILAP.IgnoreGate, ILAP: sandbox.window.ILAP, data: () => data };
+    const ILAP = sandbox.window.ILAP;
+    // Default world: the TAB, the only one the gate answers for without being
+    // configured — utils.js loads before gate.js, so its SteamAuth is there to
+    // be read. Stubbed as "signed in", so every test below that only sets
+    // getSessionID reads that way, which is what it meant before the probe
+    // existed. The login policy behind SteamAuth (header vs cached /account/
+    // probe) is exercised by utils.js/steam-net.js own units, not here. Tests
+    // that care override ILAP.SteamAuth; the OTHER world (the service worker,
+    // which imports no utils.js) arrives through Gate.configure — see its test.
+    ILAP.SteamAuth = { hasLiveSession: async () => true };
+    return { Gate: ILAP.IgnoreGate, ILAP, data: () => data };
 }
 
 test.describe('ignore-rate gate (unit)', () => {
@@ -141,6 +160,69 @@ test.describe('ignore-rate gate (unit)', () => {
         expect(r).toEqual({ ok: false, reason: 'no-session' });
     });
 
+    test('a sessionid alone is NOT a session: a logged-out probe still stops', async () => {
+        // The bug this guards: Steam sets a sessionid cookie for anonymous
+        // visitors (it is a CSRF token), so the cookie is present on every store
+        // page of a signed-OUT browser. Granting slots on it meant MI swipes,
+        // EQ/DQ and the drainer all fired POSTs that could only be refused.
+        const { Gate, ILAP } = loadGate({ ilap_master_enabled: true });
+        ILAP.getSessionID = () => 'sess';
+        ILAP.SteamAuth = { hasLiveSession: async () => false };
+        const r = await Gate.reserve();
+        expect(r).toEqual({ ok: false, reason: 'no-session' });
+    });
+
+    test('a probe that could not be MADE reads as offline, not as a logout', async () => {
+        // The distinction exists for src/background.js: a stop it can recover
+        // from through a storage write ('disabled' → ilap_master_enabled,
+        // 'no-session' → ilap_sw_sid) lets it drop its retry alarm, but nothing
+        // writes storage when a network outage ends — so 'offline' must stay
+        // tellable apart or a blip strands the SW drain until a store tab opens.
+        // Either way no slot is granted: the gate fails closed.
+        const { Gate, ILAP } = loadGate({ ilap_master_enabled: true });
+        ILAP.getSessionID = () => 'sess';
+        ILAP.SteamAuth = { hasLiveSession: async () => null };   // offline / timeout
+        expect(await Gate.reserve()).toEqual({ ok: false, reason: 'offline' });
+        expect(await Gate.stopVerdict()).toBe('offline');
+    });
+
+    test('configure() replaces the session seam outright (the service-worker world)', async () => {
+        // The tab is answered by the default (utils.js SteamAuth — one definition
+        // of the ignore-side login policy, shared with the Manual-Ignore
+        // gestures). The worker imports no utils.js at all: no DOM, no SteamAuth,
+        // no cookie to read. It injects its own answer at boot instead
+        // (src/background.js — the cached sid folded with the live probe), which
+        // replaced an implicit arrangement: the worker used to ASSIGN
+        // `ILAP.getSessionID` to satisfy a module that walked a ladder of facade
+        // names to discover which world it was running in.
+        const { Gate, ILAP } = loadGate({ ilap_master_enabled: true });
+        let asked = 0;
+        ILAP.getSessionID = () => { throw new Error('the default seam must not be consulted'); };
+        ILAP.SteamAuth = { hasLiveSession: async () => { throw new Error('nor this one'); } };
+
+        Gate.configure({ hasSession: async () => { asked++; return true; } });
+        expect(await Gate.reserve()).toEqual({ ok: true });
+        expect(asked).toBe(1);
+
+        // Same tri-state contract as the default it replaced.
+        Gate.configure({ hasSession: async () => null });
+        expect(await Gate.stopVerdict()).toBe('offline');
+        Gate.configure({ hasSession: async () => false });
+        expect(await Gate.stopVerdict()).toBe('no-session');
+    });
+
+    test('SteamAuth\'s tri-state passes straight through: null → offline, false → no-session', async () => {
+        const off = loadGate({ ilap_master_enabled: true });
+        off.ILAP.getSessionID = () => 'sess';
+        off.ILAP.SteamAuth = { hasLiveSession: async () => null };
+        expect(await off.Gate.reserve()).toEqual({ ok: false, reason: 'offline' });
+
+        const out = loadGate({ ilap_master_enabled: true });
+        out.ILAP.getSessionID = () => 'sess';
+        out.ILAP.SteamAuth = { hasLiveSession: async () => false };
+        expect(await out.Gate.reserve()).toEqual({ ok: false, reason: 'no-session' });
+    });
+
     test('a granted reservation records the slot and returns ok', async () => {
         const { Gate, ILAP, data } = loadGate({});
         ILAP.getSessionID = () => 'sess';
@@ -233,14 +315,26 @@ test.describe('ignore-rate gate (unit)', () => {
         expect(r).toEqual({ ok: true });
     });
 
-    test('the claim chain survives a throwing reservation (one failure cannot wedge the gate)', async () => {
-        // chain = claim.then(ok, err) must swallow a rejected claim so the next
-        // reservation still runs. Make the session lookup throw once, then recover.
+    test('the claim chain survives a throwing claim (one failure cannot wedge the gate)', async () => {
+        // chain = run.then(ok, err) must swallow a rejected claim so the next
+        // reservation still runs. Blow up the slot WRITE — that is the part
+        // still inside the chain now that the stop verdict is asked outside it
+        // (a stop check that can cost a live probe must not hold the chain).
+        let boom = true;
+        const { Gate, ILAP } = loadGate({}, {
+            setThrows: () => { const b = boom; boom = false; return b; }
+        });
+        ILAP.getSessionID = () => 'sess';
+        await expect(Gate.reserve()).rejects.toThrow('boom');
+        const r = await Gate.reserve();   // chain not wedged → this resolves normally
+        expect(r).toEqual({ ok: true });
+    });
+
+    test('a throwing stop check leaves the gate usable too (it never touches the chain)', async () => {
         const { Gate, ILAP } = loadGate({});
         let calls = 0;
         ILAP.getSessionID = () => { calls++; if (calls === 1) throw new Error('boom'); return 'sess'; };
         await expect(Gate.reserve()).rejects.toThrow('boom');
-        const r = await Gate.reserve();   // chain not wedged → this resolves normally
-        expect(r).toEqual({ ok: true });
+        expect(await Gate.reserve()).toEqual({ ok: true });
     });
 });

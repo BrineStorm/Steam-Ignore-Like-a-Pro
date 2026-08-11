@@ -46,6 +46,23 @@
    exact rendered box — including when Steam's layout lets a capsule image overflow
    onto a neighbouring trailer video. The IGNORED badge is a sibling, so it stays
    sharp. */
+/* A solo un-ignore was gestured and is waiting in the queue. The badge is NOT
+   removed here — that only happens once Steam confirms the rollback — so this
+   is the one visual difference between "ignored" and "about to stop being
+   ignored", and it has to read as provisional rather than as a new state. */
+.ilap-undo-pending {
+    opacity: .5;
+    animation: ilap-undo-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes ilap-undo-pulse {
+    50% { opacity: .22; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ilap-undo-pending { animation: none; }
+}
+
 .ilap-ignored-blur {
     /* !important: some capsules (e.g. the top carousel's _8JfsVa2qql image) carry
        Steam's own filter: brightness(1) at equal specificity but later source order,

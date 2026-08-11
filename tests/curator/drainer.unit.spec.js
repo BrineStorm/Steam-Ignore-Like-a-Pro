@@ -190,6 +190,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         };
         let cursor = 0;
         let removed = false;
+        let undoFailed = 0;
         const bumps = [];
         const marked = [];
         const appended = [];
@@ -199,6 +200,8 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             getCursor: async () => cursor,
             setCursor: async (id, c) => { cursor = c; },
             bumpSkipped: async (id) => { bumps.push(id); },
+            signalUnignored: async () => { throw new Error('undo must not un-badge a skipped game'); },
+            signalUndoFailed: async () => { undoFailed += 1; },
             renewLock: async () => {},
             removeJob: async () => { removed = true; },
             removeIfDrained: async () => { removed = true; return true; },
@@ -225,6 +228,110 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(bumps).toEqual(['ju']);
         expect(appended).toEqual([]);  // the appid is still ignored…
         expect(marked).toEqual([]);    // …so its log entries stay live
+        // …and the page is already truthful (the badge says "ignored", which it
+        // is), so nothing is un-badged — but the rollback the user asked for
+        // silently didn't happen, and that gets reported.
+        expect(undoFailed).toBe(1);
+    });
+
+    test('undo job: a rollback that fails every retry is reported too (MAX_FAILS)', async () => {
+        // The other way a remove POST gives up: not a classified region lock,
+        // just three refusals on a live session. Same correction — the game
+        // stays ignored and the user is told the undo fell short.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'ju', curatorId: 'undo', type: 'undo',
+            status: 'pending', appids: ['1'], snapshotTs: 500,
+        };
+        let cursor = 0;
+        let removed = false;
+        let undoFailed = 0;
+        const posts = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{ ...job }]),
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                bumpSkipped: async () => {},
+                signalUndoFailed: async () => { undoFailed += 1; },
+                renewLock: async () => {},
+                removeIfDrained: async () => { removed = true; return true; },
+                signalCompleted: async () => {},
+            },
+            api: {
+                ignore: async () => ({ ok: true }),
+                unignore: async (appid) => { posts.push(appid); return { ok: false }; },
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(['1']),
+            probeLogin: async () => true,     // the session is fine — a per-appid refusal
+            log: {
+                // Neither hook may fire: the entry has to stay LIVE (not undone,
+                // not `skipped`) so the next "undo the last N" retries it — that
+                // self-healing is why a failed rollback needs no other record.
+                append: async () => { throw new Error('a failed rollback must not be logged as skipped'); },
+                markUndone: async () => { throw new Error('a failed rollback must not mark the log'); },
+                wasReIgnoredAfter: async () => false,
+            },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        await d._drainJob(job);
+        expect(posts).toEqual(['1', '1', '1']);   // 3 tries, then stepped over
+        expect(cursor).toBe(1);
+        expect(undoFailed).toBe(1);
+    });
+
+    test('an ignore that fails every retry leaves a durable log entry (MAX_FAILS)', async () => {
+        // The per-job skipped counter dies with the job and the push card needs
+        // a listening tab (the SW route has none), so the log entry is the only
+        // trace this drop path leaves. Same shape as the region-lock skip, with
+        // `skipped:'failed'` — inert for every undo selector, and no extra
+        // volume: an appid that had landed would have been appended anyway.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+            appids: ['1', '2'], meta: { 1: { name: 'Foo', reason: 2 } },
+        };
+        let cursor = 0;
+        let removed = false;
+        const posts = [];
+        const appended = [];
+        const unbadged = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{ ...job }]),
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                bumpSkipped: async () => {},
+                signalUnignored: async (appid, reason) => { unbadged.push([appid, reason]); },
+                renewLock: async () => {},
+                removeIfDrained: async () => { removed = true; return true; },
+                signalCompleted: async () => {},
+            },
+            api: { ignore: async (appid, reason) => {
+                posts.push([appid, reason]);
+                return appid === '1' ? { ok: false } : { ok: true };
+            } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            probeLogin: async () => true,     // the session is fine — a per-appid refusal
+            log: { append: async (e) => { appended.push(e); }, markUndone: async () => {} },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        await d._drainJob(job);
+        expect(posts).toEqual([['1', 2], ['1', 2], ['1', 2], ['2', 0]]);  // 3 tries, then on
+        expect(cursor).toBe(2);
+        // The dropped entry carries the name resolved at swipe time, so a future
+        // surface can name it; the one that landed logs normally.
+        expect(appended).toEqual([
+            { appid: '1', name: 'Foo', source: 'mi', skipped: 'failed' },
+            { appid: '2', name: '', source: 'mi' },
+        ]);
+        expect(unbadged).toEqual([['1', 'failed']]);   // the optimistic badge still goes
     });
 
     test('undo job: inverse dedupe, remove=1 POSTs, log marked undone', async () => {
@@ -554,6 +661,139 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(removed).toBe(true);
     });
 
+    test('MI job: a cancelled entry is stepped over — no POST, no stats, no log', async () => {
+        // Immediate regret: the un-ignore gesture reached the entry before the
+        // drain did, so the ignore must never happen at all. Nothing to report
+        // either — the gesture already un-badged it, and an ignore that never
+        // landed has nothing to count or roll back.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+            appids: ['10', '11'],
+            meta: { 10: { name: 'A', reason: 0, cancelled: true }, 11: { name: 'B', reason: 2 } },
+        };
+        let cursor = 0;
+        let removed = false;
+        const posts = [];
+        const stats = [];
+        const appended = [];
+        const unbadged = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{ ...job }]),
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => { removed = true; return true; },
+                signalCompleted: async () => {},
+                signalUnignored: async (appid, reason) => { unbadged.push([appid, reason]); },
+            },
+            api: { ignore: async (appid, reason) => { posts.push([appid, reason]); return { ok: true }; } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            saveStats: async (name, reason) => { stats.push([name, reason]); },
+            log: {
+                append: async (entry) => { appended.push(entry); },
+                markUndone: async () => {},
+                wasReIgnoredAfter: async () => false,
+            },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(posts).toEqual([['11', 2]]);              // only the live entry
+        expect(stats).toEqual([['B', 2]]);
+        expect(appended).toEqual([{ appid: '11', name: 'B', source: 'mi' }]);
+        expect(unbadged).toEqual([]);                    // nothing to correct
+        expect(cursor).toBe(2);                          // stepped over, not stuck
+    });
+
+    test('MI job: a cancel landing DURING the gate wait still stops the POST', async () => {
+        // The race the cancel path exists for. The pre-gate snapshot shows the
+        // entry live; the mark is written while reserve() paces. Re-reading the
+        // job after the wait — which the drainer already does for status — is
+        // what keeps the ignore from going out behind the user's back.
+        const Drainer = loadDrainerClass();
+        let cancelled = false;
+        let cursor = 0;
+        let removed = false;
+        const posts = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{
+                    id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+                    appids: ['10'],
+                    meta: { 10: { name: 'A', reason: 0, cancelled } },
+                }]),
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => { removed = true; return true; },
+                signalCompleted: async () => {},
+            },
+            api: { ignore: async (appid, reason) => { posts.push([appid, reason]); return { ok: true }; } },
+            // The gesture lands while this reservation is being paced.
+            gate: { reserve: async () => { cancelled = true; return { ok: true }; } },
+            fetchUserdata: async () => new Set(),
+            saveStats: async () => {},
+            log: { append: async () => {}, markUndone: async () => {}, wasReIgnoredAfter: async () => false },
+            ownerId: 't1',
+        });
+        await d._drainJob({ id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending' });
+        expect(posts).toEqual([]);
+        expect(cursor).toBe(1);
+    });
+
+    test('MI job: a cancel landing while the POST is IN FLIGHT is compensated', async () => {
+        // The window the cursor cannot describe. cancelMiEntry answers "still
+        // pending?" from the cursor, and the cursor only advances once the POST
+        // has RETURNED — so a gesture arriving mid-request is told it cancelled an
+        // ignore that was already sent, and the tab drops the badge for a game
+        // Steam is about to ignore. Every check the drainer makes before the POST
+        // is too early to catch it, so the correction comes after: a real rollback,
+        // because the ignore genuinely landed and stays counted and logged.
+        const Drainer = loadDrainerClass();
+        let cancelled = false;
+        let cursor = 0;
+        let removed = false;
+        const posts = [];
+        const rollbacks = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{
+                    id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+                    appids: ['10'],
+                    meta: { 10: { name: 'A', reason: 0, cancelled } },
+                }]),
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => { removed = true; return true; },
+                signalCompleted: async () => {},
+                enqueueMiUndo: async (entry) => { rollbacks.push(entry.appid); return { kind: 'added' }; },
+            },
+            // The gesture lands while THIS request is in flight.
+            api: {
+                ignore: async (appid, reason) => {
+                    posts.push([appid, reason]);
+                    cancelled = true;
+                    return { ok: true };
+                },
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            saveStats: async () => {},
+            log: { append: async () => {}, markUndone: async () => {}, wasReIgnoredAfter: async () => false },
+            ownerId: 't1',
+        });
+        await d._drainJob({ id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending' });
+        expect(posts).toEqual([['10', 0]]);   // nothing could stop it — it was already sent
+        expect(rollbacks).toEqual(['10']);    // …so it is undone instead of left standing
+        expect(cursor).toBe(1);
+    });
+
     test('MI job: a swipe appended in the completion window is drained, not wiped', async () => {
         // The race removeIfDrained closes: the drainer's loop-top snapshot shows
         // the MI job fully drained (cursor at the end), but a swipe appended a new
@@ -812,10 +1052,138 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(cursor).toBe(2);
     });
 
-    test('_pickJob prefers a drainable MI job over curator/undo work', () => {
+    test('miundo job: POSTs remove=1 with the INVERSE dedupe and marks the log undone', async () => {
+        // The solo un-ignore gesture's twin job. It must inherit the undo pass
+        // policy wholesale — direction comes from job.type, not from the entry —
+        // while staying a separate job so MI keeps its lenient userdata path.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'job_mi_undo', curatorId: 'miundo', type: 'miundo', status: 'pending',
+            appids: ['1', '2'], meta: { 1: { ts: 900 }, 2: { ts: 950 } },
+        };
+        let cursor = 0;
+        let removed = false;
+        const unignored = [];
+        const ignoredPosts = [];
+        const marked = [];
+        const badgesCleared = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{ ...job }]),
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                bumpSkipped: async () => {},
+                signalUnignored: async (appid) => { badgesCleared.push(appid); },
+                renewLock: async () => {},
+                removeIfDrained: async () => { removed = true; return true; },
+                signalCompleted: async () => {},
+            },
+            api: {
+                ignore: async (appid) => { ignoredPosts.push(appid); return { ok: true }; },
+                unignore: async (appid) => { unignored.push(appid); return { ok: true }; },
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            // '2' is already NOT ignored → the inverse dedupe skips it with no POST.
+            fetchUserdata: async () => new Set(['1']),
+            log: {
+                append: async () => { throw new Error('a rollback is not an ignore'); },
+                markUndone: async (appid, ts) => { marked.push([appid, ts]); },
+                lastIgnoredAt: async () => 0,      // old ignore → the skip is trusted
+                wasReIgnoredAfter: async () => false,
+            },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        await d._drainJob(job);
+        expect(ignoredPosts).toEqual([]);       // never the ignore endpoint
+        expect(unignored).toEqual(['1']);       // only the still-ignored appid
+        expect(cursor).toBe(2);
+        expect(removed).toBe(true);
+        // Each entry's own gesture time is the "last user intent wins" boundary,
+        // NOT one job-level snapshot: this job auto-fills, so a shared ts would be
+        // the moment the first gesture created it.
+        expect(marked).toEqual([['1', 900], ['2', 950]]);
+        // The confirmed rollback clears the on-page badge, exactly like a droplist
+        // undo — same pulse, so the gesture needed no new protocol.
+        expect(badgesCleared).toEqual(['1']);
+    });
+
+    test('miundo job: a refused rollback reports it (the pending badge mark comes off)', async () => {
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'job_mi_undo', curatorId: 'miundo', type: 'miundo', status: 'pending',
+            appids: ['1'], meta: { 1: { ts: 900 } },
+        };
+        let cursor = 0;
+        let removed = false;
+        let undoFailed = 0;
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{ ...job }]),
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                bumpSkipped: async () => {},
+                signalUnignored: async () => { throw new Error('a refused rollback un-badges nothing'); },
+                signalUndoFailed: async () => { undoFailed += 1; },
+                renewLock: async () => {},
+                removeIfDrained: async () => { removed = true; return true; },
+                signalCompleted: async () => {},
+            },
+            api: {
+                ignore: async () => ({ ok: true }),
+                unignore: async () => ({ ok: false, rateLimited: false, unavailable: true }),
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(['1']),
+            log: {
+                append: async () => { throw new Error('nothing was rolled back to log'); },
+                markUndone: async () => { throw new Error('a refused rollback must not mark the log'); },
+                lastIgnoredAt: async () => 0,
+                wasReIgnoredAfter: async () => false,
+            },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        await d._drainJob(job);
+        expect(cursor).toBe(1);
+        expect(undoFailed).toBe(1);
+    });
+
+    test('miundo job: a failed userdata read stops the pass (it inherits undo strictness)', async () => {
+        // The inverse dedupe reads "absent from the set" as "already rolled back",
+        // so a failed read would skip-burn the whole job with zero requests.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'job_mi_undo', curatorId: 'miundo', type: 'miundo',
+            status: 'pending', appids: ['1'], meta: { 1: { ts: 900 } },
+        };
+        let cursor = 0;
+        const d = new Drainer({
+            store: {
+                getQueue: async () => [{ ...job }],
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => { throw new Error('nothing drained — nothing to complete'); },
+                signalCompleted: async () => {},
+            },
+            api: { ignore: async () => ({ ok: true }), unignore: async () => ({ ok: true }) },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => { throw new Error('userdata down'); },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        expect(await d._drainJob(job)).toBe('stop');
+        expect(cursor).toBe(0);
+    });
+
+    test('_pickJob prefers a drainable MI job over curator/undo work', async () => {
         const Drainer = loadDrainerClass();
         const d = new Drainer({
-            store: {}, api: {}, gate: {},
+            store: { getCursor: async () => 0 }, api: {}, gate: {},
             fetchUserdata: async () => new Set(), ownerId: 't1',
         });
         const queue = [
@@ -823,9 +1191,170 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             { id: 'u', curatorId: 'undo', type: 'undo', status: 'pending', appids: ['2'] },
             { id: 'm', curatorId: 'mi', type: 'mi', status: 'pending', appids: ['3'] },
         ];
-        expect(d._pickJob(queue).id).toBe('m');
+        expect((await d._pickJob(queue)).id).toBe('m');
         // With the MI job drained, the next pick falls back to document order.
-        expect(d._pickJob(queue.slice(0, 2)).id).toBe('c');
+        expect((await d._pickJob(queue.slice(0, 2))).id).toBe('c');
+    });
+
+    test('progress comes from the cursor KEY, not the queue record', async () => {
+        // The `cursor` field on a job is a legacy pre-cursor-key value that no
+        // build writes any more — reading it instead of the key called every job
+        // drainable for as long as it sat in the queue, whatever it had done.
+        const Drainer = loadDrainerClass();
+        const make = (cursors) => new Drainer({
+            store: { getCursor: async (id) => cursors[id], getQueue: async () => [] },
+            api: {}, gate: {}, fetchUserdata: async () => new Set(), ownerId: 't1',
+        });
+        const job = { id: 'j', curatorId: 'c', status: 'pending', appids: ['1', '2'] };
+
+        expect(await make({ j: 1 })._drainable(job)).toBe(true);
+        expect(await make({ j: 2 })._drainable(job)).toBe(false);   // the KEY says done…
+        // …even though the record's own field would have claimed work left, and
+        // vice versa: the field is consulted ONLY when the key holds nothing,
+        // which is the pre-cursor-key record it exists for.
+        expect(await make({})._drainable(Object.assign({}, job, { cursor: 2 }))).toBe(false);
+        expect(await make({})._drainable(job)).toBe(true);
+    });
+
+    test('_pickJob: both GESTURE jobs beat background work, rollback first', async () => {
+        // A solo un-ignore is as live a user action as a swipe, so it outranks
+        // background curator/undo work too — and it outranks the SWIPE as well,
+        // in BOTH array orders. _drainJob runs a job to its end, so sharing one
+        // position-ordered bucket meant whichever job happened to sit earlier
+        // drained entirely first; the rollback is the later intent by
+        // construction, and the one holding a provisional mark on screen.
+        const Drainer = loadDrainerClass();
+        const d = new Drainer({
+            // 'mu-done' is the one job whose cursor key says it has nothing left.
+            store: { getCursor: async (id) => (id === 'mu-done' ? 1 : 0) },
+            api: {}, gate: {},
+            fetchUserdata: async () => new Set(), ownerId: 't1',
+        });
+        const curator = { id: 'c', curatorId: '1', status: 'pending', appids: ['1'] };
+        const undo = { id: 'u', curatorId: 'undo', type: 'undo', status: 'pending', appids: ['2'] };
+        const mi = { id: 'm', curatorId: 'mi', type: 'mi', status: 'pending', appids: ['3'] };
+        const miundo = {
+            id: 'mu', curatorId: 'miundo', type: 'miundo', status: 'pending', appids: ['4'] };
+        expect((await d._pickJob([curator, undo, miundo])).id).toBe('mu');
+        expect((await d._pickJob([curator, undo, miundo, mi])).id).toBe('mu');
+        expect((await d._pickJob([curator, undo, mi, miundo])).id).toBe('mu');  // …position-proof
+        // With no rollback queued the swipe still wins over curator/undo.
+        expect((await d._pickJob([curator, undo, mi])).id).toBe('m');
+        // A DRAINED rollback job is not drainable, so it cannot block the swipe.
+        const done = Object.assign({}, miundo, { id: 'mu-done' });
+        expect((await d._pickJob([curator, undo, done, mi])).id).toBe('m');
+    });
+
+    test('a rollback gestured mid-pass takes the drain over', async () => {
+        // _pickJob's priority only settles which job a pass STARTS on, and
+        // _drainJob runs its job to the end — so a solo un-ignore gestured INTO
+        // a draining MI backlog used to wait the backlog out (minutes at ~0.6 s
+        // a POST) with its badge dimmed the whole time. The loop-top hand-off is
+        // what makes the priority mean anything for the gesture that arrives late.
+        const Drainer = loadDrainerClass();
+        const mi = {
+            id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+            appids: ['1', '2', '3'], meta: {},
+        };
+        const miundo = {
+            id: 'job_mi_undo', curatorId: 'miundo', type: 'miundo', status: 'pending',
+            appids: ['9'], meta: { 9: { ts: 1 } },
+        };
+        let queue = [mi];
+        let cursor = 0;
+        const posts = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => queue.map(j => Object.assign({}, j)),
+                holdsLock: async () => true,
+                // Per-job, because the preemption check now asks the ROLLBACK's
+                // own cursor key rather than the record it rides in on.
+                getCursor: async (id) => (id === 'job_mi' ? cursor : 0),
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => { throw new Error('a yielding pass finishes nothing'); },
+                signalCompleted: async () => {},
+            },
+            api: {
+                ignore: async (appid) => {
+                    posts.push(appid);
+                    queue = [mi, miundo];   // the gesture lands during the first POST
+                    return { ok: true };
+                },
+                unignore: async () => ({ ok: true }),
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        await d._drainJob(mi);
+        expect(posts).toEqual(['1']);      // handed over instead of draining 2 and 3
+        expect(cursor).toBe(1);            // …with the MI job's own progress intact
+        // Hand-off, not abandonment: this is the job drain() picks next, and the
+        // MI job resumes from its cursor when the rollback is done.
+        expect((await d._pickJob(queue)).id).toBe('job_mi_undo');
+    });
+
+    test('_preemptedBy: no self-yield, and nothing yields to an unpickable rollback', async () => {
+        const Drainer = loadDrainerClass();
+        const d = new Drainer({
+            store: { getCursor: async (id) => (id === 'mu-done' ? 1 : 0) },
+            api: {}, gate: {},
+            fetchUserdata: async () => new Set(), ownerId: 't1',
+        });
+        const mi = { id: 'm', curatorId: 'mi', type: 'mi', status: 'pending', appids: ['1'] };
+        const curator = { id: 'c', curatorId: '1', status: 'pending', appids: ['2'] };
+        const miundo = {
+            id: 'mu', curatorId: 'miundo', type: 'miundo', status: 'pending', appids: ['3'] };
+        expect(await d._preemptedBy([mi, miundo], mi)).toBe(true);
+        expect(await d._preemptedBy([curator, miundo], curator)).toBe(true);
+        // Yielding to itself would be a livelock: drain() would re-pick the very
+        // job that just stepped aside, forever.
+        expect(await d._preemptedBy([mi, miundo], miundo)).toBe(false);
+        // A drained or paused rollback is not something the picker would take,
+        // so standing aside for it would only cost a pass (and a userdata GET).
+        // "Drained" per its own cursor KEY — the check that used to read the
+        // legacy field on the record, which no build writes, and so never fired.
+        expect(await d._preemptedBy([mi, Object.assign({}, miundo, { id: 'mu-done' })], mi))
+            .toBe(false);
+        expect(await d._preemptedBy([mi, Object.assign({}, miundo, { status: 'paused' })], mi))
+            .toBe(false);
+    });
+
+    test('a job left drained in the queue is collected by the idle pass', async () => {
+        // The completion the picker used to perform by accident. _drainJob drops
+        // a job the moment its cursor reaches the end, but the pass can die in
+        // between (stolen lease, closed tab, killed worker) — and a picker that
+        // only takes real work would never look at the leftover again: 100 % in
+        // the applet, the standby tick armed for good.
+        const Drainer = loadDrainerClass();
+        let queue = [
+            { id: 'done', curatorId: 'c1', status: 'pending', appids: ['1'] },
+            { id: 'paused', curatorId: 'c2', status: 'paused', appids: ['2'] },
+        ];
+        const removals = [];
+        let pulses = 0;
+        const d = new Drainer({
+            store: {
+                getQueue: async () => queue,
+                getCursor: async (id) => (id === 'done' ? 1 : 0),
+                removeIfDrained: async (id, cursor) => {
+                    removals.push([id, cursor]);
+                    queue = queue.filter(j => j.id !== id);
+                    return true;
+                },
+                signalCompleted: async () => { pulses += 1; },
+                acquireLock: async () => { throw new Error('nothing here is drainable'); },
+            },
+            api: {}, gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(), ownerId: 't1', standbyMs: 0,
+        });
+
+        await d.drain();
+        expect(removals).toEqual([['done', 1]]);   // …and the PAUSED job is left alone
+        expect(pulses).toBe(1);
+        expect(queue.map(j => j.id)).toEqual(['paused']);
     });
 
     test('standby interval armed only while the queue holds a job', async () => {
