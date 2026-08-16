@@ -27,6 +27,14 @@
         return (currentCount || 0) + 1;
     }
 
+    // Floored at 0 on purpose: the counter holds the ignores THIS extension has
+    // performed, so a rollback of a game ignored before it was installed (the
+    // badge gesture answers to Steam's list, not to ours) has no increment of
+    // its own to take back.
+    function decrement(currentCount) {
+        return Math.max(0, (currentCount || 0) - 1);
+    }
+
     function pushHistory(currentHistory, name, source) {
         return [{ name, source }, ...(currentHistory || [])].slice(0, HISTORY_LIMIT);
     }
@@ -46,9 +54,29 @@
         };
     }
 
+    // The count-only half of the record, for an ignore that must be COUNTED but
+    // not SHOWN: a drained curator ignore. The curator path carries no name
+    // (enumeration reads appids only), and a job of several hundred would flush
+    // the 20-entry "Last Ignored" history of hand-made swipes in one pass — so
+    // it lands in the total and nowhere else.
+    function countState(current) {
+        return { [COUNT_KEY]: increment((current || {})[COUNT_KEY]) };
+    }
+
+    // Its mirror, for a CONFIRMED un-ignore: the total counts ignores that are
+    // still standing, so a rollback takes its ignore back out of it. The history
+    // is deliberately NOT rewound — it is a "what did I ignore lately" log, and
+    // an entry that was rolled back still happened (the undo applet reads the
+    // separate ilap_ignore_log for what is undoable). Count-only for the same
+    // reason curator ignores are: an undo job drains in batches and carries no
+    // name, so there is nothing to put in Last Ignored anyway.
+    function uncountState(current) {
+        return { [COUNT_KEY]: decrement((current || {})[COUNT_KEY]) };
+    }
+
     window.ILAP = window.ILAP || {};
     window.ILAP.StatsLogic = {
-        increment, pushHistory, nextState,
+        increment, decrement, pushHistory, nextState, countState, uncountState,
         COUNT_KEY, HISTORY_KEY, LAST_KEY, HISTORY_LIMIT
     };
 

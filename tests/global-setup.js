@@ -2,9 +2,15 @@
 // globalTeardown can un-ignore exactly the games the tests add. See _cleanup.js.
 
 const fs = require('fs');
+const path = require('path');
 const { SNAPSHOT_FILE, newContext, fetchIgnored } = require('./_cleanup.js');
 
 module.exports = async () => {
+    // On a fresh machine (a CI runner) the state dir does not exist yet, and the
+    // no-op marker below is written from a catch block — an ENOENT there would
+    // escape the handler and fail the whole run before a single test starts.
+    fs.mkdirSync(path.dirname(SNAPSHOT_FILE), { recursive: true });
+
     let ctx;
     try {
         ctx = await newContext();

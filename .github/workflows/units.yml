@@ -13,14 +13,21 @@ on:
     branches: [main]
   pull_request:
 
+# The job only reads the tree. A tag is a mutable pointer, so third-party actions
+# are pinned to a commit SHA (see the tj-actions/changed-files tag hijack): what
+# was reviewed once cannot be swapped underneath us. Dependabot bumps the SHA and
+# keeps the trailing version comment in sync.
+permissions:
+  contents: read
+
 jobs:
   units:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
       - run: npm ci
       # No test in this selection opens a page, but the runner has no browsers at

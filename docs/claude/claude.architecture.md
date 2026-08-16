@@ -11,7 +11,9 @@ content-script-bound:
 window.ILAP.getSessionID      // sessionid cookie (a CSRF token — NOT a login check; anonymous visitors get one too)
 window.ILAP.apiIgnoreGame     // POST to Steam ignore endpoint
 window.ILAP.apiUnignoreGame   // the same endpoint with remove=1 (undo)
-window.ILAP.saveStats         // Write to chrome.storage.local
+window.ILAP.saveStats         // Write the full Last-Ignored record (count + history + name)
+window.ILAP.bumpIgnoredCount  // Count only — the drained curator ignore (no name, batch-sized)
+window.ILAP.dropIgnoredCount  // Count only, −1 — a confirmed rollback (history untouched)
 window.ILAP.getGameName       // 5-strategy name extractor (sync)
 window.ILAP.resolveGameName   // async: DOM strategies, then appdetails fallback
 window.ILAP.SteamAuth         // login gate: header DOM check + live /account/ probe
@@ -29,7 +31,9 @@ load `utils.js`:
 
 ```js
 window.ILAP.Sanitizer         // escape.js   — escapeHTML + sanitizeName (all 3 worlds)
-window.ILAP.StatsLogic        // stats.js    — Last-Ignored record shape (content + SW)
+window.ILAP.StatsLogic        // stats.js    — Last-Ignored record shape + the count-only
+                              //               transforms, ±1, for curator drains and
+                              //               confirmed rollbacks (content + SW)
 window.ILAP.SteamNet          // steam-net.js— Steam READS: deadline, userdata, login, appdetails
                               //               + classifyRefusal, the shared 400 verdict (content + SW)
 window.ILAP.IgnoreGate        // gate.js     — aggregate ignore-rate governor + stopVerdict

@@ -97,14 +97,11 @@ input:checked + .slider { background-color: var(--toggle); }
 input:checked + .slider:before { transform: translateX(18px); }
 
 /* === SEGMENTED MODE SWITCH === */
-/* 80% (a quarter narrower than the row) and centred: the popup's tallest state
-   — SETTINGS open on the Manual Ignore subcategory — has to fit the browser's
-   600px action-popup window, and the vertical trim that buys that (no
-   "Interface:" caption above the surface switch, tighter subcategory spacing)
-   left the two full-width switches looking like the only oversized controls in
-   the panel. Both are narrowed, not just the surface one, so they read as a
-   pair. .wide-bg is a % of the track, so the knob follows the new width. */
-.wide-switch { position: relative; display: block; width: 80%; margin-inline: auto; height: 34px; background: var(--inset); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; user-select: none; overflow: hidden; margin-top: 6px; }
+/* Full row width, like every other control in the panel. The 600px action-popup
+   budget is paid in VERTICAL trim (no "Interface:" caption, tighter subcategory
+   spacing) — narrowing these two switches bought no height and only made them
+   the odd ones out. .wide-bg is a % of the track, so the knob follows. */
+.wide-switch { position: relative; display: block; width: 100%; height: 34px; background: var(--inset); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; user-select: none; overflow: hidden; margin-top: 6px; }
 .wide-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
 .wide-track { display: flex; width: 100%; height: 100%; position: relative; }
 .wide-label { flex: 1; text-align: center; line-height: 34px; font-size: 12px; font-weight: 700; z-index: 2; color: var(--muted); transition: color 0.35s ease; }
@@ -180,16 +177,18 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
    Anchored to #total-row rather than to the button: the label takes flex:1, so the
    button sits at the RIGHT end of the row and a left-anchored nowrap tooltip ran
    straight off the 320px window, which `body { overflow: hidden }` then cut
-   mid-word ("Nothing to u…"). Anchored to the row's LEFT edge instead, the same
-   nowrap box gets the panel's whole width to grow into, which every string we
-   ship fits — tests/popup/tooltips.spec.js measures all of them. Deliberately
+   mid-word ("Nothing to u…"). Pinned to the row's RIGHT edge instead: the nowrap
+   box grows LEFTWARD, so it still has the panel's whole width to fill (every
+   string we ship fits — tests/popup/tooltips.spec.js measures all of them) while
+   staying under the button it explains, rather than off at the row's far left
+   under the "Total Ignored:" caption. Deliberately
    NOT clamped like .lang-tip below: this tip's text is a full sentence, and
    wrapping it under the row would cover the Last-Ignored block. A future string
    longer than the panel would clip again; the spec is what catches that. */
 .undo-btn-wrap { display: inline-flex; }
 .undo-tip {
     visibility: hidden; opacity: 0;
-    position: absolute; top: 100%; left: 0; margin-top: 6px;
+    position: absolute; top: 100%; right: 0; margin-top: 6px;
     white-space: nowrap; padding: 5px 8px; z-index: 1001;
     background: var(--inset); color: var(--text);
     border: 1px solid var(--accent); border-radius: 6px;
@@ -376,6 +375,29 @@ details[open] > summary::after { transform: rotate(90deg); }
    the undo tip vs its droplist. */
 #popup-root:has(.lang-menu.open) .lang-tip { display: none; }
 
+/* The Auto-advance row's own tooltip, in place of the native title — same reason
+   as the language chip above. Unlike the other two tips this one is a full
+   sentence, so a nowrap box could never fit the 320px window: it is stretched
+   across the row (left+right: 0) and WRAPS inside it instead, which makes
+   clipping impossible in every locale without a spec having to measure it.
+   Hangs BELOW the row, over the "Ignore Mode:" block — the only thing under it.
+   The trigger is the whole row, as the title attribute was; with the DQ master
+   off the row is .dimmed (pointer-events: none) and it stays silent there,
+   exactly like the native bubble did. */
+.dq-next-row { position: relative; }
+.dq-next-tip {
+    visibility: hidden; opacity: 0;
+    position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px;
+    padding: 5px 8px; z-index: 1001;
+    background: var(--inset); color: var(--text);
+    border: 1px solid var(--accent); border-radius: 6px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+    font-size: 11px; font-weight: 600; line-height: 1.35; pointer-events: none;
+    transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
+}
+/* Same dwell as the language tip: a hint that fires on a passing cursor is noise. */
+.dq-next-row:hover .dq-next-tip { visibility: visible; opacity: 1; transition-delay: 0.4s; }
+
 .settings-content { padding: 6px 0 0 0; display: flex; flex-direction: column; gap: 6px; }
 .section-title { font-size: 11px; color: var(--text); text-transform: uppercase; font-weight: 700; letter-spacing: .5px; }
 
@@ -549,8 +571,8 @@ select option { background: #16202d; color: #fff; }
 .queue-bar { margin-top: 7px; height: 6px; background: #0a1119; border-radius: 3px; overflow: hidden; }
 .queue-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width .3s ease; }
 .queue-job-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 8px; }
-.queue-job-count { font-size: 10px; color: var(--muted); }
-.queue-job-pct { color: var(--accent); font-weight: 700; }
+.queue-job-count { font-size: 11px; font-weight: 700; color: #fff; }
+.queue-job-pct { margin-left: 7px; color: var(--accent); font-weight: 700; }
 .queue-job-actions { display: inline-flex; gap: 18px; }
 .queue-job-skip { font-size: 10px; color: #ffd21a; margin-top: 5px; }
 .queue-halt-hint { font-size: 10px; color: #ffd21a; padding: 6px 2px 2px; }

@@ -82,6 +82,43 @@ test.describe('Cross-cutting — StatsManager.save serializes the read-modify-wr
         expect(store.ilap_last_ignored_name).toBe(`Game ${N}`);
     });
 
+    test('saveStats interleaved with bumpIgnoredCount → both kinds land, history holds only the named ones', async () => {
+        // A drained curator ignore counts through bumpIgnoredCount (count only)
+        // while a manual swipe saves the full record. Both read-modify-write the
+        // SAME key, so they must share ONE chain — on two chains an overlapping
+        // pair reads the same count and one increment is lost.
+        const { ILAP, store } = loadIlapAsync();
+
+        const pending = [];
+        for (let i = 1; i <= 10; i++) {
+            pending.push(ILAP.saveStats(`Game ${i}`, 'Manual'));  // no await between calls
+            pending.push(ILAP.bumpIgnoredCount());
+        }
+        await Promise.all(pending);
+
+        expect(store.ilap_ignored_count).toBe(20);              // 10 saves + 10 bumps
+        expect(store.ilap_ignored_history.length).toBe(10);     // bumps add no entries
+        expect(store.ilap_last_ignored_name).toBe('Game 10');   // and no Last Ignored
+    });
+
+    test('dropIgnoredCount rides the same chain and floors at 0', async () => {
+        // A confirmed rollback takes its ignore back out of the total, on the
+        // SAME chain as the two writers above (same key). The floor is the
+        // pre-install case: rolling back a game this extension never ignored
+        // has no increment of its own to take back, and the total must not go
+        // negative. The history is not rewound either way.
+        const { ILAP, store } = loadIlapAsync();
+
+        const pending = [];
+        for (let i = 1; i <= 3; i++) pending.push(ILAP.saveStats(`Game ${i}`, 'Manual'));
+        for (let i = 0; i < 5; i++) pending.push(ILAP.dropIgnoredCount());   // 2 more than there are
+        await Promise.all(pending);
+
+        expect(store.ilap_ignored_count).toBe(0);               // 3 − 5, floored
+        expect(store.ilap_ignored_history.length).toBe(3);      // untouched by the rollbacks
+        expect(store.ilap_last_ignored_name).toBe('Game 3');
+    });
+
     test('a failed commit is caught and does not wedge later saves', async () => {
         // The first commit's get() throws; the .catch in save() must absorb it so
         // the next save still runs (count reflects only the survivor).

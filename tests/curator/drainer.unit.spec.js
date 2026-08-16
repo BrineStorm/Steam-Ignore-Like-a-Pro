@@ -136,6 +136,8 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         // over it in ONE attempt (retrying a region lock is pointless — three
         // tries would burn two extra gate slots), bump the per-job skip
         // counter and leave a `skipped` log entry instead of a silent "done".
+        // A skipped appid was never ignored, so it must not reach the total
+        // either.
         const Drainer = loadDrainerClass();
         const job = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['480', '11'] };
         let cursor = 0;
@@ -143,6 +145,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         const posts = [];
         const bumps = [];
         const appended = [];
+        let counted = 0;
         const store = {
             getQueue: async () => (removed ? [] : [{ ...job }]),
             holdsLock: async () => true,
@@ -164,6 +167,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             } },
             gate: { reserve: async () => ({ ok: true }) },
             fetchUserdata: async () => new Set(),
+            bumpCount: async () => { counted++; },
             log: {
                 append: async (entry) => { appended.push(entry); },
                 markUndone: async () => {},
@@ -180,6 +184,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             { appid: '480', source: 'curator', curatorId: 'c1', skipped: 'unavailable' },
             { appid: '11', source: 'curator', curatorId: 'c1' },
         ]);
+        expect(counted).toBe(1);               // only the appid that was ignored
     });
 
     test('undo job: a classified region-lock skips with no log write (nothing was rolled back)', async () => {
@@ -215,6 +220,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             gate: { reserve: async () => ({ ok: true }) },
             fetchUserdata: async () => new Set(['480']),
+            dropCount: async () => { throw new Error('a refused rollback must not move the total'); },
             log: {
                 append: async (entry) => { appended.push(entry); },
                 markUndone: async (appid, ts) => { marked.push([appid, ts]); },
@@ -334,11 +340,15 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(unbadged).toEqual([['1', 'failed']]);   // the optimistic badge still goes
     });
 
-    test('undo job: inverse dedupe, remove=1 POSTs, log marked undone', async () => {
+    test('undo job: inverse dedupe, remove=1 POSTs, log marked undone, total comes back down', async () => {
         // '2' is not in rgIgnoredApps (already rolled back elsewhere) → skipped
         // with no request BUT still marked undone (so it can't inflate "of N"
         // forever); '1' and '3' get un-ignore POSTs and their log entries
         // marked. The finished job is dropped like any other.
+        // dropCount follows the POST, not the entry: the two rollbacks that
+        // landed come off the popup's total, the skip (which rolled nothing
+        // back — it was already un-ignored, and paid its decrement then) does
+        // not. bumpCount is never touched on this path in either direction.
         const Drainer = loadDrainerClass();
         const job = {
             id: 'ju', curatorId: 'undo', type: 'undo',
@@ -349,6 +359,8 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         const unposts = [];
         const posts = [];
         const marked = [];
+        let counted = 0;
+        let uncounted = 0;
         const store = {
             getQueue: async () => (removed ? [] : [{ ...job }]),
             holdsLock: async () => true,
@@ -367,6 +379,8 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             gate: { reserve: async () => ({ ok: true }) },
             fetchUserdata: async () => new Set(['1', '3']), // '2' is NOT ignored
+            bumpCount: async () => { counted++; },
+            dropCount: async () => { uncounted++; },
             log: {
                 append: async () => {},
                 markUndone: async (appid, ts) => { marked.push([appid, ts]); },
@@ -379,6 +393,8 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(posts).toEqual([]);              // an undo job never fires ignores
         expect(unposts).toEqual(['1', '3']);
         expect(marked).toEqual([['1', 500], ['2', 500], ['3', 500]]);
+        expect(uncounted).toBe(2);              // one per landed remove=1, not per entry
+        expect(counted).toBe(0);
         expect(cursor).toBe(3);
         expect(removed).toBe(true);
     });
@@ -576,11 +592,16 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(removed).toBe(true);
     });
 
-    test('curator job: every confirmed ignore lands in the undo log', async () => {
+    test('curator job: every confirmed ignore lands in the undo log and in the total, never in the history', async () => {
+        // The curator path has no name to show and arrives in job-sized batches:
+        // it counts (bumpCount → ilap_ignored_count) but must never reach
+        // saveStats, whose 20-entry history belongs to hand-made swipes.
         const Drainer = loadDrainerClass();
         const job = { id: 'j1', curatorId: 'c9', status: 'pending', appids: ['7', '8'] };
         let cursor = 0;
         let removed = false;
+        let counted = 0;
+        const stats = [];
         const appended = [];
         const store = {
             getQueue: async () => (removed ? [] : [{ ...job }]),
@@ -597,6 +618,8 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             api: { ignore: async () => ({ ok: true }), unignore: async () => ({ ok: true }) },
             gate: { reserve: async () => ({ ok: true }) },
             fetchUserdata: async () => new Set(),
+            saveStats: async (name, reason) => { stats.push([name, reason]); },
+            bumpCount: async () => { counted++; },
             log: {
                 append: async (entry) => { appended.push(entry); },
                 markUndone: async () => {},
@@ -609,13 +632,17 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             { appid: '7', source: 'curator', curatorId: 'c9' },
             { appid: '8', source: 'curator', curatorId: 'c9' },
         ]);
+        expect(counted).toBe(2);
+        expect(stats).toEqual([]);   // Last Ignored stays a manual-swipe surface
     });
 
     test('MI job: drains each entry with its own reason, stamps Last Ignored, logs source:mi', async () => {
         // A swipe defers into a type:'mi' job carrying per-appid name + reason.
         // At drain the POST must use that reason (0 default / 2 played-elsewhere),
         // saveStats must stamp Last Ignored (gated strictly to MI), and the undo
-        // log entry carries the name + source:'mi'.
+        // log entry carries the name + source:'mi'. bumpCount is the curator-only
+        // counterpart: saveStats already increments the same total, so MI going
+        // through both would count every swipe twice.
         const Drainer = loadDrainerClass();
         const job = {
             id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
@@ -624,6 +651,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         };
         let cursor = 0;
         let removed = false;
+        let counted = 0;
         const posts = [];      // [appid, reason]
         const stats = [];      // [name, reason]
         const appended = [];
@@ -643,6 +671,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             gate: { reserve: async () => ({ ok: true }) },
             fetchUserdata: async () => new Set(),
             saveStats: async (name, reason) => { stats.push([name, reason]); },
+            bumpCount: async () => { counted++; },
             log: {
                 append: async (entry) => { appended.push(entry); },
                 markUndone: async () => {},
@@ -653,6 +682,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         await d._drainJob(job);
         expect(posts).toEqual([['10', 0], ['11', 2]]);   // per-appid reason preserved
         expect(stats).toEqual([['A', 0], ['B', 2]]);     // Last Ignored stamped at drain time
+        expect(counted).toBe(0);                         // saveStats already counted these
         expect(appended).toEqual([
             { appid: '10', name: 'A', source: 'mi' },
             { appid: '11', name: 'B', source: 'mi' },

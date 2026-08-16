@@ -108,4 +108,39 @@ test.describe('Popup — main view', () => {
         await expect(page.locator('#count-link')).toHaveText('7');
         await expect(page.locator('#last-game')).toHaveText('Live Game');
     });
+
+    test('a drain-only write repaints the total without rebuilding the popup', async ({ page, context }) => {
+        // A bulk drain writes its progress keys 1–3×/s. The total is now one of
+        // them (a drained curator ignore bumps the count and nothing else), so it
+        // has to move WITHOUT dragging in the full innerHTML rebuild the heavy
+        // path does — that is the whole point of the drain-key filter.
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+
+        // Wait out the BOOT render before planting anything: #count-link ships
+        // with a literal 0 in the markup, so asserting on it proves nothing here,
+        // and initPopup's storage callback (which drops .no-transition 100 ms
+        // after it paints) would otherwise wipe the sentinel below itself.
+        await expect(page.locator('#popup-root')).not.toHaveClass(/no-transition/);
+
+        // A sentinel only the heavy path destroys: updateBasicUI rewrites the
+        // whole of #dynamic-hint.
+        await page.evaluate(() => {
+            const mark = document.createElement('span');
+            mark.id = 'heavy-sentinel';
+            document.getElementById('dynamic-hint').appendChild(mark);
+        });
+
+        // Exactly what one drained curator ignore leaves behind: the gate slot it
+        // burned, the job cursor it advanced, and the bumped total.
+        await setExtensionStorage(context, {
+            ilap_ignore_gate: Date.now(),
+            ilap_curator_cursor_j1: 3,
+            ilap_ignored_count: 5,
+        });
+        await page.waitForTimeout(400);
+
+        await expect(page.locator('#count-link')).toHaveText('5');
+        await expect(page.locator('#heavy-sentinel')).toHaveCount(1);
+    });
 });

@@ -5,13 +5,17 @@ const path = require('path');
 var DIST_DIR = path.join(__dirname, 'dist');
 var PLATFORM_DIR = path.join(__dirname, 'platform');
 
+// LICENSE ships because GPL-3 requires the text to travel with the binary.
+// LICENSE.MPL deliberately does NOT: no shipped file is MPL-covered any more
+// (every source carries GPL-3.0-or-later), so in the package it would only be a
+// second licence text with nothing to apply to. It stays in the repo, where it
+// documents what releases up to v1.1 went out under.
 var COMMON_ASSETS = [
     'ui',
     'src',
     'assets',
     'styles',
-    'LICENSE',
-    'LICENSE.MPL'
+    'LICENSE'
 ];
 
 // `--test` produces a parallel test-flavor build into dist/<platform>-test/

@@ -91,6 +91,18 @@
             // that can't reach StatsManager pass null and the MI ignore is still
             // logged (undoable) — just not counted into Last Ignored.
             this.saveStats = deps.saveStats || null;
+            // Total-only stats hook () — the curator counterpart of saveStats,
+            // written for type:'curator' jobs alone. A curator ignore has no name
+            // to show and comes in job-sized batches, so it counts into the total
+            // and stays out of the 20-entry history (see StatsLogic.countState).
+            // MI does NOT go through here: its saveStats already increments the
+            // same counter. Optional, like saveStats.
+            this.bumpCount = deps.bumpCount || null;
+            // Its mirror () — the total counts ignores that are still standing,
+            // so a CONFIRMED rollback (any undo type, whatever ignored the game:
+            // curator, MI, EQ or DQ) takes one back out of it. The history is
+            // left alone, the same way bumpCount leaves it alone. Optional too.
+            this.dropCount = deps.dropCount || null;
             // Live login probe (SteamAuth.probeLogin) — consulted only by undo
             // jobs when userdata comes back EMPTY (see _drainJob). Defaults to
             // "confirmed" so stubs/partial builds keep the old behaviour.
@@ -506,6 +518,18 @@
                         // Mark the rolled-back log entries so a later undo can't
                         // re-undo them (and the re-stage warning can see them).
                         if (this.log) await this.log.markUndone(appid, entryTs);
+                        // …and take the ignore back out of the popup's total —
+                        // only here, on a landed remove=1 POST: a dedupe skip
+                        // above rolled nothing back (the game was already not
+                        // ignored, so its decrement, if it was ever ours, was
+                        // taken the first time round). Accepted residual: an appid
+                        // sitting in BOTH gesture and droplist rollback jobs can
+                        // decrement twice when userdata still shows it ignored as
+                        // the second pass reads it (the same lag double-fires
+                        // markUndone, harmlessly, via the idempotent POST here) —
+                        // one unit off a floored cosmetic counter, in a window the
+                        // gate's pacing makes rare.
+                        if (this.dropCount) await this.dropCount();
                         // Clear this game's on-page IGNORED badge in every MI tab
                         // (per-appid pulse; the badge otherwise lingers and lies).
                         if (this.store.signalUnignored) await this.store.signalUnignored(appid);
@@ -521,10 +545,13 @@
                     } else {
                         ignored.add(appid);
                         // Every drained curator ignore lands in the undo log
-                        // (appid-only — enumeration never captures names).
+                        // (appid-only — enumeration never captures names) and in
+                        // the popup's total. Both only now that the POST landed:
+                        // a skipped or refused appid was never ignored.
                         if (this.log) await this.log.append({
                             appid, source: 'curator', curatorId: job.curatorId
                         });
+                        if (this.bumpCount) await this.bumpCount();
                     }
                     await this.store.setCursor(job.id, cursor + 1);
                     if (isMi) await this._compensateCancelled(job, appid);
@@ -643,6 +670,10 @@
                 ? (name, reason) => window.ILAP.saveStats(
                     name, window.ILAP.Curator.Store.miSourceLabel(reason))
                 : null,
+            // Total-only counterpart for drained curator ignores, and its mirror
+            // for confirmed rollbacks (same module).
+            bumpCount: window.ILAP.bumpIgnoredCount || null,
+            dropCount: window.ILAP.dropIgnoredCount || null,
             log: Log ? {
                 append: (entry) => Log.append(entry),
                 markUndone: (appid, ts) => Log.markUndone(appid, ts),

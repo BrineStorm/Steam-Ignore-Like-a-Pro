@@ -11,10 +11,11 @@ const {
 //
 // The popup window is a fixed 320px box with `body { overflow: hidden }`, so
 // anything an absolutely-positioned tooltip pushes past that edge is silently cut
-// — which is how the undo hint used to render as "Nothing to u". Both tips now
-// anchor to a full-width row instead of to their small right-hand trigger, and the
-// language tip is additionally clamped to that row (ui/popup.css). The undo tip is
-// not clamped, so this spec is its only guard rail — it walks the whole language
+// — which is how the undo hint used to render as "Nothing to u". All three tips
+// anchor to a full-width row instead of to their small trigger; the language tip is
+// additionally clamped to that row and the Auto-advance one wraps inside it
+// (ui/popup.css). The undo tip is not clamped, so this spec is its only guard
+// rail — it walks the whole language
 // list on purpose: English is one of the SHORTEST strings we ship, so a
 // single-locale check proves almost nothing.
 
@@ -139,6 +140,34 @@ test.describe('Popup — our own tooltips fit the panel', () => {
 
             await hoverForTip(page, '.lang-chip', '#lang-tip', code);
             await expectFits(page, '#lang-tip', code);
+            await unhover(page);
+        }
+    });
+
+    test('the Auto-advance tooltip is ours, not the browser title, and fits in every locale', async ({ page, context }) => {
+        test.setTimeout(3 * 60 * 1000);
+        await openPopup(page, context);
+
+        // Settings render lazily; the row lives in the Discovery Queue subcategory.
+        await page.locator('#settings-accordion > summary').click();
+        await page.locator('#dq-section summary .section-title').click();
+        await expect(page.locator('#dq-section')).toHaveJSProperty('open', true);
+
+        // The native bubble is gone: nothing on the row carries a `title`.
+        await expect(page.locator('.dq-next-row')).not.toHaveAttribute('title', /./);
+
+        const locales = await shippedLocales(page);
+
+        for (const code of locales) {
+            await useLocale(page, context, code);
+
+            const expected = await page.evaluate(() => window.ILAP.t('tooltip_dq_next'));
+            await expect(page.locator('.dq-next-tip')).toHaveText(expected);
+
+            // Unlike the other two this tip WRAPS inside the row it is stretched
+            // across, so what is measured here is the wrapped box, not a nowrap one.
+            await hoverForTip(page, '.dq-next-row', '.dq-next-tip', code);
+            await expectFits(page, '.dq-next-tip', code);
             await unhover(page);
         }
     });

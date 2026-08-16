@@ -292,9 +292,16 @@
             // settings surface-guard and job list, so it stays on the full path.
             // ilap_ignore_log IS one: the drainer appends/marks an entry per POST
             // (1–3×/s during a drain) — the undo applet's cheap value-only render
-            // below is all that state needs.
+            // below is all that state needs. So is ilap_ignore_gate: the shared
+            // rate governor stamps the slot it just granted on EVERY ignore POST,
+            // whoever fired it, and the popup shows nothing derived from it. And
+            // so is ilap_ignored_count — a drained curator ignore moves the total
+            // and nothing else (a drained rollback moves it back down), which the
+            // light path repaints by value.
             const isDrainKey = (k) => k === 'ilap_curator_pulse'
                 || k === 'ilap_ignore_log'
+                || k === 'ilap_ignore_gate'
+                || k === 'ilap_ignored_count'
                 || k.indexOf('ilap_curator_cursor_') === 0
                 || k.indexOf('ilap_curator_skipped_') === 0
                 || k.indexOf('ilap_curator_lock_') === 0;
@@ -303,6 +310,12 @@
                 if (!heavyNeeded) {
                     if (queue) queue.render(current);
                     if (undo) undo.render(current);
+                    // The one piece of the basic UI a drain does move: the total.
+                    // Value-only, so the markup and its CSS transitions survive —
+                    // and last in the callback, like updateBasicUI on the heavy
+                    // path, so a missing element can't cost the applets a render.
+                    root.getElementById('count-link').textContent =
+                        current.ilap_ignored_count || 0;
                     return;
                 }
                 if (window.ILAP && window.ILAP.i18n && current.ilap_lang) {

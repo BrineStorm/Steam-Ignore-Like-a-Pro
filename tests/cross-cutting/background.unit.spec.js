@@ -204,6 +204,11 @@ test.describe('SW drain host (unit)', () => {
         // The drained ignores landed in the undo log, attributed to the curator.
         expect(env.data().ilap_ignore_log.map((e) => e.appid)).toEqual(['10', '11']);
         expect(env.data().ilap_ignore_log[0].curatorId).toBe('c1');
+        // …and in the popup's total, through the SW's count-only shim: no name to
+        // show and a job-sized batch, so the history stays a manual-swipe surface.
+        expect(env.data().ilap_ignored_count).toBe(2);
+        expect(env.data().ilap_ignored_history).toBeUndefined();
+        expect(env.data().ilap_last_ignored_name).toBeUndefined();
         // Queue empty → no retry alarm left behind, cursor key removed.
         await env.until(() => !env.alarms[ALARM]);
         expect(env.data().ilap_curator_cursor_j1).toBeUndefined();
@@ -239,6 +244,25 @@ test.describe('SW drain host (unit)', () => {
         expect(env.data().ilap_ignore_log.map((e) => [e.appid, e.source, e.name || null])).toEqual([
             ['10', 'mi', 'Al pha One'], ['11', 'mi', 'Beta'],
         ]);
+    });
+
+    test('an undo job drains through the SW: remove=1 POSTs and the total comes back down', async () => {
+        // The mirror of the first test's count-only shim: a confirmed rollback
+        // takes its ignore out of the popup's total (dropCount → uncountState)
+        // and, like the ignore that put it there, leaves the history alone.
+        const env = loadBackground({
+            ilap_master_enabled: true,
+            ilap_sw_sid: 'sess-1',
+            ilap_ignored_count: 5,
+            ilap_curator_queue: [{
+                id: 'job_undo_1', curatorId: 'undo', type: 'undo', status: 'pending',
+                appids: ['10', '11'], total: 2, snapshotTs: Date.now(),
+            }],
+        }, { ignoredApps: { 10: 1, 11: 1 } });   // both still ignored → both roll back
+        await env.until(() => (env.data().ilap_curator_queue || []).length === 0, 15000);
+        expect(env.posts.map((p) => [p.appid, p.remove])).toEqual([['10', '1'], ['11', '1']]);
+        expect(env.data().ilap_ignored_count).toBe(3);
+        expect(env.data().ilap_ignored_history).toBeUndefined();
     });
 
     test('a session-less route drains nothing, spends nothing, and keeps re-asking', async () => {

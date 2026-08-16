@@ -195,12 +195,17 @@
                     </summary>
                     <div class="subcat-content">
                         <div id="q-sub-settings">
-                            <div class="stat-row" data-i18n-title="tooltip_dq_next" title="Enable automatic transition ONLY when a game is successfully ignored.">
+                            <!-- Our own drawn tooltip instead of the native title (see
+                                 popup.css): the browser bubble is unstyleable, and in the
+                                 on-page widget the PAGE draws it, outside our panel. Hover
+                                 is on the whole row, exactly as the title was. -->
+                            <div class="stat-row dq-next-row">
                                 <span data-i18n="click_next_after_ignore">Auto-advance after ignore</span>
                                 <label class="switch">
                                     <input type="checkbox" id="q-next">
                                     <span class="slider"></span>
                                 </label>
+                                <span class="dq-next-tip" role="tooltip" data-i18n="tooltip_dq_next">Enable automatic transition ONLY when a game is successfully ignored.</span>
                             </div>
 
                             <div style="margin-top: 8px;">

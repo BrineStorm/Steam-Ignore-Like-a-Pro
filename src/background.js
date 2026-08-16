@@ -170,6 +170,22 @@ importScripts(
         return statsChain;
     }
 
+    // A drained curator ignore counts into the total but stays out of the
+    // history (StatsLogic.countState); a confirmed rollback takes it back out
+    // (uncountState) and leaves the history alone just the same. Same chain as
+    // saveStats — all three move the same key, and a second chain would lose a
+    // step when they overlap.
+    function countOnly(transform) {
+        statsChain = statsChain.then(() => new Promise((resolve) => {
+            chrome.storage.local.get([Stats.COUNT_KEY], (r) => {
+                chrome.storage.local.set(transform(r), resolve);
+            });
+        })).catch(() => {});
+        return statsChain;
+    }
+    const bumpCount = () => countOnly(Stats.countState);
+    const dropCount = () => countOnly(Stats.uncountState);
+
     // --- gate wrapper ------------------------------------------------------
     // Gate.reserve() sleeps in memory until the granted slot; a wait longer
     // than the worker's idle lifetime (429 penalties reach minutes) would die
@@ -207,6 +223,8 @@ importScripts(
         fetchUserdata: Net.fetchIgnoredAppsStrict,
         probeLogin: Net.probeLogin,
         saveStats,
+        bumpCount,
+        dropCount,
         log: Log ? {
             append: (entry) => Log.append(entry),
             markUndone: (appid, ts) => Log.markUndone(appid, ts),

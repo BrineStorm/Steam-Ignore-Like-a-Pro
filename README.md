@@ -21,6 +21,12 @@ A browser extension that allows you to ignore Steam games directly from the stor
 
 ## What's New
 
+**v1.2.1**
+
+- **The counter now counts the queue** - games ignored by the curator queue add to *Total Ignored* in the popup, and a rollback takes them back out of it, so the number reflects what the extension has actually done rather than only what you ignored by hand. *Last Ignored* stays hand-made on purpose: one queue job would bury it under hundreds of nameless entries.
+- **Interface polish** - the *Auto-advance* hint is drawn by the extension instead of the browser, so it shows up in the on-page panel too.
+- **Bug fixes** - popup layout corrections: full-width mode switches, and the undo hint moved under the button it explains.
+
 **v1.2**
 
 - **Curator ignore queue** - stage an entire curator's list into a queue and let the extension work through it, paced so it never hammers Steam. Pause, resume, or drop individual jobs from the curator page or the queue view.

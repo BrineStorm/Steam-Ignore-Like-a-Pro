@@ -173,13 +173,40 @@
             return this._chain;
         },
 
-        _commit(safeName, source) {
+        // Counted but not shown (drained curator ignore — see StatsLogic.countState).
+        // Rides the SAME chain as save(): both read-modify-write ilap_ignored_count,
+        // so a curator bump overlapping a manual save on two chains would lose one
+        // of the two increments.
+        bumpCount() {
+            return this._count(StatsLogic.countState);
+        },
+
+        // The mirror, for a confirmed un-ignore (StatsLogic.uncountState): same
+        // key, so necessarily the same chain — a drain running rollbacks and
+        // ignores at once must not lose either direction.
+        dropCount() {
+            return this._count(StatsLogic.uncountState);
+        },
+
+        _count(transform) {
+            if (!chrome?.storage?.local || !chrome?.runtime?.id) {
+                console.warn("[ILAP] Extension context is inactive. Stats not saved.");
+                return Promise.resolve();
+            }
+            this._chain = this._chain.then(() => this._commit(null, null, transform)).catch(() => {});
+            return this._chain;
+        },
+
+        // safeName === null → count-only commit (no history, no Last Ignored),
+        // `count` being the +1/−1 transform to apply.
+        _commit(safeName, source, count) {
             return new Promise(resolve => {
                 try {
                     chrome.storage.local.get([StatsLogic.HISTORY_KEY, StatsLogic.COUNT_KEY], (result) => {
                         if (chrome.runtime.lastError) return resolve();
-                        chrome.storage.local.set(
-                            StatsLogic.nextState(result, safeName, source), resolve);
+                        chrome.storage.local.set(safeName === null
+                            ? count(result)
+                            : StatsLogic.nextState(result, safeName, source), resolve);
                     });
                 } catch (e) {
                     console.warn("[ILAP] Failed to access storage:", e);
@@ -387,6 +414,8 @@
     window.ILAP.classifyRefusal = Net.classifyRefusal;
     window.ILAP.SteamAuth = SteamAuth;
     window.ILAP.saveStats = (name, source) => StatsManager.save(name, source);
+    window.ILAP.bumpIgnoredCount = () => StatsManager.bumpCount();
+    window.ILAP.dropIgnoredCount = () => StatsManager.dropCount();
     window.ILAP.getGameName = (appid, el) => extractorProvider.get(appid, el);
     // Async flavour: DOM strategies first (synchronously, before the caller
     // mutates the container), appdetails fallback only when they all miss.
