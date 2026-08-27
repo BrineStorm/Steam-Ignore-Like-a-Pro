@@ -13,8 +13,7 @@ const vm = require('vm');
 //        followed by one more queue advance (Next click).
 
 function loadAutomator(warns, setTimeoutImpl) {
-    const code = fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'discovery-queue', 'logic.js'), 'utf8');
+    const src = (...p) => fs.readFileSync(path.join(__dirname, '..', '..', 'src', ...p), 'utf8');
     const sandbox = {
         window: {},
         console: { warn: (...a) => (warns || []).push(a) },
@@ -23,7 +22,11 @@ function loadAutomator(warns, setTimeoutImpl) {
         Date, Math, Promise, Object, Array, String,
     };
     vm.createContext(sandbox);
-    vm.runInContext(code, sandbox);
+    // logic.js reads the shared review palette at load time (window.ILAP.SteamPalette),
+    // so the table goes into the sandbox first — without it SlideScanner would
+    // find no bad shades and fail safe on every slide.
+    vm.runInContext(src('steam-palette.js'), sandbox);
+    vm.runInContext(src('discovery-queue', 'logic.js'), sandbox);
     // sandbox is exposed so a test can swap the globals logic.js reads at call
     // time — _loop probes `document` for the dialog on every iteration.
     return { Automator: sandbox.window.ILAP.Discovery.Automator, window: sandbox.window, sandbox };

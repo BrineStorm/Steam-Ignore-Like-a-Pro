@@ -49,6 +49,21 @@ module.exports = defineConfig({
 
   projects: [
     {
+      // Steam markup canary: the only project that runs on a bare CI runner.
+      // No extension, no login, no writes — it opens the public store surfaces
+      // and checks the selectors the content scripts depend on are still there.
+      // Headless because nothing here needs a real extension host, and retried
+      // because every assertion is one live page load away from a network hiccup.
+      name: 'canary',
+      testMatch: /canary[\/].*\.spec\.js/,
+      timeout: 60 * 1000,
+      retries: 2,
+      use: {
+        ...devices['Desktop Chrome'],
+        headless: true,
+      },
+    },
+    {
       // Manual Steam login. Only run via `npm run test:auth` (--project=setup).
       // Kept out of the default run so `npm test` never blocks waiting for login.
       name: 'setup',
@@ -65,7 +80,10 @@ module.exports = defineConfig({
     },
     {
       name: 'chromium',
-      testIgnore: /auth\.setup\.spec\.js/,
+      // The canary is excluded here as well as by its own testMatch: it needs no
+      // extension and no session, so running it inside the headed extension
+      // project would only make it slower and flakier than it has to be.
+      testIgnore: /auth\.setup\.spec\.js|canary[\/]/,
       // 75 s, over the 30 s default, because the heaviest Manual-Ignore specs
       // spend their budget in three sequential live waits, not one: a storefront
       // widget hydrating (15 s), the deferred swipe reaching its POST
@@ -127,6 +145,9 @@ module.exports = defineConfig({
       retries: 2,
       testIgnore: [
         /auth\.setup\.spec\.js/,
+        // The canary asserts Steam's markup, not our rendering of it — one
+        // engine is enough, and it has its own project.
+        /canary[\/]/,
         /\.unit\.spec\.js$/,
         /cross-cutting[\\/]/,
         /decision-matrix\.spec\.js/,

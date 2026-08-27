@@ -5,17 +5,18 @@
     window.ILAP = window.ILAP || {};
     window.ILAP.Explore = window.ILAP.Explore || {};
 
+    // Steam's own review-summary shades come from the shared table
+    // (src/steam-palette.js), which the Discovery Queue reads too — the two used
+    // to keep private copies and the copies drifted. Each band is a SET: the
+    // current shade first, older ones behind it. Classification fails SAFE: a
+    // game is only IGNORE-worthy when a row colour matches one of the bad sets;
+    // any unrecognised colour is treated as SPARE.
+    const PALETTE = (window.ILAP && window.ILAP.SteamPalette) || { BLUE: [], MIXED: [], NEGATIVE: [] };
     const COLORS = {
-        BLUE: 'rgb(102, 192, 244)',
-        GRAY: 'rgb(136, 136, 136)',
-        // Known "bad" review-summary text colours on the APP page (.game_review_summary
-        // .mixed / negative). NOTE these differ from the darker shades Steam uses on the
-        // Discovery Queue cards (STEAM_COLORS in discovery-queue/logic.js) — verified
-        // live against Overwatch 2 / eFootball. Classification fails SAFE: a game is
-        // only IGNORE-worthy when a row colour matches one of these; any unrecognised
-        // colour is treated as SPARE.
-        MIXED: 'rgb(185, 160, 116)',
-        NEGATIVE: 'rgb(200, 94, 45)',
+        BLUE: PALETTE.BLUE,
+        MIXED: PALETTE.MIXED,
+        NEGATIVE: PALETTE.NEGATIVE,
+        // Ours, not Steam's: the badge the Explore Queue paints on the page.
         RED_BG: '#d32f2f',
         BLUE_BG: '#45A1FA',
         BADGE_BLUE_BG: '#2a6cc6'
@@ -92,7 +93,10 @@
         // fail-safe (SlideScanner.getGameInfo defaults isPositive=true).
         static classify(colors, colorsConfig) {
             if (!colors || colors.length === 0) return 'NO_REVIEWS';
-            const badColors = [colorsConfig.MIXED, colorsConfig.NEGATIVE];
+            // concat, not a two-element array: a band is a set of shades now
+            // (current + the ones Steam painted before it), and this still
+            // accepts a config that spells a band as a single string.
+            const badColors = [].concat(colorsConfig.MIXED, colorsConfig.NEGATIVE);
             const hasBad = colors.some(c => badColors.includes(c));
             return hasBad ? 'IGNORE' : 'SPARE';
         }

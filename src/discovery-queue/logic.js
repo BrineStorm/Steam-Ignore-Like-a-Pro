@@ -10,11 +10,11 @@
         IGNORE_ICON: "M600,96c"
     };
 
-    const STEAM_COLORS = {
-        BLUE: 'rgb(102, 192, 244)',
-        MIXED: 'rgb(163, 139, 90)',
-        NEGATIVE: 'rgb(163, 76, 37)'
-    };
+    // Steam's review palette lives in ONE table now (src/steam-palette.js,
+    // loaded before this file in both manifests). It used to be copied here,
+    // and the copy went stale: Steam repainted Mixed in the modal, the constant
+    // stayed, and Keep High Score quietly stopped ignoring anything.
+    const PALETTE = window.ILAP && window.ILAP.SteamPalette;
 
     const TIMING = {
         LOOP_PAUSE_MS: 500,             // pause between slides in the processing loop
@@ -202,7 +202,7 @@
                 
                 const checkColor = (el) => {
                     const color = getComputedStyle(el).color;
-                    return color === STEAM_COLORS.MIXED || color === STEAM_COLORS.NEGATIVE;
+                    return !!PALETTE && PALETTE.isBad(color);
                 };
 
                 if (checkColor(reviewLink) || Array.from(reviewLink.querySelectorAll('*')).some(c => checkColor(c))) {

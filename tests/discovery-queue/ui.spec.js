@@ -1,47 +1,7 @@
 const { test, expect } = require('../_fixtures.js');
 const { setExtensionStorage, getExtensionStorage } = require('../_extension.js');
 const { interceptIgnoreApi } = require('../curator/_helpers.js');
-const { tagUrl } = require('../_tags.js'); // random tag page per navigation
-
-const SEL = {
-    // The "Explore Your Discovery Queue" widget on a tag page; clicking it opens
-    // the modal. role="button" is the focusable opener inside the widget.
-    queueSection: '.SaleSectionCtn.discoveryqueue',
-    queueWidget: '.SaleSectionCtn.discoveryqueue div[role="button"]',
-    modal: '.FullModalOverlay div[role="dialog"]',
-    panel: '#ilap-queue-controls',
-    button: '#queue-auto-ignore-btn',
-    checkbox: '#ilap-queue-controls .ilap-checkbox',
-    closeBtn: '.FullModalOverlay div[aria-label="Close"]',
-};
-
-// The Discovery Queue modal (.FullModalOverlay div[role="dialog"]) — the one the
-// DQ module injects #ilap-queue-controls into — is NOT the /explore/next/ page
-// (that's the Explore Queue / "Queue Helper" toast surface). The modal opens
-// from the "Explore Your Discovery Queue" widget that Steam renders below the
-// fold on tag pages. Navigate to a tag, scroll the widget in, click it. The
-// section is lazy-rendered, so scroll until it attaches before waiting.
-// The tag is random per call — see tests/_tags.js for why a fixed one starves
-// the queue.
-async function openQueueModal(page) {
-    await page.goto(tagUrl(), { waitUntil: 'domcontentloaded' });
-
-    const section = page.locator(SEL.queueSection).first();
-    for (let i = 0; i < 10 && !(await section.count()); i++) {
-        await page.mouse.wheel(0, 1200);
-        await page.waitForTimeout(500);
-    }
-    await section.waitFor({ state: 'attached', timeout: 20000 });
-    await section.scrollIntoViewIfNeeded();
-
-    const widget = page.locator(SEL.queueWidget).first();
-    await widget.waitFor({ state: 'visible', timeout: 20000 });
-    await widget.click();
-
-    const modal = page.locator(SEL.modal).first();
-    await modal.waitFor({ state: 'visible', timeout: 15000 });
-    return modal;
-}
+const { SEL, openQueueModal } = require('./_modal.js');   // shared with palette + keep-high-score specs
 
 test.describe('Discovery Queue UI', () => {
 

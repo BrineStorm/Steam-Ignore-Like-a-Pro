@@ -21,30 +21,12 @@ A browser extension that allows you to ignore Steam games directly from the stor
 
 ## What's New
 
-**v1.2.1**
+**v1.2.2**
 
-- **The counter now counts the queue** - games ignored by the curator queue add to *Total Ignored* in the popup, and a rollback takes them back out of it, so the number reflects what the extension has actually done rather than only what you ignored by hand. *Last Ignored* stays hand-made on purpose: one queue job would bury it under hundreds of nameless entries.
-- **Interface polish** - the *Auto-advance* hint is drawn by the extension instead of the browser, so it shows up in the on-page panel too.
-- **Bug fixes** - popup layout corrections: full-width mode switches, and the undo hint moved under the button it explains.
+- **Keep High Score fix** - Steam recoloured the review scores on the Discovery Queue card, and the automation was still looking for the old colours, which meant that with *Keep High Score* ticked a run quietly ignored nothing. Fixed, and both queues now read the same list of colours.
+- **A canary** - a simple automated check now runs against the live store on a schedule, to catch changes on Steam's side before they break anything.
 
-**v1.2**
-
-- **Curator ignore queue** - stage an entire curator's list into a queue and let the extension work through it, paced so it never hammers Steam. Pause, resume, or drop individual jobs from the curator page or the queue view.
-- **Background draining** - on Chrome/Edge the queue keeps going with no Steam tab open at all; close the window and come back to a finished list.
-- **Undo** - a built-in undo applet reverses recent ignores, either by time ("the last hour") or by count ("the last 20"), from the settings interface.
-- **Un-ignore a single game** - the mirror gesture of the ignore swipe: hold `Right-Click` and draw a circle (either direction) or a right-left zigzag across a badged capsule, and that one game is un-ignored on Steam - no store page, no undo batch. All three actions - *Ignore*, *Already Played*, *Un-ignore* - now draw from the same set of bindings (`Ctrl`/`Shift`/`Alt` + click, either swipe, the circle), so you can ignore by circling and un-ignore by swiping if that suits your hand better; no two actions may share one binding. And a **click on the IGNORED badge**, either button, always un-ignores, whatever the settings say.
-- **Deferred manual ignore** - swipes and hotkeys now enqueue instead of firing a request immediately, so a burst of ignores is paced like the rest of the queue and the badge still appears instantly.
-- **Ignore-rate governor** - every ignore request from every part of the extension passes through one shared pacer, and stops on its own if you sign out of Steam or switch the extension off.
-- **On-page interface** - the settings/history panel now lives in a launcher on the Steam page itself (with a toolbar-popup mode still available), which also makes it usable inside the Steam desktop client.
-- **19 interface languages**, up from 17.
-
-**v1.1**
-
-- **Multi-language interface** - the popup and on-page UI are now localized, with a language selector in the popup (17 languages).
-- **Opt-in blur for ignored covers** - optionally blur the cover art of ignored games so they read as visually "crossed out"; toggle it in the popup settings (off by default).
-- **Better coverage across Steam pages** - fixed the IGNORED badge placement on tag/sale pages and hardened the Discovery Queue automation so it keeps working when Steam's UI is in a non-English language.
-- **Bug fixes** - corrected the wrong game name being saved from the popup, fixed a popup frame glitch, and fixed a page-reload issue in the Your Discovery Queue helper.
-- **Hardened test suite** - full Playwright E2E suites stabilized with automatic cleanup of test-ignored games, and pure-logic checks moved to fast Node unit tests.
+Earlier releases now are in [CHANGELOG.md](./CHANGELOG.md).
 
 ## What it does
 
@@ -171,6 +153,7 @@ Yes. The extension interacts with page elements and structural DOM classes, not 
 - `src/widget/` - The on-page interface launcher and its panel.
 - `src/background.js` - Chromium service worker that drains the queue with no Steam tab open.
 - `src/gate.js` - Shared ignore-rate governor every request passes through.
+- `src/steam-palette.js` - Steam's review-score colours in one table, read by both queue classifiers.
 - `src/ignore-log.js`, `src/undo-service.js` - Ignore journal and the undo path built on it.
 - `PRIVACY.md` - Privacy policy for users and the Chrome Web Store.
 

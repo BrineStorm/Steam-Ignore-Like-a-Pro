@@ -31,6 +31,9 @@ load `utils.js`:
 
 ```js
 window.ILAP.Sanitizer         // escape.js   — escapeHTML + sanitizeName (all 3 worlds)
+window.ILAP.SteamPalette      // steam-palette.js — Steam's review-score bands as ONE table for
+                              //               both classifiers (EQ rows + DQ cards); each band a
+                              //               SET, current shade first, previous ones behind it
 window.ILAP.StatsLogic        // stats.js    — Last-Ignored record shape + the count-only
                               //               transforms, ±1, for curator drains and
                               //               confirmed rollbacks (content + SW)
@@ -54,8 +57,11 @@ the **content script**, the **popup document** (`ui/popup.html`), and the
 **Chromium MV3 service worker** (`src/background.js`). What may be shared is
 graded by how many worlds actually need it — pure helpers and the Steam reads
 have exactly one definition in a file every relevant world loads (`escape.js`,
-`stats.js`, `steam-net.js`), while the `chrome.storage` plumbing and the ignore
-POST stay duplicated beside their consumers. The canonical statement of that rule
+`stats.js`, `steam-net.js`, `steam-palette.js`), while the `chrome.storage`
+plumbing and the ignore POST stay duplicated beside their consumers. A colour
+table is the easy case of that rule and was the last one still duplicated: two
+copies of Steam's palette drifted apart in the dark until Keep High Score stopped
+ignoring anything. The canonical statement of that rule
 lives at the top of `src/curator/store.js`; `src/steam-net.js` records the one
 call that stays per-world and why.
 

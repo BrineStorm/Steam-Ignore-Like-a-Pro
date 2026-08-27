@@ -1,0 +1,58 @@
+# Steam markup canary. The units workflow proves our own logic still holds; this
+# one proves the storefront it reads still looks the way the content scripts
+# expect. It loads no extension, holds no session and writes nothing — it opens
+# the public store surfaces anonymously and checks the selectors are still there.
+#
+# It runs on a schedule because that is the failure mode it exists for: Steam
+# reshuffles its markup on its own calendar, not on our commits, and a green
+# repo can sit next to a broken extension for weeks. Weekly, plus a manual
+# trigger for the morning after a sale or fest rolls out.
+#
+# The suites that would catch the rest of the drift — the Discovery Queue modal,
+# the /explore/ queue chrome, the curator admin — need a logged-in Steam session
+# and a headed browser, which is why they stay local and no credentials are
+# wired into this workflow.
+name: canary
+
+on:
+  schedule:
+    # Mondays, 06:17 UTC. Off the hour on purpose: the top of the hour is when
+    # GitHub queues the most cron jobs, and scheduled runs get delayed there.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+# Read-only, like units.yml, and third-party actions are pinned to a commit SHA
+# rather than a mutable tag. Dependabot bumps the SHA and keeps the trailing
+# version comment in sync.
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # No build step: the canary never loads the extension, so dist/ is not
+      # needed. It only reads Steam.
+      - run: npm run test:canary
+      # A red canary is only useful if it says WHAT moved on the storefront. The
+      # list reporter leaves behind one failed assertion; the retry trace and the
+      # failure screenshot land in test-results/ and die with the runner. Keep
+      # them, so the storefront that broke can be inspected instead of guessed at
+      # from a selector name.
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canary-failure
+          path: test-results/
+          retention-days: 14
+          # The suite can fail before it writes anything (a bad npm ci, a Steam
+          # block on the very first goto); an empty upload should not turn into a
+          # second, confusing red step.
+          if-no-files-found: ignore

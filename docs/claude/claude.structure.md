@@ -9,6 +9,7 @@ Steam-Ignore-Like-a-Pro/
 │   └── firefox/manifest.json    # MV3 manifest for Firefox
 ├── src/
 │   ├── escape.js                # window.ILAP.Sanitizer: the pure string-boundary helpers — escapeHTML (single HTML-escaper) + sanitizeName (storage-boundary name normalizer: strips <>, control chars → space, collapses whitespace, clamps to 120). ONE definition for ALL THREE worlds: loaded FIRST in content_scripts, first in popup.html and first in the SW's importScripts (neither of which loads utils.js), so the SW/log/curator copies that used to drift are gone
+│   ├── steam-palette.js          # window.ILAP.SteamPalette: Steam's review-score palette, the ONE table both classifiers read (Explore Queue rows on the app page, Discovery Queue cards in the modal). Each band is a SET of shades, current first, the ones Steam painted before behind it — classification fails safe, so an older entry can only restore recognition after a rollback or a partial rollout, never invent one. It was two private copies until one drifted: Steam repainted Mixed in the modal, DQ kept comparing to the old shade, and Keep High Score silently ignored nothing for a whole release. isBad(colour) is what both classifiers call; current(band) is what the live guards assert against (the canary deliberately accepts ONLY current)
 │   ├── stats.js                 # window.ILAP.StatsLogic: the Last-Ignored record's shape — the three key names (ilap_ignored_count / _history / _last_ignored_name), the 20-entry history cap, and increment/decrement/pushHistory/nextState, plus countState and uncountState: the count-only halves, ±1, for an ignore that must be COUNTED but not SHOWN (a drained curator ignore — no name to display, and a job-sized batch would flush the history) and for a confirmed rollback, which takes its ignore back out of the total and equally leaves the history alone (a rolled-back entry still happened; what is UNDOABLE is ignore-log.js's question, not this one). The decrement is floored at 0: a rollback of a game ignored before install has no increment of its own to take back. ONE definition for the TWO worlds that WRITE it: utils.js StatsManager (content script) and background.js's shims (the SW recording a drained MI job via saveStats, a drained curator one via bumpCount, a drained undo via dropCount). Both worlds run all three writers on ONE serialized chain — they read-modify-write the same counter, so a second chain would lose a step where they overlap. Pure; only the chrome.storage read-modify-write around it stays per-world. popup.html just reads those keys by name, so it does not load this
 │   ├── steam-net.js             # window.ILAP.SteamNet: the shared Steam network READS — fetchWithTimeout (the 10 s deadline every Steam fetch goes through; optional per-call override, timer deliberately not cleared so the body read is covered too), fetchIgnoredAppsStrict (dynamicstore userdata → Set of ignored appids, null on any failure), probeLogin (/account/ redirect check) and probeLoginCached (the same probe behind ONE shared verdict cache — a confirmed session reused 60 s, a confirmed logout 10 s, a FAILED probe never cached, concurrent callers sharing the in-flight request; the two ignore-side gates ask through it, everything that needs a fresh answer keeps calling probeLogin), checkAppUnavailable (the appdetails success:false probe) and classifyRefusal (the verdict wrapper both drain hosts apply to a refused POST — marks a 400 as a permanent per-appid region lock so the drainer skips it in one attempt instead of burning MAX_FAILS, and, in the SW, before the halt counter sees it). ONE definition for the TWO worlds that talk to Steam: loaded after escape.js in content_scripts and second in the SW's importScripts; popup.html never fetches Steam, so the storage-plumbing duplication rule (store.js) does not apply here. The ignore/unignore POST is NOT here — it stays per-world on purpose (see the file's own header)
 │   ├── toast.js                 # window.ILAP.showToast(html, duration): the shared bottom-right push card (.ilap-toast + its own <style>), used by the curator button and Manual Ignore's queue-full warning. EQ/DQ keep their own toasts — those are interactive surfaces, not one-shot cards
@@ -122,39 +123,40 @@ Steam-Ignore-Like-a-Pro/
 
 ```
 1.  src/escape.js               → window.ILAP.Sanitizer (shared escapeHTML + sanitizeName; loaded FIRST, before utils.js; also first in popup.html and in the SW's importScripts)
-2.  src/stats.js                → window.ILAP.StatsLogic (Last-Ignored record shape: key names, 20-entry cap, increment/pushHistory/nextState, plus countState/uncountState — the count-only halves a drained curator ignore and a confirmed rollback write, since neither has a name and both come in job-sized batches; before utils.js, and in the SW's importScripts — the two worlds that WRITE the record. NOT in popup.html, which only reads those keys by name)
-3.  src/steam-net.js            → window.ILAP.SteamNet (shared Steam network reads; before utils.js, which re-exports them; also in the SW's importScripts — NOT in popup.html, which never fetches Steam)
-4.  src/utils.js                → window.ILAP global + shared services
-5.  src/gate.js                 → window.ILAP.IgnoreGate (aggregate ignore-rate governor; its default session seam reads getSessionID + SteamAuth.hasLiveSession from utils.js, hence the order. The SW loads no utils.js and injects its own seam via IgnoreGate.configure())
-6.  src/ignore-log.js           → window.ILAP.IgnoreLog (undo data source: timestamped ignore log; before every module that ignores)
-7.  src/surface.js              → window.ILAP.Surface (surface-mode helper: mode key, Steam-client UA detect, escape-hotkey)
-8.  src/i18n.js                 → window.ILAP.t / window.ILAP.i18n (popup + on-page UI strings)
-9.  src/toast.js                → window.ILAP.showToast (shared bottom-right push card: curator button + Manual Ignore)
-10. src/manual-ignore/utils.js  → window.ILAP.ManualIgnore.*
-11. src/manual-ignore/ui.js
-12. src/manual-ignore/main.js
-13. src/discovery-queue/ui.js
-14. src/discovery-queue/registry.js → window.ILAP.Discovery.Registry (concurrent-DQ cap lease)
-15. src/discovery-queue/logic.js → window.ILAP.Discovery.*
-16. src/discovery-queue/main.js
-17. src/explore-queue/utils.js   → window.ILAP.Explore.*
-18. src/explore-queue/ui.js
-19. src/explore-queue/automator.js
-20. src/explore-queue/main.js
-21. src/curator/filters.js       → window.ILAP_Filters (shared filter vocabulary + curatorIdFromPath; self-contained, also in popup.html)
-22. src/curator/enumerate.js     → window.ILAP.Curator.Enumerator (parser + paged ajax client)
-23. src/curator/store.js         → window.ILAP.Curator.Store (cache + queue + lease lock)
-24. src/curator/enqueue-service.js → window.ILAP.Curator.EnqueueService (injectable stage/resolve; built by main.js)
-25. src/curator/main.js          → curator-page "Add to ignore queue" button (Phase 2; thin UI over EnqueueService; NOT surface-gated — the old popup-mode lock died with the SW drain; soft re-stage warning row when this curator's ignores were undone <48 h ago)
-26. src/curator/drainer.js       → window.ILAP.Curator.CuratorQueueDrainer + boot (asks the gate's stopVerdict before opening a pass, then reserves a slot before every POST; drains undo jobs via remove=1)
-27. src/undo-service.js          → window.ILAP.UndoService (undo-job staging; needs Store + IgnoreLog)
-28. ui/popup_markup.js           → window.ILAP_PopupMarkup
-29. ui/popup_settings.js         → window.ILAP_Settings (+ wireExclusiveDetails)
-30. ui/popup_queue.js            → window.ILAP_Queue (curator queue applet)
-31. ui/popup_undo.js             → window.ILAP_Undo (undo button + droplist)
-32. ui/popup_main.js             → window.ILAP_Popup.init
-33. src/widget/main.js           → on-page shadow-DOM widget host (parks to a ghost-chevron beacon in popup surface mode)
-34. styles/styles.css
+2.  src/steam-palette.js        → window.ILAP.SteamPalette (Steam's review-score palette as ONE table for both classifiers; bands are sets — current shade first, previous ones behind it. Before discovery-queue/logic.js and explore-queue/utils.js, which both read it at load time)
+3.  src/stats.js                → window.ILAP.StatsLogic (Last-Ignored record shape: key names, 20-entry cap, increment/pushHistory/nextState, plus countState/uncountState — the count-only halves a drained curator ignore and a confirmed rollback write, since neither has a name and both come in job-sized batches; before utils.js, and in the SW's importScripts — the two worlds that WRITE the record. NOT in popup.html, which only reads those keys by name)
+4.  src/steam-net.js            → window.ILAP.SteamNet (shared Steam network reads; before utils.js, which re-exports them; also in the SW's importScripts — NOT in popup.html, which never fetches Steam)
+5.  src/utils.js                → window.ILAP global + shared services
+6.  src/gate.js                 → window.ILAP.IgnoreGate (aggregate ignore-rate governor; its default session seam reads getSessionID + SteamAuth.hasLiveSession from utils.js, hence the order. The SW loads no utils.js and injects its own seam via IgnoreGate.configure())
+7.  src/ignore-log.js           → window.ILAP.IgnoreLog (undo data source: timestamped ignore log; before every module that ignores)
+8.  src/surface.js              → window.ILAP.Surface (surface-mode helper: mode key, Steam-client UA detect, escape-hotkey)
+9.  src/i18n.js                 → window.ILAP.t / window.ILAP.i18n (popup + on-page UI strings)
+10. src/toast.js                → window.ILAP.showToast (shared bottom-right push card: curator button + Manual Ignore)
+11. src/manual-ignore/utils.js  → window.ILAP.ManualIgnore.*
+12. src/manual-ignore/ui.js
+13. src/manual-ignore/main.js
+14. src/discovery-queue/ui.js
+15. src/discovery-queue/registry.js → window.ILAP.Discovery.Registry (concurrent-DQ cap lease)
+16. src/discovery-queue/logic.js → window.ILAP.Discovery.*
+17. src/discovery-queue/main.js
+18. src/explore-queue/utils.js  → window.ILAP.Explore.*
+19. src/explore-queue/ui.js
+20. src/explore-queue/automator.js
+21. src/explore-queue/main.js
+22. src/curator/filters.js      → window.ILAP_Filters (shared filter vocabulary + curatorIdFromPath; self-contained, also in popup.html)
+23. src/curator/enumerate.js    → window.ILAP.Curator.Enumerator (parser + paged ajax client)
+24. src/curator/store.js        → window.ILAP.Curator.Store (cache + queue + lease lock)
+25. src/curator/enqueue-service.js → window.ILAP.Curator.EnqueueService (injectable stage/resolve; built by main.js)
+26. src/curator/main.js         → curator-page "Add to ignore queue" button (Phase 2; thin UI over EnqueueService; NOT surface-gated — the old popup-mode lock died with the SW drain; soft re-stage warning row when this curator's ignores were undone <48 h ago)
+27. src/curator/drainer.js      → window.ILAP.Curator.CuratorQueueDrainer + boot (asks the gate's stopVerdict before opening a pass, then reserves a slot before every POST; drains undo jobs via remove=1)
+28. src/undo-service.js         → window.ILAP.UndoService (undo-job staging; needs Store + IgnoreLog)
+29. ui/popup_markup.js          → window.ILAP_PopupMarkup
+30. ui/popup_settings.js        → window.ILAP_Settings (+ wireExclusiveDetails)
+31. ui/popup_queue.js           → window.ILAP_Queue (curator queue applet)
+32. ui/popup_undo.js            → window.ILAP_Undo (undo button + droplist)
+33. ui/popup_main.js            → window.ILAP_Popup.init
+34. src/widget/main.js          → on-page shadow-DOM widget host (parks to a ghost-chevron beacon in popup surface mode)
+35. styles/styles.css
 ```
 
 > The Discovery Queue `ui.js` loads before `logic.js`; this works because the classes are only referenced after the window `load` event.
