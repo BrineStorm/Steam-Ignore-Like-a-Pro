@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 const { defineConfig, devices } = require('@playwright/test');
 const path = require('path');
 
@@ -30,8 +30,10 @@ module.exports = defineConfig({
   fullyParallel: false,
   workers: 1,
 
-  // Simple console reporter
-  reporter: 'list',
+  // Console list, plus a per-test progress log on disk (tests/_progress-reporter.js):
+  // the terminal record dies with an interrupted run, and every built-in file
+  // reporter writes only at the end, which an interrupted run never reaches.
+  reporter: [['list'], ['./tests/_progress-reporter.js']],
 
   use: {
     // Extensions only work in headed mode (visible browser)

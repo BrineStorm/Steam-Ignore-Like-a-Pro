@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 var DIST_DIR = path.join(__dirname, 'dist');
 var PLATFORM_DIR = path.join(__dirname, 'platform');
+var PKG_BASENAME = 'steam-ignore-like-a-pro';
 
 // LICENSE ships because GPL-3 requires the text to travel with the binary.
 // LICENSE.MPL deliberately does NOT: no shipped file is MPL-covered any more
@@ -17,6 +19,19 @@ var COMMON_ASSETS = [
     'styles',
     'LICENSE'
 ];
+
+// Source files that belong to ONE platform. The tree above is copied wholesale,
+// so a file the other platform's manifest never references would ride along into
+// its package: dead weight in the upload, and an unreferenced background script
+// is one more thing for a store reviewer to ask about. Removed after the copy
+// rather than filtered during it, so the rule is one list in one place.
+// Chromium ships everything.
+var PLATFORM_EXCLUDES = {
+    firefox: [
+        'src/background.js',   // the MV3 service worker; Firefox loads migrate.js alone
+        'src/sw-handoff.js'    // caches the sessionid FOR that worker (see the file)
+    ]
+};
 
 // `--test` produces a parallel test-flavor build into dist/<platform>-test/
 // with an empty MV3 service worker patched into the manifest. This gives
@@ -40,6 +55,10 @@ var TEST_BRIDGE_CONTENT =
     + '// seed/read extension storage on Firefox.\n'
     + '(function () {\n'
     + '    window.addEventListener(\'message\', function (e) {\n'
+    + '        // Same frame only. This hands the whole of chrome.storage.local to\n'
+    + '        // whoever can post to this window, and an embedded frame on the\n'
+    + '        // store page is such a sender; the test driver is always this one.\n'
+    + '        if (e.source !== window) return;\n'
     + '        var d = e.data;\n'
     + '        if (!d || d.__ilapStore !== \'req\') return;\n'
     + '        function reply(result, error) {\n'
@@ -92,6 +111,85 @@ function copyRecursiveSync(src, dest) {
     }
 }
 
+// Store uploads want a zip whose entries are '/'-separated with manifest.json
+// at the root. PowerShell's Compress-Archive writes 'src\main.js' on PS 5.1,
+// so pack with the bsdtar that ships in System32 instead, and pass the
+// top-level entries explicitly: a bare '.' prefixes every path with './'.
+// Elsewhere tar may have no zip writer, and not every one says so: GNU tar exits
+// 0 and writes a plain tar under the .zip name. So the result is judged by its
+// magic bytes, not the exit code, and anything that is not a zip is removed.
+// On Windows the packer is a known quantity, so a failure there fails the build
+// (a release must not go out without its package); elsewhere it only warns.
+function zipPlatform(outputDir, browser) {
+    var version = readManifest(path.join(outputDir, 'manifest.json')).version;
+    var zipName = PKG_BASENAME + '-' + version + '-' + browser + '.zip';
+    var tarBin = process.platform === 'win32'
+        ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
+        : 'tar';
+    var zipPath = path.join(DIST_DIR, zipName);
+    var args = ['-a', '-c', '-f', zipPath]
+        .concat(fs.readdirSync(outputDir));
+
+    try {
+        execFileSync(tarBin, args, { cwd: outputDir, stdio: 'pipe' });
+    } catch (e) {
+        // A packer that died mid-write leaves a truncated archive under the
+        // release name; it must not sit in dist/ waiting to be uploaded.
+        fs.rmSync(zipPath, { force: true });
+        packagingFailed(tarBin + ' failed: ' + e.message);
+        return;
+    }
+
+    if (!fs.existsSync(zipPath) || !isZip(zipPath)) {
+        fs.rmSync(zipPath, { force: true });
+        packagingFailed(tarBin + ' did not write a zip');
+        return;
+    }
+
+    console.log('Packaged: ./dist/' + zipName);
+}
+
+function packagingFailed(reason) {
+    if (process.platform === 'win32') {
+        console.error('Error: packaging failed, ' + reason);
+        process.exitCode = 1;
+    } else {
+        console.log('Warning: packaging skipped, ' + reason);
+    }
+}
+
+// Strips an optional UTF-8 BOM (escaped: a literal one is invisible in editors).
+function readManifest(file) {
+    return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+}
+
+// Local file header signature: every non-empty zip starts with 'PK\x03\x04'.
+function isZip(file) {
+    var fd = fs.openSync(file, 'r');
+    var head = Buffer.alloc(4);
+    try {
+        fs.readSync(fd, head, 0, 4, 0);
+    } finally {
+        fs.closeSync(fd);
+    }
+    return head.equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+}
+
+// Every prod build replaces the packages, so a stale version number can never
+// linger in dist/ next to the fresh one and get uploaded by mistake.
+function cleanPackages() {
+    if (!fs.existsSync(DIST_DIR)) {
+        return;
+    }
+    var entries = fs.readdirSync(DIST_DIR);
+    for (var i = 0; i < entries.length; i++) {
+        if (entries[i].indexOf(PKG_BASENAME) === 0 && entries[i].endsWith('.zip')) {
+            fs.rmSync(path.join(DIST_DIR, entries[i]), { force: true });
+            console.log('Removed stale package: ' + entries[i]);
+        }
+    }
+}
+
 function buildPlatform(browser) {
     var flavorSuffix = TEST_MODE ? '-test' : '';
     var outputDirName = browser + flavorSuffix;
@@ -121,10 +219,12 @@ function buildPlatform(browser) {
         copyRecursiveSync(srcPath, destPath);
     }
 
+    for (const rel of PLATFORM_EXCLUDES[browser] || []) {
+        fs.rmSync(path.join(outputDir, rel), { force: true });
+    }
+
     if (TEST_MODE) {
-        // strip optional UTF-8 BOM (regex matches a literal U+FEFF)
-        var raw = fs.readFileSync(manifestPath, 'utf8').replace(/^﻿/, '');
-        var manifest = JSON.parse(raw);
+        var manifest = readManifest(manifestPath);
         if (browser === 'chromium') {
             manifest.background = { service_worker: TEST_SW_REL_PATH };
             fs.writeFileSync(path.join(outputDir, TEST_SW_REL_PATH), TEST_SW_CONTENT);
@@ -152,11 +252,18 @@ function buildPlatform(browser) {
     }
 
     console.log('Build complete: ./dist/' + outputDirName + (TEST_MODE ? ' (TEST)' : ''));
+
+    if (!TEST_MODE) {
+        zipPlatform(outputDir, browser);
+    }
 }
 
 console.log('Starting Build Process' + (TEST_MODE ? ' (TEST MODE)' : '') + '...');
 
 if (fs.existsSync(PLATFORM_DIR)) {
+    if (!TEST_MODE) {
+        cleanPackages();
+    }
     buildPlatform('chromium');
     buildPlatform('firefox');
 } else {
