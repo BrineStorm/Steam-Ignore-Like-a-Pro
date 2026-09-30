@@ -11,6 +11,7 @@ This is a browser extension consisting of **source code**, **icons**, **UI asset
 | Asset type        | AI used | Contribution and Scope                                      |AI Tools used |
 |-------------------|---------|-------------------------------------------------------------|---------- |
 | Code and UI       | Yes     | AI-assisted; all logic described, reviewed and tested by dev|Gemini, Claude|
+| UI translations   | Yes     | AI-translated from English into 18 languages; partly reviewed by hand |Gemini, Claude|
 | Extension icon    | Yes     | AI-generated base, manually processed and refined           |Imagen 4   |
 | Demo GIFs         | No      | Recorded and edited manually                                | -         |
 | Store / promo art | Partly  | The first edition was made in Affinity and reimagined later in Claude Design | Claude (Design) |
