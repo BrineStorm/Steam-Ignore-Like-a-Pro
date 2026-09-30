@@ -57,7 +57,14 @@ test.describe('Popup — undo applet', () => {
         await btn.click();
         await expect(page.locator('#undo-menu')).toHaveClass(/open/);
 
-        await page.locator('.undo-chip[data-n="10"]').click();
+        // Double-clicking the empty field takes the whole undoable list (2 entries),
+        // and leaves it selected so a smaller number can be typed straight over it.
+        await page.locator('#undo-count').dblclick();
+        await expect(page.locator('#undo-count')).toHaveValue('2');
+        expect(await page.evaluate(() => {
+            const el = document.getElementById('undo-count');
+            return el.value.slice(el.selectionStart, el.selectionEnd);
+        })).toBe('2');
         await page.locator('#undo-go-count').click();
 
         await expect.poll(async () => {
@@ -68,6 +75,173 @@ test.describe('Popup — undo applet', () => {
         const job = res.ilap_curator_queue[0];
         expect(job.type).toBe('undo');
         expect(job.appids.sort()).toEqual(['1', '2']);   // both log entries, clamped to the log
+    });
+
+    test('The -[ ]+ stepper counts up and down and never goes negative', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_ignore_log: [1, 2, 3].map(logEntry) });
+        await openPopup(page, context);
+        await page.locator('#undo-btn').click();
+
+        const field = page.locator('#undo-count');
+        const plus = page.locator('#undo-plus');
+        const minus = page.locator('#undo-minus');
+
+        // Empty field: nothing to step down from, and Go has nothing to stage.
+        await expect(field).toHaveValue('');
+        await expect(minus).toBeDisabled();
+        await expect(page.locator('#undo-go-count')).toBeDisabled();
+
+        await plus.click();
+        await expect(field).toHaveValue('1');
+        await expect(minus).toBeEnabled();
+        await plus.click();
+        await plus.click();
+        await expect(field).toHaveValue('3');
+        // Ceiling is the undoable total — the log holds 3 entries.
+        await expect(plus).toBeDisabled();
+
+        await minus.click();
+        await expect(field).toHaveValue('2');
+        await expect(plus).toBeEnabled();
+        await minus.click();
+        await minus.click();
+        // Stepping past 1 empties the field instead of going to 0 or below.
+        await expect(field).toHaveValue('');
+        await expect(minus).toBeDisabled();
+    });
+
+    test('The stepper and its field carry localized accessible names that follow the language', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_ignore_log: [1, 2].map(logEntry) });
+        await openPopup(page, context);
+
+        await expect(page.locator('#undo-count')).toHaveAttribute('aria-label', 'Number of games to un-ignore');
+        await expect(page.locator('#undo-minus')).toHaveAttribute('aria-label', 'Fewer');
+        await expect(page.locator('#undo-plus')).toHaveAttribute('aria-label', 'More');
+
+        await setExtensionStorage(context, { ilap_lang: 'de' });
+        await expect(page.locator('#undo-minus')).toHaveAttribute('aria-label', 'Weniger');
+        await expect(page.locator('#undo-plus')).toHaveAttribute('aria-label', 'Mehr');
+        await expect(page.locator('#undo-count')).toHaveAttribute('aria-label', /Anzahl der Spiele/);
+    });
+
+    test('The count field still takes typed digits, clamped and never negative', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_ignore_log: [1, 2, 3, 4, 5].map(logEntry) });
+        await openPopup(page, context);
+        await page.locator('#undo-btn').click();
+
+        const field = page.locator('#undo-count');
+        // The undoable total is the field's own pale hint — the bare number, with
+        // no wording around it — not a separate label beside the field.
+        await expect(field).toHaveAttribute('placeholder', '5');
+
+        await field.fill('');
+        await field.pressSequentially('4');
+        await expect(field).toHaveValue('4');
+        // A typed minus is dropped with every other non-digit.
+        await field.fill('');
+        await field.pressSequentially('-3');
+        await expect(field).toHaveValue('3');
+        // Above the ceiling clamps down to what the log can undo.
+        await field.fill('');
+        await field.pressSequentially('99');
+        await expect(field).toHaveValue('5');
+        await expect(page.locator('#undo-plus')).toBeDisabled();
+    });
+
+    test('Double-clicking the empty field takes the whole undoable list', async ({ page, context }) => {
+        // The pale hint is the total, so the field doubles as its own "select
+        // all" — the shortcut that keeps a five-digit rollback off the stepper.
+        await setExtensionStorage(context, { ilap_ignore_log: [1, 2, 3, 4, 5].map(logEntry) });
+        await openPopup(page, context);
+        await page.locator('#undo-btn').click();
+
+        const field = page.locator('#undo-count');
+        await expect(field).toHaveValue('');
+        // A single click is how you click in to type: it must not fill the field
+        // and arm Go for a rollback of everything.
+        await field.click();
+        await expect(field).toHaveValue('');
+        await expect(page.locator('#undo-go-count')).toBeDisabled();
+
+        await field.dblclick();
+        await expect(field).toHaveValue('5');
+        await expect(page.locator('#undo-go-count')).toBeEnabled();
+
+        // A field that already holds a number is left alone — double-clicking it
+        // selects what you typed, as in any other field.
+        await field.fill('2');
+        await field.dblclick();
+        await expect(field).toHaveValue('2');
+    });
+
+    test('Holding a stepper auto-repeats with a growing step, and stops on release', async ({ page, context }) => {
+        // A five-digit total must be reachable without clicking 300 times.
+        const log = Array.from({ length: 300 }, (_, i) => logEntry(i + 1));
+        await setExtensionStorage(context, { ilap_ignore_log: log });
+        await openPopup(page, context);
+        await page.locator('#undo-btn').click();
+
+        const field = page.locator('#undo-count');
+        await page.locator('#undo-plus').hover();
+        await page.mouse.down();
+        await page.waitForTimeout(1500);   // 400ms before the first repeat, then ~70ms ticks
+        await page.mouse.up();
+
+        const held = parseInt(await field.inputValue(), 10);
+        expect(held).toBeGreaterThan(5);   // a single click would have left 1
+        expect(held).toBeLessThanOrEqual(300);
+
+        // Release stops the repeat: the value is settled, not still climbing.
+        await page.waitForTimeout(400);
+        expect(parseInt(await field.inputValue(), 10)).toBe(held);
+    });
+
+    test('A second press on a held stepper does not leave the first one repeating', async ({ page, context }) => {
+        // Two pointerdowns with no release between them (a second finger on the
+        // same button) used to overwrite the first press's timers, and the release
+        // stopped only the second: the count kept climbing on its own.
+        const log = Array.from({ length: 300 }, (_, i) => logEntry(i + 1));
+        await setExtensionStorage(context, { ilap_ignore_log: log });
+        await openPopup(page, context);
+        await page.locator('#undo-btn').click();
+
+        const press = (type) => page.locator('#undo-plus').evaluate((btn, t) =>
+            btn.dispatchEvent(new PointerEvent(t, { button: 0, bubbles: true })), type);
+        await press('pointerdown');
+        await page.waitForTimeout(600);     // the first press is repeating by now
+        await press('pointerdown');
+        await page.waitForTimeout(600);
+        await press('pointerup');
+
+        const field = page.locator('#undo-count');
+        const settled = parseInt(await field.inputValue(), 10);
+        await page.waitForTimeout(600);
+        expect(parseInt(await field.inputValue(), 10)).toBe(settled);
+    });
+
+    test('Dragging across the droplist selects nothing — the pale hint included', async ({ page, context }) => {
+        // The droplist is a control panel, not prose: a drag across it used to
+        // paint a page selection over every label and over what both number
+        // fields show, the pale hint included, with the caret nowhere near them.
+        await setExtensionStorage(context, { ilap_ignore_log: [1, 2].map(logEntry) });
+        await openPopup(page, context);
+        await page.locator('#undo-btn').click();
+
+        const box = await page.locator('#undo-menu').boundingBox();
+        await page.mouse.move(box.x + 4, box.y + 6);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width - 4, box.y + box.height - 6, { steps: 12 });
+        await page.mouse.up();
+        expect(await page.evaluate(() => String(document.getSelection()))).toBe('');
+
+        // Selecting inside a field still works — that is what editing needs.
+        const field = page.locator('#undo-count');
+        await field.dblclick();                    // double-click-to-fill leaves it selected
+        await expect(field).toHaveValue('2');
+        expect(await page.evaluate(() => {
+            const el = document.getElementById('undo-count');
+            return el.selectionEnd - el.selectionStart;
+        })).toBe(1);
     });
 
     test('The undo button is disabled (empty tooltip contract) when there is nothing to undo', async ({ page, context }) => {

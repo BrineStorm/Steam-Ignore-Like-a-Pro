@@ -177,17 +177,60 @@
 
     // --- Infrastructure Services ---
 
-    class ExtensionSettingsService {
-        // Deliberately duplicated storage shim — see the world-isolation note
-        // in src/curator/store.js (the canonical copy of that decision).
-        async getSettings(keys) {
-            return new Promise(resolve => chrome.storage.local.get(keys, resolve));
+    // The Queue Helper's settings in the automator's own terms, so the automator
+    // never sees a storage key (`settings` is src/settings-schema.js):
+    //   read()        → { globalOn, queueOn, autoNext, mode }
+    //   subscribe(cb) → cb(change) with only what changed; the two switches as
+    //                   { was, now }, so a caller can tell a transition from a
+    //                   same-value write
+    //   disableQueue()
+    class QueueSettings {
+        constructor(settings) {
+            this.S = settings;
         }
-        async updateSettings(data) {
-            return new Promise(resolve => chrome.storage.local.set(data, resolve));
+
+        _values(get) {
+            const { KEYS, DEFAULTS, isOn } = this.S;
+            return {
+                globalOn: isOn(get(KEYS.MASTER)),
+                queueOn: isOn(get(KEYS.Q_MASTER)),
+                autoNext: !!get(KEYS.Q_NEXT),
+                mode: get(KEYS.Q_MODE) || DEFAULTS.Q_MODE,
+            };
         }
-        subscribeToChanges(callback) {
-            chrome.storage.onChanged.addListener(callback);
+
+        async read() {
+            const K = this.S.KEYS;
+            const res = await new Promise(resolve => chrome.storage.local.get(
+                [K.MASTER, K.Q_MASTER, K.Q_NEXT, K.Q_MODE], resolve));
+            return this._values((k) => res[k]);
+        }
+
+        // Local only: that is where these settings live, and the automator acts
+        // on whatever arrives.
+        subscribe(callback) {
+            chrome.storage.onChanged.addListener((changes, area) => {
+                if (area !== 'local') return;
+                const change = this.toChange(changes);
+                if (change) callback(change);
+            });
+        }
+
+        toChange(changes) {
+            const { KEYS } = this.S;
+            const was = this._values((k) => (changes[k] ? changes[k].oldValue : undefined));
+            const now = this._values((k) => (changes[k] ? changes[k].newValue : undefined));
+            const change = {};
+            if (changes[KEYS.MASTER]) change.globalOn = { was: was.globalOn, now: now.globalOn };
+            if (changes[KEYS.Q_MASTER]) change.queueOn = { was: was.queueOn, now: now.queueOn };
+            if (changes[KEYS.Q_NEXT]) change.autoNext = now.autoNext;
+            if (changes[KEYS.Q_MODE]) change.mode = now.mode;
+            return Object.keys(change).length ? change : null;
+        }
+
+        disableQueue() {
+            return new Promise(resolve =>
+                chrome.storage.local.set({ [this.S.KEYS.Q_MASTER]: false }, resolve));
         }
     }
 
@@ -198,5 +241,5 @@
     window.ILAP.Explore.Analyzer = ReviewAnalyzer;
     window.ILAP.Explore.DecisionEngine = DecisionEngine;
     window.ILAP.Explore.NavigationGuard = NavigationGuard;
-    window.ILAP.Explore.ExtensionSettingsService = ExtensionSettingsService;
+    window.ILAP.Explore.QueueSettings = QueueSettings;
 })();

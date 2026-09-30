@@ -18,6 +18,7 @@
 const { popupUrl, getExtensionStorage } = require('../_extension.js');
 const { interceptIgnoreApi, routeUserdata, routeLoginProbe } = require('../_steam-routes.js');
 const { AUTH_FILE } = require('../_fixtures.js');
+const { tagUrl } = require('../_tags.js');   // random tag page per navigation
 
 const SEL = {
     overlay: '.ilap-ignored-overlay',
@@ -190,18 +191,75 @@ async function rightClickZigzag(page, locator, dx = 70) {
 // extension resolves these rows via its Fallback strategy → 'grid' badge.
 const SEARCH_ROW = 'a.search_result_row[href*="/app/"]';
 
-async function pickFirstRow(page, rowSelector = SEARCH_ROW) {
-    const link = page.locator(rowSelector).first();
-    await link.waitFor({ state: 'attached', timeout: 15000 });
-    const href = await link.getAttribute('href');
-    const m = href && href.match(/\/app\/(\d+)/);
-    if (!m) throw new Error(`pickFirstRow: no /app/<id> in href "${href}"`);
-    return { link, appid: m[1], href };
+async function pickFirstRow(page, rowSelector = SEARCH_ROW, limit = 12) {
+    const all = page.locator(rowSelector);
+    await all.first().waitFor({ state: 'attached', timeout: 15000 });
+    // Steam's dynamicstore lands after the rows do, and the account's "Hide
+    // ignored items" preference then collapses every game it already ignores:
+    // the row keeps its place in the DOM and takes `display: none` plus
+    // `ds_ignored`. On the test account (~20k ignores) that is routinely the
+    // first row or two, so `attached` alone hands back a row with a zero box —
+    // the extension badges it happily and every gesture, click and screenshot
+    // aimed at it misses. Wait for the flags, then take the first row that
+    // survived them. `m_bLoadComplete` flips in the same tick the rows already on
+    // the page take their flags (sampled live at 40 ms: no row flagged before it,
+    // all of them flagged with it) — Steam's own ready bit, not a guessed pause.
+    await page.waitForFunction(() => window.GDynamicStore && window.GDynamicStore.m_bLoadComplete === true,
+        null, { timeout: 15000 });
+    const count = Math.min(await all.count(), limit);
+    for (let i = 0; i < count; i++) {
+        const link = all.nth(i);
+        if (await link.evaluate(el => el.classList.contains('ds_ignored'))) continue;
+        if (!(await link.boundingBox())) continue;
+        const href = await link.getAttribute('href');
+        const m = href && href.match(/\/app\/(\d+)/);
+        if (m) return { link, appid: m[1], href };
+    }
+    throw new Error(`pickFirstRow: no reachable row in the first ${count} — all collapsed as already-ignored, or none carries an /app/ link`);
 }
 
 // Locator for the search row of a specific appid (used to scope badge asserts).
 function searchRow(page, appid) {
     return page.locator(`a.search_result_row[href*="/app/${appid}/"]`).first();
+}
+
+// The /tags/ sale page renders its blocks lazily — walk down and back up so
+// every stacked capsule block (hover strip, sale grid) has mounted.
+async function scrollTagPage(page) {
+    for (let i = 0; i < 5; i++) { await page.mouse.wheel(0, 1200); await page.waitForTimeout(500); }
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(800);
+}
+
+// Navigate to a random /tags/ page, harvest the appids on it, seed them into the
+// session map, and reload so the content script boots with them and badges their
+// capsules. Returns the seeded appid list.
+//
+// Seeding rather than swiping is deliberate: every hover capsule opens a floating
+// preview the instant the cursor arrives, and that preview eats a synthetic
+// gesture (see the note at the top of tag-page.spec.js). The session map IS the
+// badge model, so restoring it is the same path a reload takes.
+async function seedTagPage(page) {
+    await page.goto(tagUrl());
+    await waitForContentScript(page);
+    await scrollTagPage(page);
+
+    const ids = await page.evaluate(() => {
+        const s = new Set();
+        document.querySelectorAll('a[href*="/app/"]').forEach(a => {
+            const m = a.getAttribute('href').match(/\/app\/(\d+)/);
+            if (m) s.add(m[1]);
+        });
+        return Array.from(s).slice(0, 80);
+    });
+
+    await page.addInitScript((arr) => {
+        sessionStorage.setItem('ilap_session_map_v2', JSON.stringify(arr.map(i => [i, 0])));
+    }, ids);
+    await page.reload();
+    await waitForContentScript(page);
+    await scrollTagPage(page);
+    return ids;
 }
 
 // World-independent readiness gate. Content scripts boot on the window 'load'
@@ -229,6 +287,8 @@ module.exports = {
     readContextMenuSpy,
     rightClickSwipe,
     rightClickZigzag,
+    scrollTagPage,
+    seedTagPage,
     pickFirstRow,
     pickSwipeable,
     searchRow,

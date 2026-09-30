@@ -4,89 +4,68 @@
 
     window.ILAP = window.ILAP || {};
 
-    // === Aggregate ignore-POST rate governor ===
-    //
-    // The account-ban risk is the AGGREGATE ignore-POST rate to the one Steam
-    // account, summed across every ignore SOURCE in every tab/window of the
-    // profile — not any single source in isolation. Sources:
-    //   - the curator drainer (bulk),
-    //   - the Explore-Queue automator,
-    //   - the Discovery-Queue click (which makes STEAM's own page JS fire an
-    //     ignore POST — confirmed; it does NOT go through
-    //     apiIgnoreGame, so this gate cannot be a wrapper over our fetch).
-    // Each already throttles itself, but nothing budgeted the SUM, so N DQ tabs +
-    // the drainer stacked into N uncoordinated streams.
-    //
-    // Every source reserves a slot here before emitting an ignore. One shared
-    // timestamp in chrome.storage.local paces the aggregate: stacked sources
-    // collapse into ~one evenly-spaced stream. This is the constructive fix for
-    // audit findings #1 (master toggle vs drainer) and #2 (dead session should
-    // stop, not silently burn work) — both are enforced at this one chokepoint.
+    // Aggregate ignore-POST rate governor. The ban risk is the SUM of ignore
+    // POSTs to one account across every source in every tab: the drainer, the
+    // Explore Queue, and the Discovery Queue click (which makes Steam's own page
+    // POST, so this cannot be a wrapper around our fetch). Every source reserves
+    // a slot here first; one shared timestamp in storage turns N streams into one
+    // paced stream. The two stops — master off, no live session — are enforced
+    // here too.
 
     const GATE_KEY = 'ilap_ignore_gate';       // last reserved slot (bare epoch-ms number)
     const PENALTY_KEY = 'ilap_ignore_gate_penalty'; // rate-limit backoff ({ until, level })
-    const MASTER_KEY = 'ilap_master_enabled';  // global on/off (widget master toggle)
-    // Timestamp of the last ignore from a VISIBLE source (EQ / DQ). The background
-    // queue drainer yields while this stamp is fresh — visible work wins. (Manual
-    // Ignore is no longer a visible ungated source: a swipe now enqueues a
-    // top-priority type:'mi' job the drainer sends through this same gate.)
+    const Settings = window.ILAP.Settings;
+    const MASTER_KEY = Settings.KEYS.MASTER;
+    // Last ignore from a visible source (EQ / DQ); the background drainer yields
+    // while it is fresh.
     const FOREGROUND_KEY = 'ilap_ignore_foreground_at';
 
-    // Minimum gap between consecutive ignores across ALL sources. ~500 ms + up to
-    // 300 ms jitter → ≤ ~2 ignores/s per profile, matching the single-drainer
-    // rate the account already tolerated (>2000/day observed). GAP_FLOOR is the
-    // defensive clamp (same rationale as the drainer's old GAP_FLOOR, now removed
-    // in favour of this one): a careless edit to MIN_GAP can't drop the whole
-    // extension into spam territory without ALSO removing this line. A guardrail
-    // for honest users and our future selves — not a security control.
+    // Gap between two ignores across all sources: ~500 ms + up to 300 ms jitter,
+    // ≤ ~2/s, the rate the account already tolerated. GAP_FLOOR is a guardrail
+    // against a careless edit to MIN_GAP, not a security control.
     const MIN_GAP = 500;
     const JITTER = 300;
     const GAP_FLOOR = 350;
 
-    // How long the background drainer yields after the last visible ignore (EQ/DQ).
-    // A little over one gap+jitter, so a stream of visible ignores keeps the drainer
-    // paused continuously, while a lone one stalls the background only a couple seconds.
+    // How long the background drainer yields after a visible ignore: a little
+    // over one gap, so a stream of them pauses it and a lone one barely does.
     const YIELD_MS = 2500;
 
-    // Rate-limit backoff. When the ignore endpoint answers 429, the reporting
-    // source pushes a shared penalty here and every source in every tab goes
-    // quiet together (the penalty deadline folds into the next reserved slot).
-    // The wait doubles from PENALTY_BASE up to the PENALTY_MAX cap; a server
-    // Retry-After is honoured up to the same cap. Consecutive 429s escalate as
-    // long as each lands within PENALTY_DECAY of the previous penalty's end; a
-    // quiet spell resets the level. Sources that already HOLD a reserved slot
-    // still fire it — the penalty gates the NEXT reservation (accepted
-    // residual: at most one in-flight ignore per source after a 429).
+    // 429 backoff, shared by every source: doubles from PENALTY_BASE up to
+    // PENALTY_MAX (a Retry-After is honoured up to the same cap), escalating
+    // while each 429 lands within PENALTY_DECAY of the previous penalty's end.
+    // A slot already reserved still fires; the penalty gates the next one.
     const PENALTY_BASE = 5000;
     const PENALTY_MAX = 300000;
     const PENALTY_DECAY = 60000;
 
-    // Legitimate queueing can only push the stored slot a few source-counts ×
-    // gap into the future (~seconds), plus up to a full rate-limit penalty
-    // (PENALTY_MAX). A slot further ahead than this is clock skew or corruption
-    // (manual clock change, resumed VM, a tab with a fast clock) — without the
-    // clamp every source would silently wait it out and the extension would
-    // look dead until that far-future time.
+    // Real queueing pushes a slot seconds ahead, plus at most one penalty. A slot
+    // further ahead is clock skew or corruption, and waiting it out would make
+    // the extension look dead.
     const MAX_AHEAD = 30000 + PENALTY_MAX;
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-    // Pure pacing math (unit-tested): the next slot is at least one gap past the
-    // last reserved slot, but never in the past; an implausibly-future last slot
-    // (beyond MAX_AHEAD) is treated as now.
+    // At least one gap past the last slot, never in the past; a last slot beyond
+    // MAX_AHEAD — or one that is not a number at all — counts as now.
     function nextSlot(lastAt, now, gap) {
-        const last = (lastAt || 0) > now + MAX_AHEAD ? now : (lastAt || 0);
+        // Number.isFinite before the compare: a numeric STRING passes the
+        // MAX_AHEAD test by coercion and then CONCATENATES in `last + gap`,
+        // putting the slot ~50 000 years out. It self-heals (the next call reads
+        // that back and this same guard rejects it) and an overflowing setTimeout
+        // fires at once, so the cost is one unpaced ignore rather than a dead
+        // extension — but this guard exists to answer for corruption, and a
+        // hand-edited or downgraded key is corruption.
+        const at = Number.isFinite(lastAt) ? lastAt : 0;
+        const last = at > now + MAX_AHEAD ? now : at;
         return Math.max(now, last + gap);
     }
     function nextGap() {
         return Math.max(GAP_FLOOR, MIN_GAP) + Math.floor(Math.random() * JITTER);
     }
 
-    // Pure penalty math (unit-tested): each report escalates the level while
-    // the previous penalty is still warm (within PENALTY_DECAY of its end) and
-    // resets to level 1 after a quiet spell. An implausibly-future stored
-    // penalty (corruption/skew — same rationale as MAX_AHEAD) is treated as
-    // absent.
+    // Escalates while the previous penalty is warm, resets after a quiet spell;
+    // an implausibly-future stored penalty counts as absent.
     function nextPenalty(prev, now, retryAfterMs) {
         const p = (prev && typeof prev.until === 'number' && prev.until <= now + PENALTY_MAX)
             ? prev : null;
@@ -103,139 +82,77 @@
         return p.until;
     }
 
-    // Deliberately duplicated shim — see the world-isolation note in
-    // src/curator/store.js (the canonical copy of that decision).
+    // Storage shim, duplicated per world on purpose (see src/curator/store.js).
     const get = (query) => new Promise(r => chrome.storage.local.get(query, r));
     const set = (obj) => new Promise(r => chrome.storage.local.set(obj, r));
 
-    // Serialize the claim (read → compute → write of the gate timestamp) WITHIN
-    // this context so two same-context sources can't both read the same lastAt and
-    // reserve the same slot. Cross-context (other tabs) still races on
-    // chrome.storage's lack of CAS — the accepted residual (same class as the
-    // stats/queue RMW races): two tabs can occasionally share one slot, but the
-    // uncoordinated N-stream stacking collapses into a single paced stream, which
-    // is the whole point. The wait (sleep until the slot) happens OUTSIDE this
-    // chain, so the chain only serializes the fast claim, not the pacing delay.
-    let chain = Promise.resolve();
+    // Serializes the claim (read → compute → write) within this context. Across
+    // tabs there is no CAS, so two tabs can occasionally share a slot; the
+    // streams still collapse into one. The wait happens outside the chain.
+    const serial = window.ILAP.serialChain();
 
-    // "Is there a live Steam session?" — the one thing this module needs to know
-    // about the session, and the one seam a host replaces.
-    // Tri-state, and the third state matters: `null` is "couldn't ask" (the
-    // probe itself failed — offline, timeout), which is NOT the same situation
-    // as a confirmed logout and does not recover the same way. See stopVerdict.
-    //
-    // The default below answers for the TAB, which is the only world a default
-    // CAN answer for: utils.js loads before this file in both manifests, so its
-    // facade is there to be read. The service worker imports no utils.js and has
-    // no DOM; it supplies its own through configure(). That used to be an
-    // implicit arrangement — the worker assigned `ILAP.getSessionID` at boot to
-    // satisfy a module it cannot see into, and this function walked a ladder of
-    // facade names to discover which world it was running in.
+    // "Is there a live Steam session?" — async and tri-state: null means the
+    // check itself failed, which recovers differently from a logout.
+    // The default answers for the tab (utils.js loads first). The service worker
+    // has no utils.js and supplies its own through configure().
     async function defaultHasSession() {
         const ILAP = window.ILAP;
-        // The `sessionid` cookie is the cheap precondition — without it there is
-        // no body to send — but NOT the answer: Steam hands one to anonymous
-        // visitors too (it is a CSRF token, not a credential — steamLoginSecure
-        // is), so its presence alone was TRUE on any store page of a logged-OUT
-        // browser and every source here was granted slots for POSTs that could
-        // only 400. The verdict comes from the shared ignore-side policy
-        // (utils.js SteamAuth.hasLiveSession): the store header when it rendered
-        // signed-IN, otherwise one live /account/ probe cached in steam-net.js.
+        // The sessionid cookie is only the precondition: Steam gives one to
+        // anonymous visitors too.
         if (!(ILAP.getSessionID && ILAP.getSessionID())) return false;
-        // No SteamAuth in a world that loads utils.js is a broken build, not an
-        // outage: answer the definite "no" rather than the "couldn't ask" a
-        // caller would keep re-asking about.
+        // No SteamAuth where utils.js loads is a broken build: a definite no.
         return ILAP.SteamAuth ? ILAP.SteamAuth.hasLiveSession() : false;
     }
 
     let hasSession = defaultHasSession;
 
-    // Host-supplied dependencies for a world the default cannot serve. Called
-    // once at boot, before any reservation. Currently one: `hasSession`, with
-    // the contract above (async, tri-state).
+    // For a host the default cannot serve; called once at boot.
     function configure(deps) {
         if (deps && deps.hasSession) hasSession = deps.hasSession;
     }
 
-    // The STOP conditions, shared by the pre-claim check and the post-wait
-    // re-check: 'disabled' (master toggle off), 'no-session' (confirmed no live
-    // Steam session), 'offline' (the session could not be checked at all), or
-    // null when clear to fire. Every non-null verdict stops the pass — callers
-    // that only need "may I fire?" can treat them alike.
-    //
-    // 'offline' is reported apart because "signed out" and "could not ask" are
-    // not the same fact and do not recover the same way: the first ends with the
-    // user doing something, the second with a connection coming back, which
-    // nothing announces. Only ONE stop is a state the extension itself owns and
-    // can be woken from by a storage write — 'disabled' (ilap_master_enabled).
-    // The background worker (src/background.js) parks its retry alarm on exactly
-    // that one and keeps re-asking through both of the others. No caller grants
-    // a slot on any of the three: the gate fails closed whatever the reason.
-    //
-    // Exported too: a background drainer asks it BEFORE opening a pass, so a
-    // stopped extension pays no network read (and schedules no wake-up) just to
-    // be refused a slot later.
+    // 'disabled' (master off), 'no-session' (confirmed), 'offline' (could not
+    // check), or null when clear. Every verdict stops a pass. Only 'disabled'
+    // ends with a storage write this extension hears, which is why the service
+    // worker parks its alarm on it and keeps retrying the other two. Exported so
+    // a drainer can ask before opening a pass.
     async function stopVerdict() {
         const data = await get({ [MASTER_KEY]: true });
-        if (data[MASTER_KEY] === false) return 'disabled';
+        // Through the schema's isOn, like every other reader of a switch:
+        // what counts as OFF is settled in one place, not re-spelled on the
+        // path that decides whether an ignore may be sent.
+        if (!Settings.isOn(data[MASTER_KEY])) return 'disabled';
         const live = await hasSession();
         if (live === true) return null;
         return live === null ? 'offline' : 'no-session';
     }
 
-    // A source calls this before every ignore. `opts.foreground` marks a VISIBLE
-    // source (EQ / DQ) — it stamps foreground activity and never yields. A
-    // background caller (the queue drainer, no flag) yields while a foreground
-    // ignore is recent, so the aggregate budget goes to what the user is watching.
-    // Resolves:
-    //   { ok:true }                    once the reserved slot arrives — fire now.
-    //   { ok:false, reason:'disabled' }   master toggle off — STOP this pass.
-    //   { ok:false, reason:'no-session' } no live Steam session — STOP this pass
-    //                                     (a dead session must not burn work).
-    //   { ok:false, reason:'offline' }    the session couldn't be checked at all
-    //                                     — same refusal, different recovery
-    //                                     (see stopVerdict).
-    //   { ok:false, reason:'yield' }      background pass deferring to visible work.
-    // Callers treat !ok as "stop the whole pass", not "skip one item".
+    // Called before every ignore. `opts.foreground` marks a visible source
+    // (EQ / DQ): it stamps activity and never yields; the background drainer
+    // yields while that stamp is fresh. Resolves { ok: true } when the slot
+    // arrives, or { ok: false, reason } with a stop verdict or 'yield'; callers
+    // stop the whole pass on !ok.
     function reserve(opts) {
         const foreground = !!(opts && opts.foreground);
-        // The stop verdict is asked OUTSIDE the chain, and must stay outside:
-        // it can cost a live /account/ probe (up to the fetch deadline), and it
-        // takes part in no read-modify-write, so holding the chain across it
-        // would make every other source in this context queue behind one
-        // network round trip for nothing.
+        // Outside the chain: it can cost a network probe and writes nothing.
         const claim = stopVerdict().then((stop) => {
             if (stop) return { stop };
-            // Only the claim below — read → compute → write of the gate
-            // timestamp — is serialized. `chain` is read and re-assigned with no
-            // await between, so two reservations arriving here cannot interleave.
-            const run = chain.then(async () => {
+            return serial(async () => {
                 const data = await get({ [GATE_KEY]: 0, [PENALTY_KEY]: null, [FOREGROUND_KEY]: 0 });
                 const now = Date.now();
-                // The background yields to visible work: while the foreground stamp is
-                // fresh, the drainer takes no slot (the pass stops and retries on the
-                // standby tick / alarm). Visible (foreground) sources never yield.
                 if (!foreground && (now - (data[FOREGROUND_KEY] || 0)) < YIELD_MS) {
                     return { yield: true };
                 }
-                // An active rate-limit penalty folds into the slot: the first
-                // reservation lands at the penalty's end, later ones queue past it
-                // with normal gap spacing.
+                // An active penalty folds into the slot.
                 const slot = Math.max(
                     nextSlot(data[GATE_KEY], now, nextGap()),
                     penaltyUntil(data[PENALTY_KEY], now)
                 );
                 const write = { [GATE_KEY]: slot };
-                // A visible source marks activity — the drainer yields to it.
                 if (foreground) write[FOREGROUND_KEY] = now;
                 await set(write);
                 return { slot };
             });
-            // Keep the chain alive across a thrown claim so one failure can't wedge
-            // every future reservation. The next claim waits only for this claim's
-            // storage write, never for the sleep below.
-            chain = run.then(() => {}, () => {});
-            return run;
         });
         return claim.then(async (r) => {
             if (r.stop) return { ok: false, reason: r.stop };
@@ -243,9 +160,8 @@
             const wait = r.slot - Date.now();
             if (wait > 0) {
                 await sleep(wait);
-                // The wait can span several paced slots when sources stack, so a
-                // master flip / logout during it must stop the ignore that was
-                // about to fire (the slot stays burned — conservative).
+                // A master flip or logout during the wait stops the ignore; the
+                // slot stays spent.
                 const stop = await stopVerdict();
                 if (stop) return { ok: false, reason: stop };
             }
@@ -253,20 +169,15 @@
         });
     }
 
-    // A gated source calls this when the ignore endpoint answered 429: escalate
-    // the shared penalty so every source in every tab backs off together.
-    // Serialized on the same chain as reserve() so a same-context report/claim
-    // can't interleave their read-modify-writes (cross-tab still races — same
-    // accepted residual as the slot claim).
+    // A 429 from the ignore endpoint: escalate the shared penalty. Same chain as
+    // reserve(), so the two read-modify-writes cannot interleave in one context.
     function reportRateLimited(retryAfterMs) {
-        const claim = chain.then(async () => {
+        return serial(async () => {
             const data = await get({ [PENALTY_KEY]: null });
             const p = nextPenalty(data[PENALTY_KEY], Date.now(), retryAfterMs);
             await set({ [PENALTY_KEY]: p });
             return p;
         });
-        chain = claim.then(() => {}, () => {});
-        return claim;
     }
 
     window.ILAP.IgnoreGate = {

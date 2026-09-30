@@ -18,26 +18,15 @@
         WRAPPER: `.game_capsule, .dailydeal_cap, .small_cap, .bundle_base_discount, [class*="ImpressionTrackedElement"], div[class*="StoreSaleWidget"], [class*="LibraryAssetExpandedDisplay"], .store_main_capsule, [class*="SaleSectionCtn"], .contenthubmaincarousel, .hero_capsule`
     };
 
+    const Settings = window.ILAP.Settings;
     const CONFIG_KEYS = {
-        SHORTCUT: 'ilap_shortcut_key',
-        PLATFORM: 'ilap_platform_key',
-        MASTER: 'ilap_master_enabled',
-        MASK: 'ilap_mask_enabled',
-        UNIGNORE: 'ilap_unignore_key'
+        SHORTCUT: Settings.KEYS.SHORTCUT,
+        PLATFORM: Settings.KEYS.PLATFORM,
+        MASTER: Settings.KEYS.MASTER,
+        MASK: Settings.KEYS.MASK,
+        UNIGNORE: Settings.KEYS.UNIGNORE
     };
     const CONFIG_STORAGE_KEYS = Object.values(CONFIG_KEYS);
-
-    // The un-ignore binding's vocabulary — the same one the two IGNORE selects
-    // offer, since the popup cross-guards all three and one binding can never be
-    // handed to two actions (see the precedence note in SwipeGestureDetector).
-    // Clamped rather than trusted: a value from an older build (or a hand-edited
-    // storage key) that matches nothing would otherwise silently disable the
-    // gesture with no way to tell from the page.
-    // No legacy shim here, unlike window.ILAP.normalizeShortcut's for the ignore
-    // keys: this binding ships with its first release, so no build has ever
-    // written another vocabulary into the key.
-    const UNIGNORE_KEYS = ['zigzag', 'swipeRight', 'swipeLeft',
-                           'ctrlKey', 'shiftKey', 'altKey', 'off'];
 
     class ConfigReader {
         constructor(defaultConfig) {
@@ -51,7 +40,29 @@
         async refresh() {
             return new Promise(resolve => {
                 chrome.storage.local.get(CONFIG_STORAGE_KEYS, (res) => {
-                    this._updateInternal(res);
+                    // Same rule as StatsManager._commit (src/utils.js): the
+                    // executor above only covers the synchronous get() call, and a
+                    // throw in HERE would leave this promise pending for good.
+                    // `res` is undefined when the read errored, and
+                    // _updateInternal dereferences it. App.init() AWAITS this one,
+                    // so the page would never wire its gestures and boot()'s
+                    // .catch would never hear about it — Manual Ignore simply
+                    // absent, with nothing said. Resolve with what we have (the
+                    // defaults, or the last good values) and let the next config
+                    // change re-read.
+                    //
+                    // The synchronous throw of an invalidated context is NOT
+                    // caught: it rejects this promise, init() with it, and boot()
+                    // logs it. Swallowing it would march on to wire listeners
+                    // against a page that has no storage left.
+                    try {
+                        // `chrome.runtime &&` like i18n.js: the read is what
+                        // matters, and a host without a runtime handle must not
+                        // cost the config its values.
+                        if (!(chrome.runtime && chrome.runtime.lastError)) this._updateInternal(res);
+                    } catch (e) {
+                        console.warn('[ILAP] config read failed:', e);
+                    }
                     resolve(this.config);
                 });
             });
@@ -62,17 +73,26 @@
         }
 
         _updateInternal(res) {
-            const normalize = window.ILAP.normalizeShortcut;
-            if (res[CONFIG_KEYS.SHORTCUT] !== undefined) this.config.defaultKey = normalize(res[CONFIG_KEYS.SHORTCUT]);
-            if (res[CONFIG_KEYS.PLATFORM] !== undefined) this.config.platformKey = normalize(res[CONFIG_KEYS.PLATFORM]);
-            if (res[CONFIG_KEYS.MASTER] !== undefined) this.config.enabled = res[CONFIG_KEYS.MASTER];
-            if (res[CONFIG_KEYS.MASK] !== undefined) this.config.maskEnabled = res[CONFIG_KEYS.MASK];
-            // Clamped against UNIGNORE_KEYS: an unrecognised stored value (a
-            // hand-edited key) keeps the current setting rather than becoming an
-            // inert binding no page could explain.
-            if (UNIGNORE_KEYS.includes(res[CONFIG_KEYS.UNIGNORE])) {
-                this.config.unignoreKey = res[CONFIG_KEYS.UNIGNORE];
+            // Same rule as the un-ignore key below: a clamped-away value keeps
+            // the current binding rather than becoming one no gesture matches.
+            const normalize = Settings.normalizeShortcut;
+            const shortcut = normalize(res[CONFIG_KEYS.SHORTCUT]);
+            if (shortcut) this.config.defaultKey = shortcut;
+            const platform = normalize(res[CONFIG_KEYS.PLATFORM]);
+            if (platform) this.config.platformKey = platform;
+            // Through Settings.isOn, not a raw assignment: what counts as OFF is
+            // the schema's to say (only an explicit false), and it is said once
+            // there. Readers of this config get a real boolean.
+            if (res[CONFIG_KEYS.MASTER] !== undefined) {
+                this.config.enabled = Settings.isOn(res[CONFIG_KEYS.MASTER]);
             }
+            if (res[CONFIG_KEYS.MASK] !== undefined) {
+                this.config.maskEnabled = Settings.isOn(res[CONFIG_KEYS.MASK]);
+            }
+            // A value it does not know keeps the current binding rather than
+            // becoming one no page could explain.
+            const unignore = Settings.normalizeUnignore(res[CONFIG_KEYS.UNIGNORE]);
+            if (unignore) this.config.unignoreKey = unignore;
         }
     }
 
@@ -282,8 +302,8 @@
     }
 
     // A back-and-forth gesture, measured on X ONLY — the same axis rule the swipe
-    // uses, and for the same ergonomic reason (see decisions.md: direction from
-    // `dx` alone is deliberate and must not be "fixed"). Consequence, accepted on
+    // uses, and for the same ergonomic reason (direction from `dx` alone is
+    // deliberate and must not be "fixed"). Consequence, accepted on
     // purpose: a circle traced clockwise and one traced counter-clockwise produce
     // the SAME x trajectory, so they cannot be told apart here. The gesture is
     // therefore "a circle either way, or a right-left / left-right zigzag" — one
@@ -456,18 +476,23 @@
             const config = this.configService.get();
             if (!config.enabled) return null;
 
+            // Is this binding a modifier the event carries? OFF is checked for
+            // every one of the three, not just the two it was once checked for:
+            // `event['off']` being undefined is a coincidence, not a rule, and a
+            // binding switched off must read as off because it is off. A gesture
+            // value ('zigzag'/'swipe*') is not a property of the event either,
+            // which is what keeps this table shared with the swipe path.
+            const pressed = (key) => key !== Settings.OFF && !!event[key];
+
             let reason = -1;
-            if (event[config.defaultKey]) reason = 0;
-            else if (config.platformKey !== 'off' && event[config.platformKey]) reason = 2;
+            if (pressed(config.defaultKey)) reason = 0;
+            else if (pressed(config.platformKey)) reason = 2;
 
             // …and the un-ignore binding, which may now be a modifier-click as
             // well. Tested last for the same reason the swipe path does it (see
             // onMouseUp): with the three cross-guarded in the popup they cannot
             // clash, and if a stale storage state ever does, ignore wins.
-            // A gesture value ('zigzag'/'swipe*') is simply not a property of
-            // the event, so it reads false here without a guard.
-            const unignore = reason === -1
-                && config.unignoreKey !== 'off' && !!event[config.unignoreKey];
+            const unignore = reason === -1 && pressed(config.unignoreKey);
 
             if (reason === -1 && !unignore) return null;
             const intent = this.createIntent(event.target, reason);
@@ -493,7 +518,6 @@
     window.ILAP.ManualIgnore.ContextScanner = ContextScanner;
     window.ILAP.ManualIgnore.SwipeGestureDetector = SwipeGestureDetector;
     window.ILAP.ManualIgnore.ZigzagTracker = ZigzagTracker;
-    window.ILAP.ManualIgnore.UNIGNORE_KEYS = UNIGNORE_KEYS;
     window.ILAP.ManualIgnore.EventParser = EventParser;
  
 })();

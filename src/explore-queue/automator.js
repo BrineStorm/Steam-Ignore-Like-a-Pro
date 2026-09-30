@@ -9,17 +9,28 @@
 
     class ExploreAutomator {
         constructor(deps) {
-            if (!deps.api || typeof deps.api.ignore !== 'function') throw new TypeError("[ILAP] Invalid ApiAdapter provided");
-            if (!deps.stats || typeof deps.stats.save !== 'function') throw new TypeError("[ILAP] Invalid StatsAdapter provided");
-            if (!deps.nameExtractor || typeof deps.nameExtractor.get !== 'function') throw new TypeError("[ILAP] Invalid NameExtractorAdapter provided");
-            // Gate is optional, but if supplied it must be a valid adapter (the
-            // project's construction-time duck-typing contract).
-            if (deps.gate && typeof deps.gate.reserve !== 'function') throw new TypeError("[ILAP] Invalid GateAdapter provided");
+            const need = (adapter, fns, what) => {
+                if (!adapter || !fns.every(fn => typeof adapter[fn] === 'function')) {
+                    throw new TypeError(`[ILAP] ExploreAutomator needs deps.${what}`);
+                }
+            };
+            need(deps.api, ['ignore'], 'api');
+            need(deps.stats, ['save'], 'stats');                  // save(name, appid)
+            need(deps.nameExtractor, ['get'], 'nameExtractor');
+            need(deps.gate, ['reserve', 'reportRateLimited'], 'gate');
+            need(deps.settings, ['read', 'subscribe', 'disableQueue'], 'settings');
+            need(deps.ui, ['applyVisuals', 'clearStartPrompt', 'clearVisuals', 'removeToast',
+                'showFastForwardToast', 'showIgnoredToast', 'showStartPrompt', 'updateRunButtonMode'], 'ui');
+            need(deps.navGuard, ['authorizeNextStep', 'consumeAuthorization', 'getActiveAppid',
+                'getUserIntent', 'resetState', 'setActiveAppid', 'setIntent'], 'navGuard');
+            need(deps.context, ['getAppID', 'getGameContainer', 'getNextButton', 'isQueuePage'], 'context');
+            need(deps.analyzer, ['getState'], 'analyzer');
+            need(deps.decisionEngine, ['decide'], 'decisionEngine');
 
-            this.settings = deps.settings;
+            this.settings = deps.settings;   // explore-queue/utils.js QueueSettings
             this.ui = deps.ui;
             this.api = deps.api;
-            this.gate = deps.gate;   // { reserve() } — aggregate rate governor (optional)
+            this.gate = deps.gate;
             this.stats = deps.stats;
             this.nav = deps.navGuard;
             this.nameExtractor = deps.nameExtractor;
@@ -29,8 +40,28 @@
             
             this.processedSession = new Set();
             this.nextTimeoutId = null;
+            // Bumped by every stop, so an ignore waiting on the gate can tell it
+            // was stopped meanwhile.
+            this._stops = 0;
+            this._inFlight = null;
+            this._runAfterFlight = false;
+            // Sticky: set once the GLOBAL master is seen off on this page, which
+            // counts as leaving it — from then on nothing revives the page in place.
+            // Never cleared: an EQ advance is a full reload, so the next queue page
+            // is a new automator anyway.
+            this._leftByMaster = false;
             this.settingsListener = null;
-            this.currentSettings = {}; 
+            this.currentSettings = {};
+        }
+
+        // The fire-and-forget entry point, like the drainer's kick(): nothing
+        // awaits a pass — not the boot call, the URL poller, a master flip or a
+        // re-run after a flight — so a rejected storage read would surface as an
+        // unhandled rejection. In practice that is an extension update, which
+        // leaves this page's script running with no storage behind it and no
+        // pass worth retrying. `run()` stays awaitable for the unit specs.
+        kick() {
+            this.run().catch((e) => console.warn('[ILAP] EQ pass failed:', e));
         }
 
         async run() {
@@ -42,12 +73,19 @@
             this._bindManualNextButton(nextBtn);
 
             const appid = this.context.getAppID();
-            if (!appid || this.processedSession.has(appid)) return;
+            if (!appid) return;
+            // Re-entered while this game's ignore is in flight (a revive): run
+            // again once it settles, since a stopped ignore un-marks the game.
+            if (this._inFlight === appid) {
+                this._runAfterFlight = true;
+                return;
+            }
+            if (this.processedSession.has(appid)) return;
 
-            this.currentSettings = await this.settings.getSettings(['ilap_q_master', 'ilap_q_next', 'ilap_q_mode', 'ilap_master_enabled']);
+            this.currentSettings = await this.settings.read();
             this._setupListener();
-            
-            if (this.currentSettings.ilap_master_enabled === false || this.currentSettings.ilap_q_master === false) return;
+
+            if (!this.currentSettings.globalOn || !this.currentSettings.queueOn) return;
 
             const wasAuthorized = this.nav.consumeAuthorization();
             const intent = this.nav.getUserIntent();
@@ -57,7 +95,7 @@
                 const isSamePageReload = appid === this.nav.getActiveAppid();
 
                 if (!wasAuthorized && !isSamePageReload) {
-                    console.log('[ILAP] Unauthorized manual navigation detected. Resetting automation.');
+                    console.warn('[ILAP] Unauthorized manual navigation detected. Resetting automation.');
                     this._stopAutomation();
                     this._showStartPrompt();
                     return;
@@ -89,46 +127,54 @@
 
         _setupListener() {
             if (this.settingsListener) return;
-            this.settingsListener = (changes) => {
-                if (changes.ilap_q_mode) {
-                    this.currentSettings.ilap_q_mode = changes.ilap_q_mode.newValue;
-                    this.ui.updateRunButtonMode(changes.ilap_q_mode.newValue);
+            this.settingsListener = (change) => {
+                if (change.mode !== undefined) {
+                    this.currentSettings.mode = change.mode;
+                    this.ui.updateRunButtonMode(change.mode);
                 }
-                if (changes.ilap_q_next) {
-                    this.currentSettings.ilap_q_next = changes.ilap_q_next.newValue;
+                if (change.autoNext !== undefined) {
+                    this.currentSettings.autoNext = change.autoNext;
                 }
-                if (changes.ilap_q_master || changes.ilap_master_enabled) {
-                    this._handleMasterChange(changes);
+                if (change.queueOn || change.globalOn) {
+                    this._handleMasterChange(change);
                 }
             };
-            this.settings.subscribeToChanges(this.settingsListener);
+            this.settings.subscribe(this.settingsListener);
         }
 
         // React live when the queue/global master is toggled elsewhere (widget or
-        // popup): turning it off must tear down any Queue-Helper toast and stop
-        // automation; turning it back on re-shows the start prompt.
-        _handleMasterChange(changes) {
-            if (changes.ilap_q_master) this.currentSettings.ilap_q_master = changes.ilap_q_master.newValue;
-            if (changes.ilap_master_enabled) this.currentSettings.ilap_master_enabled = changes.ilap_master_enabled.newValue;
+        // popup). Either switch off stops automation and takes the toast. Only the
+        // GLOBAL one also strips the card's outline and badge and leaves the page for
+        // good; the queue toggle pauses in place, verdict still drawn, and resumes.
+        _handleMasterChange(change) {
+            const globalWasOff = !this.currentSettings.globalOn;
+            if (change.queueOn) this.currentSettings.queueOn = change.queueOn.now;
+            if (change.globalOn) this.currentSettings.globalOn = change.globalOn.now;
+            const globalOff = !this.currentSettings.globalOn;
+            // Off before this write (an earlier write, or already at boot) or off now.
+            if (globalWasOff || globalOff) this._leftByMaster = true;
 
-            const disabled = this.currentSettings.ilap_q_master === false
-                || this.currentSettings.ilap_master_enabled === false;
-
-            if (disabled) {
+            if (globalOff || !this.currentSettings.queueOn) {
                 this._stopAutomation();
                 this.ui.removeToast();
-            } else {
-                this.run();
+                if (globalOff) this.ui.clearVisuals();
+                return;
             }
+            // Re-enabled. Only the queue toggle's own false→on TRANSITION revives in
+            // place (onChanged also fires for same-value writes, and run() is not a
+            // no-op mid-flight), and only on a page the global master never left.
+            const queueReturned = change.queueOn && !change.queueOn.was;
+            if (queueReturned && !this._leftByMaster) this.kick();
         }
 
         _stopAutomation() {
+            this._stops++;
             this.nav.resetState();
             clearTimeout(this.nextTimeoutId);
         }
 
         _showStartPrompt() {
-            const currentMode = this.currentSettings.ilap_q_mode || 'bad';
+            const currentMode = this.currentSettings.mode;
 
             this.ui.showStartPrompt(
                 currentMode,
@@ -146,7 +192,7 @@
                         this._executeFastForward();
                     },
                     onDisable: () => {
-                        this.settings.updateSettings({ ilap_q_master: false });
+                        this.settings.disableQueue();
                     }
                 }
             );
@@ -161,8 +207,8 @@
         }
 
         async _executeLogic(appid) {
-            const mode = this.currentSettings.ilap_q_mode || 'bad';
-            const autoNext = !!this.currentSettings.ilap_q_next;
+            const mode = this.currentSettings.mode;
+            const autoNext = this.currentSettings.autoNext;
             
             const reviewState = this.analyzer.getState();
             const decision = this.decisionEngine.decide(reviewState, mode);
@@ -176,8 +222,22 @@
                 // (gate stop / failed POST) — otherwise the game is silently
                 // skipped for the rest of the session after a re-enable.
                 this.processedSession.add(appid);
-                const ignored = await this._performIgnore(appid, autoNext, mode);
+                this._inFlight = appid;
+                // Nothing awaits this (run() and the Run button fire it), and a
+                // throw that skipped the reset below would leave the latch set:
+                // every later run() on this page would stop at it. A throw counts
+                // as not landed, so the game stays retryable.
+                let ignored = false;
+                try {
+                    ignored = await this._performIgnore(appid, autoNext, mode);
+                } catch (e) {
+                    console.warn('[ILAP] EQ ignore failed:', e);
+                }
+                this._inFlight = null;
                 if (!ignored) this.processedSession.delete(appid);
+                const rerun = this._runAfterFlight;
+                this._runAfterFlight = false;
+                if (rerun && !ignored) this.kick();
             } else {
                 // Game is SPARED. 
                 // Apply visual badge and STOP. Do not show start prompt. Do not auto-next.
@@ -189,23 +249,22 @@
         // Resolves true only when the ignore actually landed — the caller keeps
         // the appid session-marked on true and un-marks it on false.
         async _performIgnore(appid, shouldNext, mode) {
-            // Reserve an aggregate rate slot first (paces EQ against the drainer
-            // and any DQ tabs). A stop verdict (master off / dead session) tears
-            // the automation down instead of leaving a zombie "running" toast
-            // behind a silent no-op.
-            if (this.gate) {
-                const slot = await this.gate.reserve();
-                if (!slot.ok) {
-                    this._stopAutomation();
-                    this.ui.removeToast();
-                    return false;
-                }
+            // Paced through the shared gate. A stop verdict tears the automation
+            // down rather than leaving a "running" toast over a silent no-op.
+            const stops = this._stops;
+            const slot = await this.gate.reserve();
+            if (!slot.ok) {
+                this._stopAutomation();
+                this.ui.removeToast();
+                return false;
             }
+            // The gate checks only the global master, and the wait can be minutes
+            // under a 429 penalty: Stop or the queue toggle may have come meanwhile.
+            if (stops !== this._stops) return false;
             const res = await this.api.ignore(appid, 0);
             if (!res || !res.ok) {
-                // A 429 is account-level throttling: escalate the shared gate
-                // penalty so the drainer and every other tab go quiet too.
-                if (res && res.rateLimited && this.gate && this.gate.reportRateLimited) {
+                // A 429 throttles the account: back every source off.
+                if (res && res.rateLimited) {
                     await this.gate.reportRateLimited(res.retryAfterMs);
                 }
                 return false;
@@ -214,9 +273,13 @@
             const gameContainer = this.context.getGameContainer();
             const name = this.nameExtractor.get(appid, gameContainer);
             
-            this.stats.save(name, "Explore Auto-Queue", appid);
-            
-            this.ui.applyVisuals('IGNORE', mode);
+            this.stats.save(name, appid);
+
+            // A stop during the POST: the ignore stands, the advance does not. So
+            // does the mark, unless the global master took the page's marks away.
+            const stopped = stops !== this._stops;
+            if (!stopped || this.currentSettings.globalOn) this.ui.applyVisuals('IGNORE', mode);
+            if (stopped) return true;
 
             const nextBtn = this.context.getNextButton();
 
@@ -228,8 +291,12 @@
         }
 
         _scheduleNextClick(buttonElement, delay) {
+            // ONE pending advance at a time, so _stopAutomation's clearTimeout
+            // always cancels it. Only same-document re-entry (_handleMasterChange
+            // → run()) could stack two; an EQ advance is a full page load.
+            clearTimeout(this.nextTimeoutId);
             this.nav.authorizeNextStep();
-            
+
             this.nextTimeoutId = setTimeout(() => {
                 buttonElement.click();
             }, delay);

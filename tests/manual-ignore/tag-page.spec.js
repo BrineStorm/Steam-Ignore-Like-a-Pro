@@ -1,6 +1,7 @@
 const { test, expect } = require('../_fixtures.js');
 const {
     waitForContentScript, interceptIgnoreApi, routeUserdata, DRAIN_TIMEOUT,
+    seedTagPage,
 } = require('./_helpers');
 const { clearExtensionStorage, setExtensionStorage } = require('../_extension.js');
 const { tagUrl } = require('../_tags.js'); // random tag page per navigation
@@ -35,37 +36,8 @@ const BLOCKS = [
     { name: 'bottom sale grid (sale_item_browser)', sel: '[class*="sale_item_browser"]' },
 ];
 
-async function scrollToLoad(page) {
-    for (let i = 0; i < 5; i++) { await page.mouse.wheel(0, 1200); await page.waitForTimeout(500); }
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForTimeout(800);
-}
-
-// Navigate, harvest the appids on the page, seed them into the session map, and
-// reload so the content script boots with them and badges their capsules. Returns
-// the seeded appid set.
-async function seedTagPage(page) {
-    await page.goto(tagUrl());
-    await waitForContentScript(page);
-    await scrollToLoad(page);
-
-    const ids = await page.evaluate(() => {
-        const s = new Set();
-        document.querySelectorAll('a[href*="/app/"]').forEach(a => {
-            const m = a.getAttribute('href').match(/\/app\/(\d+)/);
-            if (m) s.add(m[1]);
-        });
-        return Array.from(s).slice(0, 80);
-    });
-
-    await page.addInitScript((arr) => {
-        sessionStorage.setItem('ilap_session_map_v2', JSON.stringify(arr.map(i => [i, 0])));
-    }, ids);
-    await page.reload();
-    await waitForContentScript(page);
-    await scrollToLoad(page);
-    return ids;
-}
+// seedTagPage / scrollTagPage live in _helpers.js: the master-toggle spec drives
+// the very same page to assert that a disabled extension takes every badge back off.
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);

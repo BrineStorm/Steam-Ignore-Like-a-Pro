@@ -46,12 +46,12 @@
 
             let outcome = null;
             await this.store.mutateQueue((queue) => {
-                if (queue.some(j => j.type === 'undo')) { outcome = { kind: 'exists' }; return null; }
-                if (queue.length >= this.maxJobs) { outcome = { kind: 'full' }; return null; }
+                if (queue.some(j => this.store.jobType(j) === this.store.JOB_TYPE.UNDO)) { outcome = { kind: 'exists' }; return null; }
+                if (this.store.cappedCount(queue) >= this.maxJobs) { outcome = { kind: 'full' }; return null; }
                 outcome = { kind: 'added', total: appids.length };
                 queue.push({
                     id: 'job_undo_' + snapshotTs,
-                    type: 'undo',
+                    type: this.store.JOB_TYPE.UNDO,
                     curatorId: UNDO_ID,
                     curatorName: '',
                     appids,

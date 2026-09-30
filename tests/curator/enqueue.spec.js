@@ -179,7 +179,12 @@ test.describe('Curator — enqueue button', () => {
         const menu = page.locator('.ilap-curator-menu.open');
         await expect(menu.locator('[data-act="pause"]')).toContainText(/pause/i);
         await expect(menu.locator('[data-act="remove"]')).toBeVisible();
+        // Measured only once Steam's webfont has settled: the label is the
+        // button's width, and a measurement taken while it is still laid out in
+        // the fallback face compares two different fonts.
+        await page.evaluate(() => document.fonts.ready);
         const w0 = (await page.locator(BTN).boundingBox()).width;
+        const label0 = await page.locator(`${BTN} .ilap-cur-label`).textContent();
 
         // Pause flips the stored intent (paused — same write as the applet).
         await menu.locator('[data-act="pause"]').click();
@@ -191,11 +196,25 @@ test.describe('Curator — enqueue button', () => {
         await menu.locator('[data-act="pause"]').click();
         await expect.poll(async () => (await readQueue(context))[0].status).toBe('pending');
 
-        // Back in the exact starting state, the button width must be back to
-        // its starting value: every open→sync cycle used to feed the menu's
-        // min-width (button-derived, +2px of borders) back into the button,
-        // ratcheting both wider on each toggle.
-        await expect.poll(async () => (await page.locator(BTN).boundingBox()).width).toBe(w0);
+        // Back in the starting state, the button must not have GROWN: every
+        // open→sync cycle used to feed the menu's min-width (button-derived,
+        // +2px of borders) back into the button, ratcheting both wider on each
+        // toggle. Direction, not exact equality: a full run once produced
+        // 276.00006 → 275.00006 here, and the two product explanations were
+        // both measured and DISPROVEN — the control is not a flex item (its
+        // parent .curator_report is display:block, so flex-shrink would be a
+        // no-op), and its box is identical idle / hovered / focused / with the
+        // menu open (212px, padding 13/13, border 0/0). Whatever moved that
+        // pixel is in Steam's own rendering, not in this control, and the
+        // ratchet this test exists for made the button GROW. The floor still
+        // catches a collapse.
+        await expect.poll(async () => (await page.locator(BTN).boundingBox()).width)
+            .toBeLessThanOrEqual(w0);
+        expect((await page.locator(BTN).boundingBox()).width).toBeGreaterThan(w0 - 4);
+        // And the label is the button's width: a re-render that came back with a
+        // different string (the add-variant, or the same one spaced differently)
+        // would move the box for a reason that has nothing to do with the menu.
+        expect(await page.locator(`${BTN} .ilap-cur-label`).textContent()).toBe(label0);
     });
 
     test('Added state: Remove in the droplist drops the job and the button returns to the Add state', async ({ page, context }) => {
@@ -296,6 +315,34 @@ test.describe('Curator — enqueue button', () => {
         // And back — the subscriber keeps firing, not a one-shot.
         await setExtensionStorage(context, { ilap_lang: 'en' });
         await expect(label).toHaveText('Add to ignore queue');
+    });
+
+    test('Master OFF: the button is not injected; flipping it live removes and restores it', async ({ page, context }) => {
+        // A disabled extension leaves no control of its own on a Steam page. What
+        // is already STAGED is a different question and stays put — the toggle
+        // stops new work, it does not throw the queue away.
+        await setExtensionStorage(context, { ilap_master_enabled: false, ilap_curator_queue: [makeJob(CURATOR_ID)] });
+        await gotoCurator(page);
+        await page.locator('#global_action_menu').waitFor({ timeout: 20000 });
+        await page.waitForTimeout(2500);
+        await expect(page.locator(BTN)).toHaveCount(0);
+        // The seeded job is untouched by the flip.
+        await expect.poll(async () => (await readQueue(context)).length).toBe(1);
+
+        // Live re-enable puts the control back without a reload…
+        await setExtensionStorage(context, { ilap_master_enabled: true });
+        await expect(page.locator(BTN)).toBeVisible({ timeout: 20000 });
+        // …in its Added state, i.e. the storage sync of the fresh injection works.
+        await expect(page.locator(`${BTN} .ilap-cur-label`)).toHaveText('Added to ignore queue');
+
+        // …and turning it off again takes the button AND its <body>-level menu.
+        await expect(page.locator('#ilap-curator-style')).toHaveCount(1);
+        await setExtensionStorage(context, { ilap_master_enabled: false });
+        await expect(page.locator(BTN)).toHaveCount(0, { timeout: 5000 });
+        await expect(page.locator('.ilap-curator-menu')).toHaveCount(0);
+        // Nothing of the button outlives the switch, its stylesheet included.
+        await expect(page.locator('#ilap-curator-style')).toHaveCount(0);
+        await expect.poll(async () => (await readQueue(context)).length).toBe(1);
     });
 
     test('Logged out: the button is not injected at all', async ({ page, context }) => {

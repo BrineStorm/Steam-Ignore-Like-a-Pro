@@ -14,9 +14,12 @@
     // (`.ilap-push`, src/widget/main.js) is the same call: it looks like this
     // card but lives inside the widget's shadow root and is click-dismissable.
     //
-    // Callers pass READY HTML (the curator toast highlights the filter name in
-    // bold), so nothing is escaped here — a text-only caller escapes its own
-    // string through window.ILAP.Sanitizer.escapeHTML first.
+    // Two entry points, because the safe one has to be the one you reach for by
+    // default. showToast(TEXT) escapes for you and is what every plain-string
+    // caller wants; showToastHtml(HTML) renders markup and is for the single
+    // caller that needs it (the curator toast bolds the filter name). The split
+    // exists so this sink's safety stops depending on three separate modules all
+    // remembering to escape before they call in.
 
     const STYLE_ID = 'ilap-toast-style';
     const ICON_URL = chrome.runtime.getURL('assets/icons/icon48.png');
@@ -42,7 +45,7 @@
         (document.head || document.documentElement).appendChild(style);
     }
 
-    function showToast(html, duration) {
+    function showToastHtml(html, duration) {
         ensureStyle();
         const toast = document.createElement('div');
         toast.className = 'ilap-toast';
@@ -55,7 +58,13 @@
         }, duration || DEFAULT_MS);
     }
 
+    // The default: a plain string, escaped here so no caller has to remember.
+    function showToast(text, duration) {
+        return showToastHtml(window.ILAP.Sanitizer.escapeHTML(text), duration);
+    }
+
     window.ILAP = window.ILAP || {};
     window.ILAP.showToast = showToast;
+    window.ILAP.showToastHtml = showToastHtml;
 
 })();

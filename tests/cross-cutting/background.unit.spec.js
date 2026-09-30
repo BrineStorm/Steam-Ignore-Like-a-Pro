@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { logFromStorage } = require('../_ignore-log.js');
 
 // Phase-3 SW drain (src/background.js) as a Node unit — no browser. The --test
 // build swaps the background out entirely, so E2E never exercises this file;
@@ -202,8 +203,8 @@ test.describe('SW drain host (unit)', () => {
         expect(env.posts[0].sessionid).toBe('sess-1');
         expect(env.posts[0].ignore_reason).toBe('0');
         // The drained ignores landed in the undo log, attributed to the curator.
-        expect(env.data().ilap_ignore_log.map((e) => e.appid)).toEqual(['10', '11']);
-        expect(env.data().ilap_ignore_log[0].curatorId).toBe('c1');
+        expect(logFromStorage(env.data()).map((e) => e.appid)).toEqual(['10', '11']);
+        expect(logFromStorage(env.data())[0].curatorId).toBe('c1');
         // …and in the popup's total, through the SW's count-only shim: no name to
         // show and a job-sized batch, so the history stays a manual-swipe surface.
         expect(env.data().ilap_ignored_count).toBe(2);
@@ -241,7 +242,7 @@ test.describe('SW drain host (unit)', () => {
         expect(env.data().ilap_ignored_count).toBe(2);
         expect(env.data().ilap_ignored_history.map((h) => h.name)).toEqual(['Beta', 'Al pha One']);
         // Undo log attributes them to MI (name + source), not curator.
-        expect(env.data().ilap_ignore_log.map((e) => [e.appid, e.source, e.name || null])).toEqual([
+        expect(logFromStorage(env.data()).map((e) => [e.appid, e.source, e.name || null])).toEqual([
             ['10', 'mi', 'Al pha One'], ['11', 'mi', 'Beta'],
         ]);
     });
@@ -356,7 +357,7 @@ test.describe('SW drain host (unit)', () => {
         expect(env.posts.map((p) => p.appid)).toEqual(['480', '292030', '11']);
         expect(env.data().ilap_sw_halt).toBeFalsy();
         // The log keeps the honest record: two skipped markers, one real ignore.
-        expect(env.data().ilap_ignore_log.map((e) => [e.appid, e.skipped || null])).toEqual([
+        expect(logFromStorage(env.data()).map((e) => [e.appid, e.skipped || null])).toEqual([
             ['480', 'unavailable'], ['292030', 'unavailable'], ['11', null],
         ]);
         // The per-job skip counter is cleaned up with the finished job
@@ -397,6 +398,68 @@ test.describe('SW drain host (unit)', () => {
         env.fireAlarm(ALARM);
         await env.until(() => (env.data().ilap_curator_queue || []).length === 0, 15000);
         expect(env.posts.map((p) => p.appid)).toEqual(['10']);
+    });
+
+    test('a halted route keeps ONE slow alarm, and firing it is the retry', async () => {
+        // The sibling of the test above, for the stop that DOES write storage.
+        // The halt counter cannot tell a sessionid no page has refreshed from a
+        // connection that was down for twenty seconds — both arrive as a failed
+        // POST — so it fails closed on both. Clearing the alarm as well used to
+        // make "closed" mean "until the user opens a store page", which with no
+        // tab open is "never": the queue sat there silently. One hourly retry
+        // costs at most two refused POSTs and cannot burn an appid (the halt
+        // engages below MAX_FAILS).
+        let offline = true;
+        const env = loadBackground({
+            ilap_master_enabled: true,
+            ilap_sw_sid: 'sess-1',
+            ilap_curator_queue: [job()],
+        }, { postResult: () => (offline ? { ok: false, status: 0 } : { ok: true, status: 200 }) });
+
+        await env.until(() => env.data().ilap_sw_halt === true, 15000);
+        await env.settle();
+        expect(env.posts).toHaveLength(2);           // halted before MAX_FAILS
+        expect(env.data().ilap_curator_cursor_j1 || 0).toBe(0);
+
+        // Armed, and far out: this is the slow retry, not the 60 s standby one.
+        expect(env.alarms[ALARM], 'a halted route with work left must keep an alarm').toBeDefined();
+        expect(env.alarms[ALARM].when).toBeGreaterThan(Date.now() + 30 * 60 * 1000);
+
+        // The connection is back, and nothing wrote storage to say so. Firing the
+        // alarm clears the halt, and the write it makes is what kicks the pass.
+        offline = false;
+        env.fireAlarm(ALARM);
+        await env.until(() => env.data().ilap_sw_halt === false, 10000);
+        await env.until(() => (env.data().ilap_curator_queue || []).length === 0, 15000);
+        expect(env.posts.slice(2).map((p) => p.appid)).toEqual(['10', '11']);
+    });
+
+    test('a retry that still fails re-halts and arms the next hour', async () => {
+        // The other half of the hourly retry. If the cause was permanent — a
+        // sessionid no page has refreshed, Steam withdrawing the CORS echo the
+        // worker's fetch rests on — clearing the flag must cost at most two more
+        // refused POSTs and put the route back to sleep. Not stay awake retrying,
+        // and not end up awake with no alarm at all.
+        const env = loadBackground({
+            ilap_master_enabled: true,
+            ilap_sw_sid: 'stale',
+            ilap_curator_queue: [job()],
+        }, { postResult: () => ({ ok: false, status: 0 }) });
+
+        await env.until(() => env.data().ilap_sw_halt === true, 15000);
+        await env.settle();
+        expect(env.posts).toHaveLength(2);           // halted below MAX_FAILS
+        expect(env.alarms[ALARM]).toBeDefined();
+
+        env.fireAlarm(ALARM);
+        // Cleared, spent on two more refusals, halted again.
+        await env.until(() => env.data().ilap_sw_halt === false, 10000);
+        await env.until(() => env.data().ilap_sw_halt === true, 15000);
+        await env.settle();
+        expect(env.posts).toHaveLength(4);           // two per retry, never more
+        expect(env.data().ilap_curator_cursor_j1 || 0).toBe(0);   // no appid burned
+        expect(env.alarms[ALARM], 're-halted with work left must re-arm').toBeDefined();
+        expect(env.alarms[ALARM].when).toBeGreaterThan(Date.now() + 30 * 60 * 1000);
     });
 
     test('an unreachable login probe keeps the retry alarm — the drain is not stranded by a blip', async () => {

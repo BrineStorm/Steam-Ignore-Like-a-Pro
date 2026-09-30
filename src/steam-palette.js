@@ -4,27 +4,14 @@
 
     window.ILAP = window.ILAP || {};
 
-    // Steam's review-score palette, exposed as window.ILAP.SteamPalette and read
-    // by BOTH classifiers: the Explore Queue's ReviewAnalyzer (app page, the
-    // .game_review_summary rows) and the Discovery Queue's SlideScanner (the
-    // modal card). It used to be two tables that drifted apart, and the drift
-    // shipped: DQ kept the shades it was first probed at while Steam repainted
-    // the modal, so Keep High Score silently stopped ignoring anything. Steam
-    // itself now paints one palette on the app page, the DQ modal and its newer
-    // React surfaces alike, so one table is also the honest description.
+    // Steam's review-score palette, one table for both classifiers: the Explore
+    // Queue's ReviewAnalyzer (app page) and the Discovery Queue's SlideScanner
+    // (modal card). Steam paints one palette on both.
     //
-    // A pure constant crossing worlds, like src/escape.js — not storage plumbing
-    // and not a POST, which is why this one definition does not cut against the
-    // deliberate per-world duplication elsewhere.
-    //
-    // EACH BAND IS A SET, most recent first. Extra entries are shades Steam
-    // painted BEFORE the current one: they cost nothing (classification is
-    // fail-safe — a colour that matches nothing is SPARED, so a stale entry can
-    // only restore recognition, never invent it) and they mean a rollback, a
-    // partial rollout or a stale cached stylesheet does not silently disable
-    // ignoring for the user. The canary deliberately does NOT accept the older
-    // entries: the product survives a repaint quietly, the guard must still
-    // report it (tests/canary/steam-markup.spec.js).
+    // Each band is a set, current shade first. Older shades keep a rollback or a
+    // stale stylesheet from disabling ignoring, and cost nothing: a colour that
+    // matches nothing is spared. The canary checks the current shade only, so a
+    // repaint is still reported (tests/canary/steam-markup.spec.js).
     const SteamPalette = {
         BLUE: [
             'rgb(102, 192, 244)',

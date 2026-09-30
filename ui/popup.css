@@ -61,7 +61,14 @@ body {
     outline-offset: -1px;
 }
 
-.no-transition * { transition: none !important; }
+/* Boot guard: the panel is built unchecked/collapsed and only then gets the
+   stored state, so every restored control would animate itself into place on
+   open. `*` matches ELEMENTS only — the switch knob (.slider:before) and the
+   accordion chevron (summary::after) are pseudo-elements and need their own
+   selector, or they slide/rotate on every open while their host stays still. */
+.no-transition *,
+.no-transition *::before,
+.no-transition *::after { transition: none !important; }
 
 /* One-shot “just updated” welcome (ilap_update_glow, armed by src/migrate.js on
    the popup-migration update, consumed at the first popup bootstrap): a light
@@ -129,7 +136,18 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     background: #2a6cc6; color: #fff; border: none; border-radius: 3px;
     padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
 }
-#ui-wrapper.disabled { filter: grayscale(100%); opacity: 0.5; pointer-events: none; }
+/* Master toggle off — the LOOK. `.master-dim` is set by popup_main.js's
+   applyMasterDim on every child the markup does not mark `data-master-exempt`,
+   alongside the `inert` that actually takes the controls away; which blocks
+   survive is decided there, not here. The two left below are not elements that
+   code walks: the summary's chevron is a pseudo-element, and the header sits
+   OUTSIDE #ui-wrapper (the master switch lives in it), so the app icon takes the
+   dim from the wrapper's state instead. */
+.master-dim,
+#ui-wrapper.disabled > #settings-accordion > summary::after,
+#popup-root:has(#ui-wrapper.disabled) #ilap-header-icon {
+    filter: grayscale(100%); opacity: 0.5;
+}
 #count-link { color: var(--accent); text-decoration: underline; cursor: pointer; font-weight: 700; }
 
 .stat-row {
@@ -196,7 +214,7 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     font-size: 11px; font-weight: 600; line-height: 1.35; pointer-events: none;
     transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
 }
-.undo-btn-wrap:hover + .undo-tip { visibility: visible; opacity: 1; transition-delay: 0.4s; }
+.undo-btn-wrap:hover + .undo-tip { visibility: visible; opacity: 1; transition-delay: 2.5s; }
 /* While the droplist is open — the tooltip stays out of the way. */
 #popup-root:has(.undo-menu.open) .undo-tip { display: none; }
 
@@ -209,6 +227,10 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     cursor: default;
 }
 .undo-menu.open { display: block; }
+/* The droplist is a control panel, not prose: a drag across it must not select
+   its labels. Only the two fields stay selectable. */
+.undo-menu { user-select: none; }
+.undo-menu input { user-select: text; }
 /* The menu now anchors to #total-row (above the history-trigger) and overlays the
    Last-Ignored row; while it's open we suppress the history hover-tooltip wherever it is. */
 #popup-root:has(.undo-menu.open) .history-tooltip { display: none; }
@@ -223,7 +245,11 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     font-size: 11px; font-weight: 700; font-family: inherit;
     transition: background-color .15s ease, border-color .15s ease, color .15s ease;
 }
-.undo-chip:hover { background: #22303f; color: #fff; }
+/* Hover skips a disabled chip instead of being overridden after it — the same
+   choice as .queue-act below, so a dead stepper's look doesn't depend on rule
+   order. Inside :where() so the guard adds no specificity: .selected below must
+   still win over hover. */
+.undo-chip:hover:where(:not(:disabled)) { background: #22303f; color: #fff; }
 .undo-chip.selected { background: #1d3a59; border-color: var(--accent); color: #fff; }
 .undo-menu input {
     width: 52px; height: 26px; padding: 0 7px; min-width: 0;
@@ -232,7 +258,13 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     text-align: center; outline: none;
 }
 .undo-menu input:focus { border-color: var(--accent); }
-.undo-of { font-size: 10px; color: var(--muted); white-space: nowrap; flex: 1; }
+/* -[ N ]+ stepper. The field carries the undoable total as its own pale hint, which
+   keeps the row narrow enough for the longest translated Go button. Hold a stepper
+   to auto-repeat. */
+.undo-step { width: 26px; padding: 0; font-size: 15px; line-height: 1; flex: none; }
+.undo-step:disabled { opacity: .35; cursor: default; }
+#undo-count { flex: 1; width: auto; }
+.undo-menu input::placeholder { color: var(--muted); opacity: 1; }
 .undo-go {
     display: inline-flex; align-items: center; justify-content: center;
     height: 26px; padding: 0 9px; cursor: pointer; margin-left: auto;
@@ -370,7 +402,7 @@ details[open] > summary::after { transform: rotate(90deg); }
     text-transform: none; letter-spacing: normal; pointer-events: none;
     transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
 }
-.lang-chip:hover + .lang-tip { visibility: visible; opacity: 1; transition-delay: 0.4s; }
+.lang-chip:hover + .lang-tip { visibility: visible; opacity: 1; transition-delay: 2.5s; }
 /* While the language list is open the tooltip stays out of the way — same rule as
    the undo tip vs its droplist. */
 #popup-root:has(.lang-menu.open) .lang-tip { display: none; }
@@ -395,8 +427,29 @@ details[open] > summary::after { transform: rotate(90deg); }
     font-size: 11px; font-weight: 600; line-height: 1.35; pointer-events: none;
     transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
 }
-/* Same dwell as the language tip: a hint that fires on a passing cursor is noise. */
+/* Two dwells in this panel. 0.4 s, as here, for a hint on a control you aim at.
+   2.5 s for the two tips on controls the cursor CROSSES on its way somewhere else
+   (.undo-tip, .lang-tip): a short dwell there fires on every passing cursor. */
 .dq-next-row:hover .dq-next-tip { visibility: visible; opacity: 1; transition-delay: 0.4s; }
+
+/* The DQ master switch's own tooltip — aimed at, so the 0.4 s dwell. Anchored to the whole summary row
+   (the switch is ~42px and flush right, so a tip anchored to IT would run off the
+   window) and stretched across it, so it wraps rather than clips; the trigger stays
+   the switch alone. It hangs below the summary, over the
+   subcategory's own content when open and over Manual Ignore when collapsed. */
+#dq-section > summary { position: relative; }
+.dq-master-tip {
+    visibility: hidden; opacity: 0;
+    position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px;
+    padding: 5px 8px; z-index: 1001;
+    background: var(--inset); color: var(--text);
+    border: 1px solid var(--accent); border-radius: 6px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+    font-size: 11px; font-weight: 600; line-height: 1.35; letter-spacing: 0;
+    text-transform: none; pointer-events: none;
+    transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
+}
+.settings-subcat > summary .switch:hover + .dq-master-tip { visibility: visible; opacity: 1; transition-delay: 0.4s; }
 
 .settings-content { padding: 6px 0 0 0; display: flex; flex-direction: column; gap: 6px; }
 .section-title { font-size: 11px; color: var(--text); text-transform: uppercase; font-weight: 700; letter-spacing: .5px; }
@@ -584,6 +637,10 @@ select option { background: #16202d; color: #fff; }
 }
 .queue-act svg { display: block; width: 15px; height: 15px; }
 /* Hover = filled colour: pause→yellow, play→bright green, delete→IGNORED-badge red. */
-.queue-act.is-pause:hover { background: #ffd21a; color: #1a1300; border-color: #ffd21a; }
-.queue-act.is-play:hover  { background: #7ad13f; color: #0c1a07; border-color: #7ad13f; }
+.queue-act.is-pause:not([disabled]):hover { background: #ffd21a; color: #1a1300; border-color: #ffd21a; }
+.queue-act.is-play:not([disabled]):hover  { background: #7ad13f; color: #0c1a07; border-color: #7ad13f; }
 .queue-act-del:hover { background: #D32F2F; color: #fff; border-color: #D32F2F; }
+/* Pause/Resume with the extension off (Remove stays live). The hover fills above
+   skip [disabled] via :not() instead of being overridden here, so the dead
+   button's look doesn't depend on rule order. */
+.queue-act[disabled] { opacity: .35; cursor: default; }

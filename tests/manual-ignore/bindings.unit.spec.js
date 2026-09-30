@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { loadSettingsSchema } = require('../_settings-schema.js');
 
 // Binding resolution (src/manual-ignore/utils.js): which of the THREE actions —
 // ignore, already-played, un-ignore — a click or a swipe resolves to.
@@ -21,6 +22,7 @@ function loadMI() {
         path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'utils.js'), 'utf8');
     const sandbox = { window: {}, Math, Set, Array, Object, String };
     vm.createContext(sandbox);
+    loadSettingsSchema(sandbox);
     vm.runInContext(code, sandbox);
     return sandbox.window.ILAP.ManualIgnore;
 }
@@ -108,6 +110,16 @@ test.describe('modifier-click resolution', () => {
 
     test('the master toggle switches every binding off', () => {
         expect(clickOutcome({ unignoreKey: 'ctrlKey', enabled: false }, { ctrlKey: true })).toBeNull();
+    });
+
+    test("'off' is checked for all three bindings, not just the two", () => {
+        // `event['off']` is undefined, so a missing OFF check went unnoticed —
+        // until some event carries an `off` property and the binding the user
+        // switched off starts firing. Each one is asked the same question.
+        const offEvent = { off: true };
+        expect(clickOutcome({ defaultKey: 'off' }, offEvent)).toBeNull();
+        expect(clickOutcome({ platformKey: 'off' }, offEvent)).toBeNull();
+        expect(clickOutcome({ unignoreKey: 'off' }, offEvent)).toBeNull();
     });
 });
 
@@ -244,5 +256,121 @@ test.describe('circle resolution', () => {
     test('a circle bound to nothing fires nothing', () => {
         expect(circleOutcome({ defaultKey: 'ctrlKey', platformKey: 'off', unignoreKey: 'off' }))
             .toBeNull();
+    });
+});
+
+// ConfigService: how Manual Ignore reads its settings out of storage. Every value
+// passes the schema's rules on the way in.
+test.describe('ManualIgnore — ConfigService (unit)', () => {
+    // `opts` models the three ways a read can go wrong: the callback lands with
+    // chrome.runtime.lastError set (and, on Chrome, an undefined result), the
+    // callback lands with a result _updateInternal cannot read, and get() itself
+    // throws — the invalidated-extension-context case.
+    function loadConfig(stored, opts) {
+        opts = opts || {};
+        const code = fs.readFileSync(
+            path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'utils.js'), 'utf8');
+        const listeners = [];
+        const warned = [];
+        let reads = 0;
+        const sandbox = {
+            window: {}, Math, Set, Array, Object, String, Promise,
+            console: { warn: (...a) => warned.push(a.join(' ')) },
+            chrome: {
+                runtime: { lastError: opts.lastError },
+                storage: {
+                    local: { get: (keys, cb) => {
+                        reads++;
+                        if (opts.getThrows) throw new Error('Extension context invalidated.');
+                        cb(opts.result ? opts.result() : Object.assign({}, stored));
+                    } },
+                    onChanged: { addListener: (l) => listeners.push(l) },
+                },
+            },
+        };
+        vm.createContext(sandbox);
+        loadSettingsSchema(sandbox);
+        vm.runInContext(code, sandbox);
+        const defaults = { defaultKey: 'swipeRight', platformKey: 'swipeLeft', unignoreKey: 'zigzag',
+            enabled: true, maskEnabled: true };
+        const service = new sandbox.window.ILAP.ManualIgnore.ConfigService(defaults);
+        return { service, listeners, reads: () => reads, warned };
+    }
+
+    // A promise that never settles is the failure under test, so it needs a
+    // deadline of its own — an `await` on it would otherwise hang the runner
+    // until the suite timeout and report nothing useful.
+    const settles = (p, ms) => Promise.race([
+        p,
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('refresh() never settled')), ms || 2000)),
+    ]);
+
+    test('stored values are normalized; absent keys keep the defaults (a missing switch is ON)', async () => {
+        const { service } = loadConfig({
+            ilap_shortcut_key: 'swipeRightRight',   // a legacy value
+            ilap_platform_key: 'off',
+            ilap_unignore_key: 'bogus',             // hand-edited: keeps the current binding
+            ilap_mask_enabled: false,
+        });
+        const config = await service.init();
+        expect(config.defaultKey).toBe('swipeRight');
+        expect(config.platformKey).toBe('off');
+        expect(config.unignoreKey).toBe('zigzag');
+        expect(config.maskEnabled).toBe(false);
+        expect(config.enabled).toBe(true);          // ilap_master_enabled never written
+    });
+
+    test('only a change to a key it reads triggers a re-read', async () => {
+        // Without the filter every Steam tab re-read its config and swept the DOM
+        // on each cursor advance of a bulk drain.
+        const { service, listeners, reads } = loadConfig({});
+        await service.init();
+        let notified = 0;
+        service.onChange(() => { notified++; });
+        service.listen();
+        const before = reads();
+
+        listeners[0]({ ilap_curator_cursor_job_1: { newValue: 3 } }, 'local');
+        listeners[0]({ ilap_ignore_gate: { newValue: 1 } }, 'local');
+        listeners[0]({ ilap_mask_enabled: { newValue: false } }, 'sync');
+        await new Promise(r => setTimeout(r, 0));
+        expect(reads()).toBe(before);
+
+        listeners[0]({ ilap_mask_enabled: { newValue: false } }, 'local');
+        await new Promise(r => setTimeout(r, 0));
+        expect(reads()).toBe(before + 1);
+        expect(notified).toBe(1);
+    });
+
+    test('a read that errors resolves with the config we have — it must never hang', async () => {
+        // App.init() AWAITS this call, so a pending promise here is not a slow
+        // start, it is no start: setupInteractions() never runs, no gesture is
+        // ever wired, and boot()'s .catch has no rejection to report. Silent.
+        const { service } = loadConfig({}, {
+            lastError: { message: 'storage unavailable' },
+            result: () => undefined,          // what Chrome hands the callback on an error
+        });
+        const config = await settles(service.init());
+        expect(config.defaultKey).toBe('swipeRight');   // defaults, intact
+        expect(config.unignoreKey).toBe('zigzag');
+        expect(config.enabled).toBe(true);
+    });
+
+    test('...and so does a callback that throws with no lastError set', async () => {
+        // The belt to the lastError brace: whatever makes _updateInternal throw,
+        // the promise still settles and the page still boots on its defaults.
+        const { service, warned } = loadConfig({}, { result: () => undefined });
+        const config = await settles(service.init());
+        expect(config.platformKey).toBe('swipeLeft');
+        expect(warned.join(' ')).toContain('config read failed');
+    });
+
+    test('an invalidated context still REJECTS, so boot() reports it', async () => {
+        // Deliberately NOT swallowed: that page has no storage behind it any
+        // more, and marching on would wire listeners against a dead context
+        // instead of saying so once. The rejection is boot()'s to log.
+        const { service } = loadConfig({}, { getThrows: true });
+        await expect(service.init()).rejects.toThrow(/invalidated/i);
     });
 });

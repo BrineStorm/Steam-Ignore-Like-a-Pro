@@ -38,6 +38,60 @@ test.describe('Popup — main view', () => {
         await expect(page.locator('#ui-wrapper')).toHaveClass(/disabled/);
     });
 
+    test('Master toggle off: the header icon greys out, the language picker does not', async ({ page, context }) => {
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        await page.locator('#master-toggle + .slider').click();
+        await expect(page.locator('#ui-wrapper')).toHaveClass(/disabled/);
+
+        const styles = await page.evaluate(() => {
+            const of = (sel) => {
+                const cs = getComputedStyle(document.querySelector(sel));
+                return { filter: cs.filter, opacity: cs.opacity };
+            };
+            return {
+                icon: of('#ilap-header-icon'),
+                settingsLabel: of('#settings-accordion > summary > span'),
+                chip: of('.lang-chip'),
+            };
+        });
+        // The icon shares the header with the master switch, which must stay lit.
+        expect(styles.icon.filter).toContain('grayscale');
+        expect(styles.settingsLabel.filter).toContain('grayscale');
+        // The language picker is the one thing in that bar left untouched, so its
+        // droplist opens opaque instead of showing the page through itself.
+        expect(styles.chip.filter).toBe('none');
+        expect(styles.chip.opacity).toBe('1');
+
+        await page.locator('.lang-chip').click();
+        const menu = page.locator('.lang-chip .select-menu');
+        await expect(menu).toHaveClass(/open/);
+        expect(await menu.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+    });
+
+    test('the boot guard freezes the PSEUDO-elements too, not just their hosts', async ({ page, context }) => {
+        // The panel is built unchecked and collapsed, then handed the stored
+        // state — so .no-transition has to cover everything that moves. `*`
+        // matches elements only: the switch knob (.slider:before) and the
+        // accordion chevron (summary::after) are pseudo-elements, and without
+        // their own selector they slid/rotated into place on every open.
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        await expect(page.locator('#popup-root')).not.toHaveClass(/no-transition/);
+
+        const frozen = await page.evaluate(() => {
+            document.getElementById('popup-root').classList.add('no-transition');
+            const dur = (sel, pseudo) =>
+                getComputedStyle(document.querySelector(sel), pseudo).transitionDuration;
+            return {
+                knob: dur('#master-toggle + .slider', '::before'),
+                chevron: dur('#settings-accordion > summary', '::after'),
+            };
+        });
+        expect(frozen.knob).toBe('0s');
+        expect(frozen.chevron).toBe('0s');
+    });
+
     test('Total Ignored counter and Last Ignored name reflect storage', async ({ page, context }) => {
         await setExtensionStorage(context, {
             ilap_ignored_count: 42,
@@ -107,6 +161,57 @@ test.describe('Popup — main view', () => {
 
         await expect(page.locator('#count-link')).toHaveText('7');
         await expect(page.locator('#last-game')).toHaveText('Live Game');
+    });
+
+    test('storage reads follow what a write feeds: nothing for foreign keys, never the whole store', async ({ page, context }) => {
+        // The popup once answered every write with get(null): the whole store, the
+        // ignore log and the curator cache included, 1-3 times a second during a
+        // drain. Each write now reads only the keys its panel renders.
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        await expect(page.locator('#popup-root')).not.toHaveClass(/no-transition/);
+
+        // Record every read from here on, by the keys it asks for.
+        await page.evaluate(() => {
+            window.__reads = [];
+            const local = chrome.storage.local;
+            const get = local.get.bind(local);
+            local.get = (keys, cb) => {
+                window.__reads.push(keys === null ? null : [].concat(keys));
+                return get(keys, cb);
+            };
+        });
+        const reads = () => page.evaluate(() => window.__reads.splice(0));
+
+        // Keys no panel renders: the gate's stamps, the widget's own state, MI pulses.
+        await setExtensionStorage(context, {
+            ilap_ignore_gate: Date.now(),
+            ilap_ignore_gate_penalty: { until: 0 },
+            ilap_ignore_foreground_at: Date.now(),
+            ilap_widget_expanded_ts: Date.now(),
+            ilap_unignored: { appids: ['1'], ts: Date.now() },
+        });
+        await page.waitForTimeout(500);
+        expect(await reads()).toEqual([]);
+
+        // A drain's progress: the queue snapshot, not the settings or the log.
+        await setExtensionStorage(context, { ilap_curator_cursor_j1: 3 });
+        await expect.poll(async () => (await page.evaluate(() => window.__reads.length))).toBeGreaterThan(0);
+        await page.waitForTimeout(300);
+        const drainReads = (await reads()).flat();
+        expect(drainReads).toContain('ilap_curator_queue');
+        expect(drainReads).not.toContain('ilap_shortcut_key');
+
+        // A setting: the full render, by name.
+        await setExtensionStorage(context, { ilap_mask_enabled: false });
+        await expect.poll(async () => (await page.evaluate(() => window.__reads.length))).toBeGreaterThan(0);
+        await page.waitForTimeout(300);
+        const fullReads = await reads();
+        expect(fullReads).not.toContain(null);
+        expect(fullReads.flat()).toContain('ilap_mask_enabled');
+        // The curator cache is never part of it. (The log is: a full render
+        // redraws the undo applet, which reads the log by its own keys.)
+        expect(fullReads.flat().filter(k => /^ilap_curator_cache/.test(k))).toEqual([]);
     });
 
     test('a drain-only write repaints the total without rebuilding the popup', async ({ page, context }) => {

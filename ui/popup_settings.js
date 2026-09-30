@@ -2,9 +2,10 @@
 (function() {
     'use strict';
 
-    const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
+    const t = window.ILAP.t;
 
-    const normalizeShortcut = (v) => (window.ILAP && window.ILAP.normalizeShortcut) ? window.ILAP.normalizeShortcut(v) : v;
+    const Settings = window.ILAP.Settings;
+    const K = Settings.KEYS;
 
     // Shared HTML-escaper (src/escape.js, loaded first in popup.html + content_scripts).
     const esc = window.ILAP.Sanitizer.escapeHTML;
@@ -36,25 +37,17 @@
         });
     };
 
-    // Mini gradient swoosh (same look as the popup hint, smaller); flipped for a left swipe.
-    const miniSwoosh = (isRight, id) => {
-        const flip = isRight ? '' : ' style="transform:scaleX(-1)"';
-        return `<svg class="mini-arrow" viewBox="0 0 34 16" width="22" height="11" aria-hidden="true"${flip}><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3ca8fc" stop-opacity="0"/><stop offset=".5" stop-color="#3ca8fc" stop-opacity=".85"/><stop offset="1" stop-color="#3ca8fc"/></linearGradient></defs><path d="M2 8 C9 6.6 14 6.6 19 7.2 L19 2.5 L32 8 L19 13.5 L19 8.8 C14 9.4 9 9.4 2 8 Z" fill="url(#${id})"/></svg>`;
-    };
+    // The swipe and circle glyphs (ui/icons.js), at the select rows' mini size.
+    const Icons = window.ILAP_Icons;
+    const miniSwoosh = (isRight, id) =>
+        Icons.swoosh({ isRight, gradientId: id, cls: 'mini-arrow', width: 22, height: 11 });
 
-    // The un-ignore gesture's miniature: an open loop closing counter-clockwise
-    // into an arrowhead. It draws what the label says ("Right-Click + Circle") —
-    // a left-right arrow would have contradicted it — and counter-clockwise is
-    // the universal undo direction, which is exactly what the gesture does.
-    //
-    // The direction it shows is a drawing choice, not a rule: the detector reads
-    // the X axis alone, so a circle traced either way (and a plain right-left
-    // zigzag) is the same motion to it — see ZigzagTracker in
-    // manual-ignore/utils.js. Square box rather than the swoosh's 34x16 because
-    // a ring needs one; the blue, the arrowhead and the fade-in tail keep the
-    // two glyphs in the same family.
+    // The un-ignore gesture's miniature. It draws what the label says ("Right-Click
+    // + Circle") — a left-right arrow would have contradicted it — and
+    // counter-clockwise is the universal undo direction, which is exactly what the
+    // gesture does.
     const miniCircle = (id) =>
-        `<svg class="mini-arrow ring" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3ca8fc" stop-opacity=".35"/><stop offset="1" stop-color="#3ca8fc"/></linearGradient></defs><path d="M5.4 6.64 A6 6 0 1 0 10 4.5" fill="none" stroke="url(#${id})" stroke-width="2.4" stroke-linecap="round"/><path d="M0,-2.6 L4.6,0 L0,2.6 Z" fill="#3ca8fc" transform="translate(10,4.5) rotate(180)"/></svg>`;
+        Icons.ring({ gradientId: id, cls: 'mini-arrow ring', size: 16 });
 
     // Visible label for a shortcut value: the gestures get a motion miniature —
     // swipe directions replace their text arrow with a mini swoosh, the un-ignore
@@ -88,6 +81,15 @@
         off: ['shortcut_off_badge_only', null]
     });
 
+    // The <option> list of a shortcut select, in `values` order, labelled from the
+    // same table the display draws from. data-i18n lets a language switch relabel
+    // it like the rest of the panel.
+    const shortcutOptions = (values, labels) => values.map((v) => {
+        const key = (labels || SHORTCUT_LABELS)[v][0];
+        return `<option value="${v}" data-i18n="${key}">${esc(t(key))}</option>`;
+    }).join('');
+    const { BINDINGS, OFF } = Settings;
+
     function shortcutDisplay(value, slot, labels) {
         const entry = (labels || SHORTCUT_LABELS)[value];
         if (!entry) return '';
@@ -99,6 +101,30 @@
         const stripped = text.replace(/\s*[→←➜]\s*$/, '');
         return `${esc(stripped)} ${miniSwoosh(entry[1], 'sw-' + slot)}`;
     }
+
+    // The styled droplist drives the real <select> with a synthetic `change` of
+    // its own, so a bare isTrusted check on the handlers would refuse the app's
+    // own picks. What is let through is that one EVENT, not a window of time: a
+    // flag open for the length of the dispatch let page script, from a capture
+    // listener on the open shadow root, fire its own `change` at another select
+    // inside that window. An event mid-dispatch cannot be dispatched again, so a
+    // forged one is always another object. The value is checked as well, since
+    // the same listener could rewrite the picked select before ours reads it.
+    let selfPick = null;   // { ev, value }: the one dispatch in progress
+    const isSelfPick = (e) => !!selfPick && e === selfPick.ev && e.target.value === selfPick.value;
+    function dispatchPick(select, value) {
+        const ev = new Event('change', { bubbles: true });
+        selfPick = { ev, value };
+        try { select.dispatchEvent(ev); } finally { selfPick = null; }
+    }
+
+    // Where a forged `change` can actually come from. The widget hosts this
+    // panel in an OPEN shadow root on the Steam page, so page script can reach
+    // these elements; the toolbar popup is a chrome-extension:// page that no
+    // site can touch. Guarding only the reachable surface is what lets the
+    // <select>s stay the handle Playwright drives (selectOption dispatches an
+    // untrusted `change`) without leaving the exposed surface unguarded.
+    const isPageReachable = (root) => !!(root && root.host);
 
     // Replace the OS-rendered <select> list with a styled menu, while keeping the
     // real <select> as the value store (and the element Playwright drives in tests).
@@ -123,6 +149,7 @@
         });
 
         menu.addEventListener('click', (e) => {
+            if (!e.isTrusted) return;   // a real pick; tests click this for real too
             e.stopPropagation();
             const item = e.target.closest('.select-opt');
             if (!item || item.classList.contains('disabled')) return;
@@ -130,14 +157,16 @@
             const val = item.getAttribute('data-value');
             if (val !== select.value) {
                 select.value = val;
-                select.dispatchEvent(new Event('change', { bubbles: true }));
+                dispatchPick(select, val);
             }
         });
     }
 
     class SettingsManager {
-        constructor(root) {
+        // deps.applyMasterInert: the panel-wide master-off rule, owned by popup_main.js.
+        constructor(root, deps) {
             this.root = root;
+            this.applyMasterInert = deps.applyMasterInert;
             this.container = root.getElementById('settings-placeholder');
             // Close any open custom dropdown when clicking elsewhere within this root.
             root.addEventListener('click', () => this.closeAllMenus());
@@ -147,10 +176,17 @@
             this.root.querySelectorAll('.select-menu.open').forEach(m => m.classList.remove('open'));
         }
 
+        // Resolves once rendered (the widget waits on it before its first reveal).
         init() {
-            chrome.storage.local.get(null, (data) => {
-                this.render();
-                this.bindEvents(data);
+            return new Promise((resolve) => {
+                chrome.storage.local.get(Object.values(K).concat(Surface.KEY), (data) => {
+                    try {
+                        this.render();
+                        this.bindEvents(data);
+                    } finally {
+                        resolve();
+                    }
+                });
             });
         }
 
@@ -172,7 +208,7 @@
             // Steam desktop client, where there is no toolbar to host a popup —
             // the widget is forced there and the stored key is left untouched.
             const surfaceRow = Surface.isSteamClientUA(navigator.userAgent) ? '' : `
-                <div id="surface-row">
+                <div id="surface-row" data-master-exempt>
                     <label class="wide-switch">
                         <input type="checkbox" id="surface-toggle">
                         <div class="wide-track">
@@ -187,11 +223,17 @@
                 ${surfaceRow}
                 <details id="dq-section" class="settings-subcat">
                     <summary>
-                        <div class="section-title" data-i18n="your_discovery_queue">Your Discovery Queue</div>
-                        <label class="switch" data-i18n-title="tooltip_dq_master" title="Master toggle for Discovery Queue automation.">
-                            <input type="checkbox" id="q-master">
+                        <div class="section-title" id="dq-section-title" data-i18n="your_discovery_queue">Classic Discovery Queue</div>
+                        <!-- Own drawn tip, not a native title (in the widget the page
+                             draws that, outside the panel). With no title, the switch
+                             takes its accessible name from the heading and its
+                             description from the tip (aria-labelledby / aria-describedby). -->
+                        <label class="switch">
+                            <input type="checkbox" id="q-master"
+                                   aria-labelledby="dq-section-title" aria-describedby="dq-master-tip">
                             <span class="slider"></span>
                         </label>
+                        <span class="dq-master-tip" id="dq-master-tip" role="tooltip" data-i18n="tooltip_dq_master">Master toggle for Classic Discovery Queue automation.</span>
                     </summary>
                     <div class="subcat-content">
                         <div id="q-sub-settings">
@@ -240,14 +282,7 @@
                             <span style="flex: 1;" data-i18n="default_ignore">Default Ignore:</span>
                             <div class="select-shell">
                                 <span class="select-display" id="default-key-display"></span>
-                                <select id="default-key">
-                                    <option value="swipeRight" data-i18n="shortcut_swipe_right">Right-Click + Swipe &rarr;</option>
-                                    <option value="swipeLeft" data-i18n="shortcut_swipe_left">Right-Click + Swipe &larr;</option>
-                                    <option value="zigzag" data-i18n="shortcut_zigzag">Right-Click + Circle</option>
-                                    <option value="ctrlKey" data-i18n="shortcut_ctrl_left">Ctrl + Left-Click</option>
-                                    <option value="shiftKey" data-i18n="shortcut_shift_left">Shift + Left-Click</option>
-                                    <option value="altKey" data-i18n="shortcut_alt_left">Alt + Left-Click</option>
-                                </select>
+                                <select id="default-key">${shortcutOptions(BINDINGS)}</select>
                             </div>
                         </div>
 
@@ -255,61 +290,30 @@
                             <span id="p-label" style="flex: 1;" data-i18n="already_played">Already Played:</span>
                             <div class="select-shell">
                                 <span class="select-display" id="platform-key-display"></span>
-                                <select id="platform-key">
-                                    <option value="off" data-i18n="off">Off</option>
-                                    <option value="swipeRight" data-i18n="shortcut_swipe_right">Right-Click + Swipe &rarr;</option>
-                                    <option value="swipeLeft" data-i18n="shortcut_swipe_left">Right-Click + Swipe &larr;</option>
-                                    <option value="zigzag" data-i18n="shortcut_zigzag">Right-Click + Circle</option>
-                                    <option value="ctrlKey" data-i18n="shortcut_ctrl_left">Ctrl + Left-Click</option>
-                                    <option value="shiftKey" data-i18n="shortcut_shift_left">Shift + Left-Click</option>
-                                    <option value="altKey" data-i18n="shortcut_alt_left">Alt + Left-Click</option>
-                                </select>
+                                <select id="platform-key">${shortcutOptions([OFF].concat(BINDINGS))}</select>
                             </div>
                         </div>
 
-                        <!-- The one place the ZIGZAG is spelled out. The select itself
-                             names only the circle, in every locale: it is the gesture
-                             people will draw, and a two-name label in a 320px row reads
-                             like two settings. But the detector measures the X axis
-                             alone (ZigzagTracker), so a flat left-right zigzag is the
-                             same motion to it — genuinely useful on capsules too short
-                             to circle over, and undiscoverable from the label. A hover
-                             hint is where that belongs.
-                             It names NO rotation direction, deliberately. The detector
-                             sees X only, so a circle's rotation is invisible to it and
-                             both directions fire (asserted in zigzag.unit.spec.js) — but
-                             the glyph beside the label has to be drawn SOME way round,
-                             and it is drawn counter-clockwise for the undo convention.
-                             Saying "either way" was true and still wrong: it made the
-                             icon look like it meant something, and left the reader
-                             wondering which way it meant. Silence lets them copy the
-                             glyph and be right, with the other direction working anyway.
-                             A native title attribute, like the two Discovery-Queue rows
-                             above, and deliberately NOT one of our own drawn tips
-                             (.undo-tip / .lang-tip): the browser paints it outside the
-                             document, so the 320px panel and its overflow:hidden cannot
-                             clip it the way they clipped the undo hint into "Nothing to
-                             u…".
-                             That is also why this needs no entry in
-                             tests/popup/tooltips.spec.js — there is no edge to measure
-                             against. -->
+                        <!-- The select names only the circle, in every locale: it is the
+                             gesture people will draw, and a two-name label in a 320px row
+                             reads like two settings. The detector measures the X axis alone
+                             (ZigzagTracker), so a flat left-right zigzag is the same motion
+                             to it — genuinely useful on capsules too short to circle over.
+                             The glyph beside the label names NO rotation direction, and the
+                             row carries no hover hint at all: the detector sees X only, so
+                             a circle's rotation is invisible to it and both directions fire
+                             (asserted in zigzag.unit.spec.js), while the glyph has to be
+                             drawn SOME way round — counter-clockwise, for the undo
+                             convention. Silence lets the reader copy the glyph and be
+                             right, with the other direction working anyway. -->
                         <div class="stat-row">
-                            <span style="flex: 1;" data-i18n="solo_unignore"
-                                  data-i18n-title="tooltip_unignore_gesture"
-                                  title="Draw a circle over the capsule, or a left-right zigzag.">Un-ignore:</span>
+                            <span style="flex: 1;" data-i18n="solo_unignore">Un-ignore:</span>
                             <div class="select-shell">
                                 <span class="select-display" id="unignore-key-display"></span>
-                                <select id="unignore-key">
-                                    <option value="zigzag" data-i18n="shortcut_zigzag">Right-Click + Circle</option>
-                                    <option value="swipeRight" data-i18n="shortcut_swipe_right">Right-Click + Swipe &rarr;</option>
-                                    <option value="swipeLeft" data-i18n="shortcut_swipe_left">Right-Click + Swipe &larr;</option>
-                                    <option value="ctrlKey" data-i18n="shortcut_ctrl_left">Ctrl + Left-Click</option>
-                                    <option value="shiftKey" data-i18n="shortcut_shift_left">Shift + Left-Click</option>
-                                    <option value="altKey" data-i18n="shortcut_alt_left">Alt + Left-Click</option>
-                                    <!-- Still the 'off' value, but never a full off: the badge click is
-                                         hard-wired, so this option names it rather than saying "Off". -->
-                                    <option value="off" data-i18n="shortcut_off_badge_only">Off - only Click on Badge</option>
-                                </select>
+                                <!-- The circle first (it is this binding's default), and 'off' last
+                                     under its own label: the badge click is hard-wired, so it is
+                                     never a full off (UNIGNORE_LABELS). -->
+                                <select id="unignore-key">${shortcutOptions([Settings.DEFAULTS.UNIGNORE].concat(BINDINGS.filter(b => b !== Settings.DEFAULTS.UNIGNORE), OFF), UNIGNORE_LABELS)}</select>
                             </div>
                         </div>
                     </div>
@@ -342,39 +346,58 @@
             enhanceSelect(els.pSel.closest('.select-shell'), els.pSel, 'plat', this.root);
             enhanceSelect(els.uSel.closest('.select-shell'), els.uSel, 'unig', this.root, UNIGNORE_LABELS);
 
-            els.qMaster.addEventListener('change', () => {
-                chrome.storage.local.set({ ilap_q_master: els.qMaster.checked });
+            // Every control below writes a setting, so each one takes real user
+            // input only — page script on Steam can reach this panel through the
+            // widget's open shadow root and forge a `change` otherwise.
+            // Checkboxes take a plain isTrusted: nothing in this extension ever
+            // dispatches `change` at one, so the guard costs nothing anywhere.
+            // The selects go through userDriven, which also accepts the styled
+            // droplist's own dispatch, and stands down entirely on the toolbar
+            // popup — see isPageReachable.
+            const userDriven = (e) => e.isTrusted || isSelfPick(e) || !isPageReachable(this.root);
+            els.qMaster.addEventListener('change', (e) => {
+                if (!e.isTrusted) return;
+                chrome.storage.local.set({ [K.Q_MASTER]: els.qMaster.checked });
                 this._updateVisuals();
             });
-            els.qNext.addEventListener('change', () => chrome.storage.local.set({ ilap_q_next: els.qNext.checked }));
-            els.mask.addEventListener('change', () => chrome.storage.local.set({ ilap_mask_enabled: els.mask.checked }));
+            els.qNext.addEventListener('change', (e) => {
+                if (!e.isTrusted) return;
+                chrome.storage.local.set({ [K.Q_NEXT]: els.qNext.checked });
+            });
+            els.mask.addEventListener('change', (e) => {
+                if (!e.isTrusted) return;
+                chrome.storage.local.set({ [K.MASK]: els.mask.checked });
+            });
 
             if (els.surface) {
-                // Free switch in both directions: since the SW drain landed the
-                // queue no longer needs the on-page surface (or any Steam tab)
-                // to make progress, so a busy queue doesn't block popup mode.
-                els.surface.addEventListener('change', () => {
+                // Free in both directions: the queue drains without the on-page surface.
+                els.surface.addEventListener('change', (e) => {
+                    if (!e.isTrusted) return;
                     chrome.storage.local.set({
                         [Surface.KEY]: els.surface.checked ? 'popup' : 'widget'
                     });
                 });
             }
 
-            els.qMode.addEventListener('change', () => {
-                const val = els.qMode.checked ? 'all' : 'bad';
-                chrome.storage.local.set({ ilap_q_mode: val });
+            els.qMode.addEventListener('change', (e) => {
+                if (!e.isTrusted) return;
+                const val = els.qMode.checked ? Settings.Q_MODES.ALL : Settings.Q_MODES.BAD;
+                chrome.storage.local.set({ [K.Q_MODE]: val });
             });
 
             els.dSel.addEventListener('change', (e) => {
-                chrome.storage.local.set({ ilap_shortcut_key: e.target.value });
+                if (!userDriven(e)) return;
+                chrome.storage.local.set({ [K.SHORTCUT]: e.target.value });
                 this._updateVisuals();
             });
             els.pSel.addEventListener('change', (e) => {
-                chrome.storage.local.set({ ilap_platform_key: e.target.value });
+                if (!userDriven(e)) return;
+                chrome.storage.local.set({ [K.PLATFORM]: e.target.value });
                 this._updateVisuals();
             });
             els.uSel.addEventListener('change', (e) => {
-                chrome.storage.local.set({ ilap_unignore_key: e.target.value });
+                if (!userDriven(e)) return;
+                chrome.storage.local.set({ [K.UNIGNORE]: e.target.value });
                 this._updateVisuals();
             });
         }
@@ -390,9 +413,9 @@
          */
         _bindSubcategories(data) {
             const els = this.els;
-            const dqOpen = !!data.ilap_dq_open;
+            const dqOpen = !!data[K.DQ_OPEN];
             els.dqSection.open = dqOpen;
-            els.miSection.open = !!data.ilap_mi_open && !dqOpen; // enforce exclusivity on restore
+            els.miSection.open = !!data[K.MI_OPEN] && !dqOpen; // enforce exclusivity on restore
 
             // Persist each section's open state. Mutual exclusion is handled in the
             // click interceptor below — NOT here — because the native `toggle` event
@@ -400,9 +423,9 @@
             // both sections open for one paint (the panel jumps to full height, then
             // the sibling snaps shut — the flicker the user reported).
             els.dqSection.addEventListener('toggle', () =>
-                chrome.storage.local.set({ ilap_dq_open: els.dqSection.open }));
+                chrome.storage.local.set({ [K.DQ_OPEN]: els.dqSection.open }));
             els.miSection.addEventListener('toggle', () =>
-                chrome.storage.local.set({ ilap_mi_open: els.miSection.open }));
+                chrome.storage.local.set({ [K.MI_OPEN]: els.miSection.open }));
 
             // Drive open/close ourselves so opening one and collapsing the other
             // happen in the SAME synchronous frame (no flash) and their height
@@ -420,22 +443,18 @@
         _applyValues(data) {
             const els = this.els;
             if (!els) return;
-            els.qMaster.checked = data.ilap_q_master !== false;
-            els.qNext.checked = !!data.ilap_q_next;
-            els.qMode.checked = (data.ilap_q_mode === 'all');
-            els.mask.checked = !!data.ilap_mask_enabled;
-            els.dSel.value = normalizeShortcut(data.ilap_shortcut_key) || 'swipeRight';
-            els.pSel.value = normalizeShortcut(data.ilap_platform_key) || 'swipeLeft';
-            // Self-healing against a value the <select> has no option for (a
-            // hand-edited key): assigning an unknown value leaves .value empty,
-            // which is the cue to fall back to the default rather than render a
-            // blank control. The content script clamps the same way
-            // (UNIGNORE_KEYS in manual-ignore/utils.js) — the popup can't reach
-            // that module, so it asks its own option list instead.
-            els.uSel.value = data.ilap_unignore_key || 'zigzag';
-            if (!els.uSel.value) els.uSel.value = 'zigzag';
+            // Here rather than in popup_main because these rows are rebuilt by render().
+            this.applyMasterInert(this.container, !Settings.isOn(data[K.MASTER]));
+            els.qMaster.checked = Settings.isOn(data[K.Q_MASTER]);
+            els.qNext.checked = !!data[K.Q_NEXT];
+            els.qMode.checked = (data[K.Q_MODE] === Settings.Q_MODES.ALL);
+            els.mask.checked = Settings.isOn(data[K.MASK]);
+            els.dSel.value = Settings.normalizeShortcut(data[K.SHORTCUT]) || Settings.DEFAULTS.SHORTCUT;
+            els.pSel.value = Settings.normalizeShortcut(data[K.PLATFORM]) || Settings.DEFAULTS.PLATFORM;
+            // A value the page would not accept shows the default, as the page uses it.
+            els.uSel.value = Settings.normalizeUnignore(data[K.UNIGNORE]) || Settings.DEFAULTS.UNIGNORE;
             if (els.surface) {
-                els.surface.checked = (data.ilap_surface_mode === 'popup');
+                els.surface.checked = (data[Surface.KEY] === 'popup');
             }
             this._updateVisuals();
         }
@@ -444,10 +463,9 @@
             const els = this.els;
             if (!els) return;
             els.qSub.classList.toggle('dimmed', !els.qMaster.checked);
-            els.pLabel.classList.toggle('dimmed', els.pSel.value === 'off');
-            // All three selects are cross-guarded against each other: the un-ignore
-            // binding shares the swipes and modifier-clicks with the two ignore
-            // ones, so the same value can no longer be handed to two actions.
+            els.pLabel.classList.toggle('dimmed', els.pSel.value === OFF);
+            // All three selects share one vocabulary: a value taken by one is
+            // disabled in the others.
             this.syncSelectors(els.dSel, els.pSel, els.uSel);
             const dDisp = this.root.getElementById('default-key-display');
             const pDisp = this.root.getElementById('platform-key-display');
@@ -485,6 +503,6 @@
         }
     }
 
-    window.ILAP_Settings = { create: (root) => new SettingsManager(root), wireExclusiveDetails };
+    window.ILAP_Settings = { create: (root, deps) => new SettingsManager(root, deps), wireExclusiveDetails };
 
 })();

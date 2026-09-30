@@ -3,12 +3,13 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { loadSettingsSchema } = require('../_settings-schema.js');
 
 // ZigzagTracker (src/manual-ignore/utils.js) — the solo-un-ignore gesture.
 // utils.js is an IIFE that evals with no chrome/document, so it runs in Node.
 //
-// The tracker measures the X axis ONLY, the same rule the swipe uses (see
-// decisions.md: direction from dx alone is deliberate). The consequence is
+// The tracker measures the X axis ONLY, the same rule the swipe uses (direction
+// from dx alone is deliberate). The consequence is
 // asserted below: a circle traced clockwise and one traced counter-clockwise are
 // indistinguishable here, so the gesture is "a circle either way, or a zigzag".
 // What must NOT happen is a normal swipe — or hand jitter during one — being
@@ -18,6 +19,7 @@ function loadTracker() {
         path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'utils.js'), 'utf8');
     const sandbox = { window: {}, Math, Set, Array, Object, String };
     vm.createContext(sandbox);
+    loadSettingsSchema(sandbox);
     vm.runInContext(code, sandbox);
     return sandbox.window.ILAP.ManualIgnore.ZigzagTracker;
 }
@@ -75,7 +77,7 @@ test('a counter-clockwise circle fires', () => {
 
 test('a clockwise circle fires identically — X alone cannot tell them apart', () => {
     // Documented consequence of the X-only rule, not an oversight: distinguishing
-    // the two would need dy, which decisions.md rules out for these gestures.
+    // the two would need dy, which is ruled out for these gestures.
     expect(trace(circleXs(200, 45, -1))).toBe(true);
 });
 

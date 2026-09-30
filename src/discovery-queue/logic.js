@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 (function() {
     'use strict';
     
@@ -10,10 +10,7 @@
         IGNORE_ICON: "M600,96c"
     };
 
-    // Steam's review palette lives in ONE table now (src/steam-palette.js,
-    // loaded before this file in both manifests). It used to be copied here,
-    // and the copy went stale: Steam repainted Mixed in the modal, the constant
-    // stayed, and Keep High Score quietly stopped ignoring anything.
+    // Steam's review palette (src/steam-palette.js).
     const PALETTE = window.ILAP && window.ILAP.SteamPalette;
 
     const TIMING = {
@@ -21,18 +18,18 @@
         CONTINUE_CLICK_MS: 2500,        // wait after clicking a "Continue" interstitial
         NEXT_CLICK_MS: 800,             // wait after advancing to the next slide
         IGNORE_CLICK_MS: 150,           // wait after clicking the Ignore button
-        ACTIVE_STATE_TIMEOUT_MS: 2500,  // max wait for the Ignore button to flip to active
         CONFIRM_PRIMARY_MS: 1000,       // primary: wait for the button to reflect "ignored" before any request
         CONFIRM_POLL_MS: 600,           // fallback: settle delay before the FIRST userdata read; doubles per miss
         CONFIRM_MAX_GETS: 3             // fallback: hard cap on userdata GETs per unconfirmed ignore
     };
 
-    // Safety valve: if we click "Continue" this many times in a row without a
-    // single confirmed ignore in between, the interstitial handling has gone wrong
-    // (e.g. a mis-targeted button) — stop instead of busy-looping. The streak is
-    // pre-incremented before the click, so exactly MAX clicks are performed and
-    // the (MAX+1)-th is refused; each confirmed ignore resets the streak.
+    // This many "Continue" clicks in a row with no confirmed ignore means the
+    // interstitial handling is wrong: stop rather than busy-loop. Exactly MAX
+    // clicks happen; an ignore resets the streak.
     const MAX_CONTINUE_STREAK = 3;
+
+    // Last Ignored's name for a card no lookup could read.
+    const UNKNOWN_NAME = 'Unknown Game';
 
     class SlideScanner {
         // A node qualifies as a queue slide only if it actually carries a game
@@ -49,12 +46,9 @@
         // the nearest ancestor whose children are the sibling prev/current/next
         // cards (>2 children, at least two holding a game link).
         //
-        // NB this "≥2 children with a game link" test is deliberately NOT applied
-        // to the hashed container in _getCenterSlot. At the end-of-queue
-        // interstitial the centre slot holds no card, and whether BOTH remaining
-        // neighbours still do is exactly the thing that could not be relied on —
-        // failing the test there would fall through to this fallback, which is
-        // the stale-card infinite loop _getCenterSlot was changed to fix.
+        // Not applied to the hashed container in _getCenterSlot: at the end of
+        // the queue its neighbours may hold no cards either, and falling through
+        // to this fallback would re-find a stale card.
         static _findCarousel(node) {
             for (let el = node.parentElement; el; el = el.parentElement) {
                 const kids = Array.from(el.children);
@@ -73,13 +67,9 @@
         // reached) whose controls must never be clicked.
         static _getCenterSlot(dialog) {
             // PRIMARY — the hashed carousel container; children[2] is the centered
-            // slot. Once that container has rendered its carousel it is
-            // AUTHORITATIVE, including when the slot holds no game card. Falling
-            // through to the fallback there used to re-derive a stale,
-            // already-passed card from a leftover Ignore icon — the loop then read
-            // that card's button as "already ignored", clicked Next (a no-op on
-            // the interstitial) and spun forever, never reaching the Continue
-            // branch.
+            // slot. Once rendered it is authoritative, even when the slot holds no
+            // card: the fallback would find a stale, already-passed card from a
+            // leftover Ignore icon, and the loop would click Next forever.
             const hashed = dialog.querySelector('._3q6eNRFBrPSFSGEn8uRFZ3');
             if (hashed && hashed.children.length > 2) return hashed.children[2];
 
@@ -138,16 +128,9 @@
         // button): Done sits left, the highlighted Continue sits right.
         // Language-independent (no text match).
         //
-        // The search is SCOPED to that slot, and only while it holds no game card
-        // — i.e. exactly the state getActiveSlide reports as "no active slide".
-        // That is the whole safety story: a dialog-wide search had nothing tying
-        // the click target to the interstitial, so whenever the caller reached
-        // this branch with a card on screen (Steam renaming the Ignore icon path
-        // is enough) the rightmost leaf button was the card's own — live values
-        // seen while probing: "Install Demo", "Undo", "Very Positive(9,840
-        // English Reviews)". Clicking those is worse than stopping. Off-screen
-        // neighbour cards carry the same controls and are out of reach for the
-        // same reason.
+        // Only inside that slot, and only while it holds no game card: with a card
+        // on screen the rightmost leaf button is the card's own ("Install Demo",
+        // "Undo", a review summary), and clicking one is worse than stopping.
         static getContinueButton(dialog) {
             const slot = SlideScanner._getCenterSlot(dialog);
             if (!slot || SlideScanner._isSlide(slot)) return null;
@@ -168,7 +151,7 @@
         }
 
         static getGameInfo(slide, nameExtractorAdapter) {
-            let name = "Unknown Game";
+            let name = null;
             
             const links = slide.querySelectorAll('a[href*="/app/"]');
             for (const link of links) {
@@ -181,12 +164,13 @@
                 }
             }
 
-            if (name === "Unknown Game") {
+            if (!name) {
                 const title = slide.querySelector('div[class*="StoreSaleWidgetTitle"]');
                 if (title) {
                     name = title.textContent.trim();
-                } else if (nameExtractorAdapter) {
-                    name = nameExtractorAdapter.get(0, slide);
+                } else {
+                    const appid = SlideScanner.getAppId(slide);
+                    if (appid) name = nameExtractorAdapter.get(appid, slide);
                 }
             }
 
@@ -202,7 +186,7 @@
                 
                 const checkColor = (el) => {
                     const color = getComputedStyle(el).color;
-                    return !!PALETTE && PALETTE.isBad(color);
+                    return PALETTE.isBad(color);
                 };
 
                 if (checkColor(reviewLink) || Array.from(reviewLink.querySelectorAll('*')).some(c => checkColor(c))) {
@@ -215,7 +199,7 @@
                 }
             }
 
-            return { name, isPositive };
+            return { name: name || UNKNOWN_NAME, isPositive };
         }
 
         static getAppId(slide) {
@@ -227,17 +211,32 @@
     }
 
     class DiscoveryQueueAutomator {
-        constructor(apiAdapter, statsAdapter, nameExtractorAdapter, gateAdapter) {
-            if (!apiAdapter || typeof apiAdapter.ignore !== 'function') throw new TypeError("[ILAP] Invalid ApiAdapter passed to DiscoveryQueueAutomator");
-            if (!statsAdapter || typeof statsAdapter.save !== 'function') throw new TypeError("[ILAP] Invalid StatsAdapter passed to DiscoveryQueueAutomator");
-            if (!nameExtractorAdapter || typeof nameExtractorAdapter.get !== 'function') throw new TypeError("[ILAP] Invalid NameExtractorAdapter passed to DiscoveryQueueAutomator");
-            // Gate is optional, but a supplied one must be a valid adapter.
-            if (gateAdapter && typeof gateAdapter.reserve !== 'function') throw new TypeError("[ILAP] Invalid GateAdapter passed to DiscoveryQueueAutomator");
+        // No api adapter: DQ never POSTs itself — its click makes Steam's own page
+        // fire the ignore. What it reads is userdata, to confirm that ignore landed.
+        //   userdata       { fetchIgnored() → Promise<Set<appid>> }
+        //   stats          { save(name, appid) }
+        //   nameExtractor  { get(appid, el) → string }
+        //   gate           { reserve() → Promise<{ ok }> }, the shared rate governor
+        constructor(deps) {
+            const need = (adapter, fn, what) => {
+                if (!adapter || typeof adapter[fn] !== 'function') {
+                    throw new TypeError(`[ILAP] DiscoveryQueueAutomator needs deps.${what}.${fn}`);
+                }
+            };
+            need(deps.userdata, 'fetchIgnored', 'userdata');
+            need(deps.stats, 'save', 'stats');
+            need(deps.nameExtractor, 'get', 'nameExtractor');
+            need(deps.gate, 'reserve', 'gate');
+            // Without the palette no review reads as bad: Keep High Score would
+            // silently ignore nothing, the 1.2.2 failure.
+            if (!PALETTE || typeof PALETTE.isBad !== 'function') {
+                throw new TypeError('[ILAP] DiscoveryQueueAutomator needs window.ILAP.SteamPalette');
+            }
 
-            this.api = apiAdapter;
-            this.stats = statsAdapter;
-            this.nameExtractor = nameExtractorAdapter;
-            this.gate = gateAdapter;   // { reserve() } — aggregate rate governor (optional)
+            this.userdata = deps.userdata;
+            this.stats = deps.stats;
+            this.nameExtractor = deps.nameExtractor;
+            this.gate = deps.gate;
             
             this.isRunning = false;
             this.processedCount = 0;
@@ -289,7 +288,9 @@
             // of the cross-tab cap (2) until the tab closes.
             try {
                 while (this.isRunning) {
-                    const dialog = document.querySelector('div[role="dialog"]');
+                    // The controller's selector (main.js): a bare div[role="dialog"]
+                    // takes the first dialog on the page, which need not be this one.
+                    const dialog = document.querySelector('.FullModalOverlay div[role="dialog"]');
                     if (!dialog) break;
 
                     const result = await this._processCurrentSlide(dialog);
@@ -342,18 +343,12 @@
 
             const appid = SlideScanner.getAppId(slide);
 
-            // Reserve an aggregate rate slot before the click. Clicking Steam's own
-            // Ignore icon makes the PAGE fire an ignore POST (confirmed),
-            // so DQ is a rate source too — it must pace against the drainer/EQ. A
-            // stop verdict (master off / dead session) ends the loop cleanly.
-            if (this.gate) {
-                const slot = await this.gate.reserve();
-                if (!slot.ok) return false;
-                // The reservation can wait out several paced slots; a Stop click
-                // (or the master-off teardown) landing during that wait must not
-                // be followed by one more ignore.
-                if (!this.isRunning) return false;
-            }
+            // The click makes Steam's page POST the ignore, so DQ paces through the
+            // shared gate like every other source. A stop verdict ends the loop, and
+            // so does a Stop landing during the wait.
+            const slot = await this.gate.reserve();
+            if (!slot.ok) return false;
+            if (!this.isRunning) return false;
 
             // Ignore by a LIVE click on the prohibition icon (our code sends no POST;
             // Steam's page JS does, in response to the click).
@@ -366,7 +361,7 @@
             this.processedCount++;
             this._continueStreak = 0;   // real progress → reset the Continue guard
             this._notifyUI();
-            this.stats.save(gameInfo.name, "Queue", appid);
+            this.stats.save(gameInfo.name, appid);
 
             // The confirm poll above can span seconds; a Stop click landing in
             // that window must not be followed by one more queue advance. (The
@@ -417,7 +412,7 @@
                 // Shared reader resolves to a Set of ignored appids, or an empty
                 // Set on any transient failure — a failed read just spends one
                 // attempt from the cap.
-                const ignored = await window.ILAP.fetchIgnoredApps();
+                const ignored = await this.userdata.fetchIgnored();
                 if (ignored.has(key)) return true;
                 delay *= 2;
             }
@@ -430,7 +425,7 @@
             }
         }
 
-        _clickWithDelay(element, delay = 1000) {
+        _clickWithDelay(element, delay) {
             return new Promise(resolve => {
                 if (element) element.click();
                 setTimeout(resolve, delay);
@@ -451,7 +446,7 @@
             return hashedClasses.length >= 2;
         }
 
-        _waitForActiveState(element, timeout = TIMING.ACTIVE_STATE_TIMEOUT_MS) {
+        _waitForActiveState(element, timeout) {
             return new Promise(resolve => {
                 if (this._isButtonActive(element)) return resolve(true);
                 const obs = new MutationObserver(() => {

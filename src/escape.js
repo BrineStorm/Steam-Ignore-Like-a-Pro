@@ -2,18 +2,10 @@
 (function() {
     'use strict';
 
-    // The extension's string-boundary hygiene, exposed as window.ILAP.Sanitizer
-    // and shared by ALL THREE worlds: loaded before src/utils.js in the
-    // content_scripts list, first in popup.html (which does not load utils.js),
-    // and first in the service worker's importScripts (which loads neither).
-    // Everything here is pure string work with no chrome.* or DOM dependency —
-    // that is exactly why it can be one definition, unlike the storage shims and
-    // lease math that are knowingly duplicated per world (see the canonical note
-    // in src/curator/store.js).
+    // Pure helpers for all three worlds (loaded first everywhere): escaping, name
+    // sanitizing, the lease owner id, and the per-context write chain.
     function escapeHTML(str) {
-        // Only "nothing to render" becomes the empty string: a falsy-but-real
-        // value (0, false) must survive as its own text, or a caller escaping a
-        // count silently loses the zero.
+        // Only null/undefined become '': a count of 0 must still render.
         if (str == null) return '';
         return String(str)
             .replace(/&/g, '&amp;')
@@ -23,24 +15,48 @@
             .replace(/'/g, '&#039;');
     }
 
-    // Plain-text boundary normalizer for names captured from Steam's DOM (game
-    // titles, curator names) before they are persisted to storage. Render paths
-    // already escape, but stripping tag delimiters + control chars and clamping
-    // length HERE means a future render path that forgets to escape can't become
-    // a stored-XSS sink, and a pathological name can't bloat storage.
+    // Names from Steam's DOM, before storage: render paths escape anyway, but a
+    // path that forgets cannot become a stored-XSS sink, and length is bounded.
     const NAME_MAX_LEN = 120;
     function sanitizeName(str, maxLen) {
         return String(str == null ? '' : str)
             .replace(/[<>]/g, '')                    // no tag delimiters survive
             .replace(/\p{Cc}/gu, ' ')                 // drop control chars
+            // Bidi embeddings, overrides and isolates. A name is third-party
+            // text that lands in the popup history and the badge tooltip, and
+            // an unterminated RLO reverses the text AROUND it. Deliberately not
+            // all of \p{Cf}: ZWJ/ZWNJ live there too and are load-bearing in
+            // Indic and Persian scripts and in emoji sequences, so the cut is
+            // the bidi set alone. Removed, not spaced — invisible either way.
+            .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
             .replace(/\s+/g, ' ')                    // collapse runs of whitespace
             .trim()
             .slice(0, maxLen || NAME_MAX_LEN);
+    }
+
+    // Collision-resistant per-context owner id for storage leases/slots (the
+    // curator drain lease, the DQ registry slot); the prefix names the subsystem.
+    const newOwnerId = (prefix) =>
+        prefix + Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+    // A write chain for one context: each fn starts once the previous one has
+    // settled, so overlapping read-modify-writes cannot lose an update. The
+    // returned promise is fn's own, rejection included; a failure does not wedge
+    // the chain. Across contexts there is no CAS, so this is per context only.
+    function serialChain() {
+        let chain = Promise.resolve();
+        return (fn) => {
+            const run = chain.then(fn);
+            chain = run.catch(() => {});
+            return run;
+        };
     }
 
     window.ILAP = window.ILAP || {};
     window.ILAP.Sanitizer = window.ILAP.Sanitizer || {};
     window.ILAP.Sanitizer.escapeHTML = escapeHTML;
     window.ILAP.Sanitizer.sanitizeName = sanitizeName;
+    window.ILAP.newOwnerId = newOwnerId;
+    window.ILAP.serialChain = serialChain;
 
 })();

@@ -11,7 +11,7 @@ const {
 const RU_TOTAL = 'Всего скрыто:';
 const DE_TOTAL = 'Insgesamt ignoriert:';
 const EN_TOTAL = 'Total Ignored:';
-const RU_DQ_TITLE = 'Очередь рекомендаций';
+const RU_DQ_TITLE = 'Классическая очередь рекомендаций';
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
@@ -74,7 +74,7 @@ test.describe('Popup — language switch', () => {
 
         await page.locator('#settings-accordion > summary').click();
         await page.locator('#dq-section summary').waitFor({ timeout: 5000 });
-        await expect(page.locator('[data-i18n="your_discovery_queue"]')).toHaveText('Your Discovery Queue');
+        await expect(page.locator('[data-i18n="your_discovery_queue"]')).toHaveText('Classic Discovery Queue');
 
         await page.locator('#lang-quick').selectOption('ru');
         await page.waitForTimeout(400);

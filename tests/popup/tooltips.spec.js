@@ -43,6 +43,13 @@ async function useLocale(page, context, code) {
 // Park the cursor in a corner that belongs to no tooltip trigger.
 const unhover = (page) => page.mouse.move(2, 2);
 
+// The undo and language tips deliberately wait 2.5s before they appear (see the
+// dedicated test below). What THESE walks measure is geometry, not patience, so
+// they drop the delay rather than paying it 19 times per locale list.
+const dropTipDelay = (page) => page.addStyleTag({
+    content: '#undo-tip, #lang-tip { transition-delay: 0s !important; }',
+});
+
 // Hover a trigger until ITS tooltip is actually up. The retry is not "wait a bit
 // longer": every step here writes storage and the popup re-renders on onChanged,
 // and a re-render that swaps the node out from under a STATIONARY cursor leaves
@@ -97,6 +104,7 @@ test.describe('Popup — our own tooltips fit the panel', () => {
     test('the undo tooltip fits in every locale, enabled and disabled alike', async ({ page, context }) => {
         test.setTimeout(3 * 60 * 1000);
         await openPopup(page, context);
+        await dropTipDelay(page);
 
         const locales = await shippedLocales(page);
         expect(locales.length, 'the locale list should not have collapsed').toBeGreaterThan(15);
@@ -125,6 +133,7 @@ test.describe('Popup — our own tooltips fit the panel', () => {
     test('the language tooltip is ours, not the browser title, and fits in every locale', async ({ page, context }) => {
         test.setTimeout(3 * 60 * 1000);
         await openPopup(page, context);
+        await dropTipDelay(page);
 
         // The native bubble is gone: nothing on the chip carries a `title`.
         await expect(page.locator('.lang-chip')).not.toHaveAttribute('title', /./);
@@ -140,6 +149,35 @@ test.describe('Popup — our own tooltips fit the panel', () => {
 
             await hoverForTip(page, '.lang-chip', '#lang-tip', code);
             await expectFits(page, '#lang-tip', code);
+            await unhover(page);
+        }
+    });
+
+    test('the DQ master tooltip is ours, not the browser title, and fits in every locale', async ({ page, context }) => {
+        test.setTimeout(3 * 60 * 1000);
+        await openPopup(page, context);
+
+        // The subcategory summary is visible as soon as SETTINGS is open — the
+        // section itself can stay collapsed, which is where the tip has the least
+        // room under it (it hangs over the Manual Ignore row).
+        await page.locator('#settings-accordion > summary').click();
+        await expect(page.locator('#dq-section')).toBeVisible();
+
+        // The native bubble is gone: nothing on the switch carries a `title`.
+        await expect(page.locator('#dq-section > summary .switch')).not.toHaveAttribute('title', /./);
+
+        const locales = await shippedLocales(page);
+
+        for (const code of locales) {
+            await useLocale(page, context, code);
+
+            const expected = await page.evaluate(() => window.ILAP.t('tooltip_dq_master'));
+            await expect(page.locator('.dq-master-tip')).toHaveText(expected);
+
+            // Like the Auto-advance tip this one WRAPS inside the row it is
+            // stretched across, so the measured box is the wrapped one.
+            await hoverForTip(page, '#dq-section > summary .switch', '.dq-master-tip', code);
+            await expectFits(page, '.dq-master-tip', code);
             await unhover(page);
         }
     });
@@ -172,8 +210,24 @@ test.describe('Popup — our own tooltips fit the panel', () => {
         }
     });
 
+    test('the undo and language tips wait 2.5s before they appear', async ({ page, context }) => {
+        // Both sit on controls the cursor crosses on its way elsewhere, so they
+        // hold back far longer than the 0.4s the rest of the panel uses.
+        await setExtensionStorage(context, { ilap_ignore_log: [logEntry(10)] });
+        await openPopup(page, context);
+
+        for (const [trigger, tip] of [['.undo-btn-wrap', '#undo-tip'], ['.lang-chip', '#lang-tip']]) {
+            await unhover(page);
+            await page.locator(trigger).hover();
+            await page.waitForTimeout(1000);
+            await expect(page.locator(tip), `${tip} must still be down after 1s`).toBeHidden();
+            await expect(page.locator(tip)).toBeVisible({ timeout: 4000 });
+        }
+    });
+
     test('opening the language list hides the tooltip instead of stacking it', async ({ page, context }) => {
         await openPopup(page, context);
+        await dropTipDelay(page);
 
         await hoverForTip(page, '.lang-chip', '#lang-tip', 'default');
 

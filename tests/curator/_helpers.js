@@ -4,6 +4,7 @@
 // needs the same pair now that a swipe drains through this very drainer.
 const { interceptIgnoreApi, routeUserdata } = require('../_steam-routes.js');
 const { getExtensionStorage } = require('../_extension.js');
+const { logFromStorage } = require('../_ignore-log.js');
 
 // --- queue / log readers (both LIVE specs assert on these) ------------------
 
@@ -13,8 +14,7 @@ async function readQueue(context) {
 }
 
 async function readLog(context) {
-    const res = await getExtensionStorage(context, 'ilap_ignore_log');
-    return Array.isArray(res.ilap_ignore_log) ? res.ilap_ignore_log : [];
+    return logFromStorage(await getExtensionStorage(context));
 }
 
 // Newest log entry for an appid, or null (the log is oldest→newest).

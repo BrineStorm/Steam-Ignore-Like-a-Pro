@@ -2,12 +2,8 @@
 (function() {
     'use strict';
 
-    // Shared curator-page helpers — the ignore-filter vocabulary plus the curator-id
-    // path parser — used by the curator-page control (src/curator/main.js, content
-    // script) and the popup/widget queue applet (ui/popup_queue.js). Deliberately
-    // self-contained: the popup window does NOT load src/utils.js, so this module
-    // must not depend on the window.ILAP facade. Loaded in both the content_scripts
-    // list and popup.html.
+    // The ignore-filter vocabulary and the curator-id parser, for the curator
+    // button and the queue applet. Self-contained: popup.html loads it too.
 
     // /curator/<id>-<slug>/ → numeric id string, or null on any other store page.
     function curatorIdFromPath(pathname) {
@@ -23,11 +19,14 @@
         { value: 'all_but_recommended', key: 'filter_all_but_recommended' }
     ];
 
-    // Per-category accent — Steam's own review-type label colours.
-    const COLORS = {
+    // Per-category accent — Steam's own review-type label colours. Null-prototype
+    // because the lookup key is a job's stored `filter`, and colorStyle's result
+    // goes into a style ATTRIBUTE unescaped: a record carrying 'constructor' would
+    // otherwise resolve to Object and stringify a function into it.
+    const COLORS = Object.assign(Object.create(null), {
         not_recommended: '#ec976c',
         informational: '#f1de74'
-    };
+    });
     // "All except Recommended" = both categories → orange→yellow gradient text.
     const GRADIENT = 'linear-gradient(90deg, #ec976c, #f1de74)';
 

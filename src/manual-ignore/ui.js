@@ -26,7 +26,7 @@
         }
     }
 
-    const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
+    const t = window.ILAP.t;
 
     class BadgeFactory {
         static create(appid, typeClass, reason, iconUrl) {

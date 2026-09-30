@@ -105,6 +105,42 @@ test.describe('i18n — t() contract (unit)', () => {
         expect(seen).toEqual(['ru', 'en']);
     });
 
+    test('offLangChange retires a subscriber, and the rest still fire', () => {
+        // A UI that can be taken off the page and put back needs this: the curator
+        // button is removed and re-injected on every master-toggle flip, and one
+        // subscription left behind per flip is a subscription that accumulates.
+        const { i18n } = loadI18n();
+        const seen = [];
+        const leaving = () => seen.push('gone');
+        i18n.onLangChange(leaving);
+        i18n.onLangChange(() => seen.push('stays'));
+
+        i18n.offLangChange(leaving);
+        i18n.setLang('ru');
+        expect(seen).toEqual(['stays']);
+
+        // Unsubscribing something that never subscribed is a no-op, not a splice
+        // of whatever sits at index -1.
+        i18n.offLangChange(() => {});
+        i18n.setLang('de');
+        expect(seen).toEqual(['stays', 'stays']);
+    });
+
+    test('a subscriber that unsubscribes mid-notify does not skip its neighbour', () => {
+        // setLang walks a COPY for exactly this: splicing the live array from
+        // inside the walk would slide the next subscriber past the index.
+        const { i18n } = loadI18n();
+        const seen = [];
+        const first = () => { seen.push('first'); i18n.offLangChange(first); };
+        i18n.onLangChange(first);
+        i18n.onLangChange(() => seen.push('second'));
+
+        i18n.setLang('ru');
+        expect(seen).toEqual(['first', 'second']);
+        i18n.setLang('de');
+        expect(seen).toEqual(['first', 'second', 'second']);
+    });
+
     test('a throwing subscriber does not block the others', () => {
         const { i18n } = loadI18n();
         const seen = [];
@@ -125,5 +161,53 @@ test.describe('i18n — t() contract (unit)', () => {
             expect(toast, `${loc} curator_toast_added`).toContain('XKindX');
             expect(toast, `${loc} curator_toast_added`).not.toContain('{type}');
         }
+    });
+});
+
+// The dictionary vs. the code that reaches into it. The specs above prove the 19
+// bundles agree with each other; these two prove they agree with the product —
+// the direction a locale-only diff (a key renamed, a hint deleted) breaks. Neither
+// failure can show up in an E2E: an unknown key renders as the raw key name, which
+// no assertion looks at, and a dead key renders as nothing at all.
+function sourceFiles() {
+    const root = path.join(__dirname, '..', '..');
+    const out = [];
+    const walk = (dir) => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            const p = path.join(dir, e.name);
+            if (e.isDirectory()) walk(p);
+            else if (/\.(js|html)$/.test(e.name)) out.push(p);
+        }
+    };
+    walk(path.join(root, 'src'));
+    walk(path.join(root, 'ui'));
+    return out.filter(p => !/i18n\.js$/.test(p));   // the dictionary itself is not a reference
+}
+
+test.describe('i18n — dictionary vs. the code (unit)', () => {
+    const { i18n } = loadI18n();
+    const enKeys = Object.keys(i18n.DICT.en);
+    const files = sourceFiles();
+
+    test('every key the code asks for exists (no string rendered as its own key name)', () => {
+        const unknown = [];
+        for (const file of files) {
+            const src = fs.readFileSync(file, 'utf8');
+            const refs = [
+                ...src.matchAll(/data-i18n=["']([\w-]+)["']/g),
+                ...src.matchAll(/\bt\(\s*'([a-z0-9_]+)'/g),
+            ];
+            for (const m of refs) {
+                if (!enKeys.includes(m[1])) unknown.push(`${m[1]} @ ${path.basename(file)}`);
+            }
+        }
+        expect(unknown, 'keys referenced but not in DICT.en').toEqual([]);
+    });
+
+    test('no key outlives its last use (a dead string costs 19 translations)', () => {
+        // Substring match, not the reference patterns above: a key assembled at
+        // runtime must count as used, and its literal half still appears verbatim.
+        const all = files.map(f => fs.readFileSync(f, 'utf8')).join('\n');
+        expect(enKeys.filter(k => !all.includes(k)), 'keys in DICT.en nothing references').toEqual([]);
     });
 });

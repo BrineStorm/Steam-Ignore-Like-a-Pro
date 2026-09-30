@@ -1,6 +1,6 @@
 # Steam Ignore Like A Pro
 
-![alt text](assets/icons/icon128.png)
+![Steam Ignore Like A Pro icon](assets/icons/icon128.png)
 
 <p align="left">
   <a href="https://chromewebstore.google.com/detail/odammmlfgeicckclecklaidnogfibanj">
@@ -12,8 +12,8 @@
   </a>
 </p>
 
-A browser extension that allows you to ignore Steam games directly from the storefront - no extra clicks to open a menu, and no need to open individual game pages.
-**Steam Ignore Like A Pro** replaces this with a single gesture or hotkey, available on every Steam page.
+A browser extension that lets you ignore Steam games straight from the storefront - no menus, no opening individual game pages.
+**Steam Ignore Like A Pro** turns it into a single gesture or hotkey, available on every Steam Store page.
 
 <p align="left">
   <img src="assets/demo.gif" alt="Extension Demo" width="600">
@@ -21,24 +21,14 @@ A browser extension that allows you to ignore Steam games directly from the stor
 
 ## What's New
 
-**v1.2.2**
-
-- **Keep High Score fix** - Steam recoloured the review scores on the Discovery Queue card, and the automation was still looking for the old colours, which meant that with *Keep High Score* ticked a run quietly ignored nothing. Fixed, and both queues now read the same list of colours.
-- **A canary** - a simple automated check now runs against the live store on a schedule, to catch changes on Steam's side before they break anything.
-
-Earlier releases now are in [CHANGELOG.md](./CHANGELOG.md).
+See [CHANGELOG.md](./CHANGELOG.md) for what changed in each release.
 
 ## What it does
 
 - **One-Click Ignore** - Hold `Right-Click` + `Swipe Right` over any game capsule to ignore the game. This adds a red badge ![IGNORED](https://img.shields.io/badge/IGNORED-red) on each appearance of the game on the page and requests Steam to **ignore** these titles.
 - **Alternative Hotkeys** - Configure to hold `Ctrl`, `Shift`, or `Alt` + `Left-Click`, or to draw a circle, instead of swiping.
 - **Already Played Mode** - Mark games you played on other platforms as **Already Played** by `swiping Left` or clicking. This adds a blue badge ![IGNORED](https://img.shields.io/badge/IGNORED-blue) and Steam stops suggesting these titles while **keeping** your recommendations relevant.
-- **Un-Ignore One Game** - Changed your mind about a single game? Hold `Right-Click` and draw a circle over its capsule - clockwise or counter-clockwise, both work, and so does a plain right-left (or left-right) zigzag, since all the gesture needs is one decisive change of direction. The badge comes off and the extension tells Steam to un-ignore that game, so it is a real rollback rather than a local hide.
-  - **Where it works** - on the games *this tab* badged, on any Steam Store page, including reloads of that tab. Games ignored long ago (or in another tab) are rolled back from the **Undo** applet instead.
-  - **Regret before it was sent** - manual ignores are queued, so a gesture made before the request went out simply cancels the queued job; the badge disappears everywhere, and Steam never hears about it.
-  - **Rebinding** - *Ignore*, *Already Played* and *Un-ignore* all offer the same bindings: either swipe, the circle, and `Ctrl`, `Shift` or `Alt` + `Left-Click`. Bind them however you like - ignoring by circle and un-ignoring by swipe is as valid as the shipped default. The three settings are cross-guarded, so a binding already given to one action can't be handed to another: one binding, one action.
-  - **Always there** - a **click on the IGNORED badge** - left or right - un-ignores the game no matter how the settings are bound (the badge never was a link: it has always swallowed clicks so it couldn't navigate). That is what the *Un-ignore* setting's last option, `Off - only Click on Badge`, leaves you with: it drops the rebindable gesture, not the un-ignore. Switching the whole extension off switches this off too.
-  - **Safety rail** - a game you just ignored is not rollback-able for a couple of seconds, so an over-enthusiastic swipe can't ignore and un-ignore in one motion.
+- **Un-Ignore One Game** - Hold `Right-Click` and draw a circle (either direction) or a quick zigzag over the capsule. The badge comes off and Steam un-ignores the game. This is applied as a real rollback.
 
 ## Why not just use Steam's built-in ignore?
 
@@ -52,7 +42,7 @@ This extension allows this.
 
 - **Quick Settings** - Customize gestures or hotkeys, configure ignore modes to suit your browsing style, and toggle specific features or the entire extension directly from the popup.
 - **Ignore History Tracking** - View your recently ignored game titles instantly from the extension popup.
-- **Undo** - Reverse recent ignores without hunting down each store page, either by time (everything from the last hour) or by count (the last N titles). It is the bulk counterpart to the per-game un-ignore gesture, and reaches games the gesture can't - anything ignored in another tab, by the Discovery Queue automator, or by the curator queue. Rollbacks are paced through the same rate governor as the ignores themselves.
+- **Bulk Un-ignore** - The **Undo** button in the panel rolls back recent ignores without hunting down each store page: everything from the last N hours or days, or the last N titles. It also reaches games the per-game gesture can't, such as ones ignored in another tab or by the queue automators, and is paced by the same rate limiter as the ignores.
 
 ### Interface surface
 
@@ -65,14 +55,14 @@ The extension's settings/history interface can live in one of two places:
 
 ### Automation Helpers
 
-- **Your Discovery Queue Helper** - Automate ignoring while browsing through your daily Discovery Queue. 
+- **Classic Discovery Queue Helper** - Automate ignoring while browsing through your daily Discovery Queue. 
 Configurable to automatically ignore games that meet your criteria (e.g., Mixed/Negative reviews, or every game), or ignore and scroll forward for you.
 <p align="left">
-  <img src="assets/demo-queue2.gif" alt="Demo Your Discovery Queue" width="600">
+  <img src="assets/demo-queue2.gif" alt="Demo Classic Discovery Queue" width="600">
 </p>
 
 - **Game Genre/Category Discovery Queue Auto-Ignore** - Bypass the standard Steam 10-tag ignore limit. 
-By navigating to a specific tag, genre, or category page (such as Racing, VR or etc.) and opening its Discovery Queue, you can run the automator to quickly ignore **all** games from that list, or only those with bad reviews.
+By navigating to a specific tag, genre, or category page (such as Racing or VR) and opening its Discovery Queue, you can run the automator to quickly ignore **all** games from that list, or only those with bad reviews.
 <p align="left">
   <img src="assets/demo-queue.gif" alt="Demo Discovery Queue" width="600">
 </p>
@@ -122,18 +112,17 @@ For development, or to run a build ahead of the store release:
 
 ## FAQ
 
-- **Why doesn't the game disappear or dim immediately?**  
-The ignore request is sent via the Steam API rather than the UI (since native UI buttons aren't available on all storefront elements). 
-Additionally, Steam caching can be slow and might temporarily continue displaying ignored games.
+- **Why does an ignored game stay on the page?**  
+The extension marks it at once (IGNORED badge, blurred cover), but Steam only drops ignored games from its lists when it rebuilds them, and its caching can lag behind.
 
 - **Why don't my ignores fire instantly?**  
 Ignores are placed in a queue and sent at a deliberate pace, so a large batch never looks like a flood of requests to Steam. The badge appears immediately; the request follows shortly after.
 
 - **Is this compliant with Steam's policies?**  
-Yes. The extension automates standard Steam actions (the same clicks or requests you would make manually). It does not use exploits, backdoors, or undocumented APIs.
+It only does what you could do by hand: the extension sends the same ignore requests Steam's own buttons send, through your existing signed-in session, and uses no exploits or backdoors. Every request passes through a shared rate limiter, so it never floods Steam's servers. It is not made or endorsed by Valve, though, and only Valve can say how its terms apply — so use it at your own discretion.
 
 - **Can I undo an ignore?**  
-Yes. Use the undo applet in the extension's interface to reverse the last N ignores or everything from a recent stretch of time. Since Steam Ignore Like A Pro applies a standard Steam ignore, you can also remove it anytime from the game's own store page.
+Yes. Use the **Undo** button in the extension's panel to un-ignore the last N games or everything from a recent stretch of time. Since Steam Ignore Like A Pro applies a standard Steam ignore, you can also remove it anytime from the game's own store page.
 
 - **Does it work with non-English Steam?**  
 Yes. The extension interacts with page elements and structural DOM classes, not localized text labels, so language settings do not affect it.
@@ -145,10 +134,10 @@ Yes. The extension interacts with page elements and structural DOM classes, not 
 - `styles/styles.css` - Global CSS for injected badges and tooltips.
 - `ui/` - Contains the popup interface (HTML, CSS, JS).
 - `assets/` - Extension icons and other media files.
-- `src/utils.js` - Shared utilities, stats management, and game name extraction logic.
+- `src/utils.js`, `src/game-name.js` - Shared content-script utilities, the Steam API calls, and game name extraction.
 - `src/manual-ignore/` - Modules for handling swipe gestures, hotkeys, and rendering badges on the storefront.
-- `src/discovery-queue/` - Automation logic for the daily modal Discovery Queue.
-- `src/explore-queue/` - Automation logic for tag, genre, and category queues.
+- `src/discovery-queue/` - The automator panel in Steam's Discovery Queue window (tag, genre and category queues).
+- `src/explore-queue/` - The Classic Discovery Queue helper (the one-game-at-a-time queue pages).
 - `src/curator/` - Curator list enumeration, the ignore queue store, and the drainer that works through it.
 - `src/widget/` - The on-page interface launcher and its panel.
 - `src/background.js` - Chromium service worker that drains the queue with no Steam tab open.

@@ -32,6 +32,10 @@ async function expandWidget(page) {
     await expect(page.locator('.ilap-launcher')).not.toHaveClass(/stashed/);
 }
 
+// Retried like the rest of the widget suite: hover-driven, and the widget shares
+// the top-right corner with Steam's header (see collapse.spec.js).
+test.describe.configure({ retries: 2 });
+
 test.describe('on-page widget — login lock', () => {
 
     test('logged out: launcher locked (grey + tooltip), click does not open the panel', async ({ context, page }) => {

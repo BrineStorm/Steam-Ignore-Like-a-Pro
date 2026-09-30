@@ -18,7 +18,7 @@ function loadBadgeRenderer() {
         'utf8'
     );
     const sandbox = {
-        window: { ILAP: { Sanitizer: { escapeHTML: (s) => s }, ManualIgnore: {} } },
+        window: { ILAP: { Sanitizer: { escapeHTML: (s) => s }, t: (k) => k, ManualIgnore: {} } },
         document: { createElement: () => ({ className: '', dataset: {} }) },
         // _hasOwnCoverBackground reads the host's background via getComputedStyle;
         // the double surfaces the fake element's `bg`, defaulting to 'none'.

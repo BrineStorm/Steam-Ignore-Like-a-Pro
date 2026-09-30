@@ -143,5 +143,99 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
             rand: () => 0,
         });
         expect(result.apps.not_recommended).toEqual([]);
+        expect(result.partial, 'a failed first read is a partial run').toBe(true);
+    });
+
+    // `partial` is what keeps a half-read curator out of the 7-day retention
+    // cache (EnqueueService.resolve). It has to be false on every clean finish,
+    // or a working curator would be re-enumerated on every re-add; and true
+    // whenever we stopped short, or a truncated list would be served as the
+    // whole thing until the TTL ran out.
+    test('a run that covers total_count is not partial', async () => {
+        const page = { success: 1, total_count: 1, results_html: row('1', 'not_recommended') };
+        const result = await E.enumerate('999', {
+            fetch: async () => ({ ok: true, json: async () => page }),
+            sleep: () => Promise.resolve(),
+            rand: () => 0,
+            count: 1,
+        });
+        expect(result.apps.not_recommended).toEqual(['1']);
+        expect(result.partial).toBe(false);
+    });
+
+    test('a read that fails PART-WAY keeps its rows but reports partial', async () => {
+        // total_count 4, count 2: page one lands, page two dies on the network.
+        const pageA = { success: 1, total_count: 4, results_html: row('1', 'not_recommended') + row('2', 'not_recommended') };
+        let i = 0;
+        const result = await E.enumerate('999', {
+            fetch: async () => {
+                if (i++ === 0) return { ok: true, json: async () => pageA };
+                throw new Error('network');
+            },
+            sleep: () => Promise.resolve(),
+            rand: () => 0,
+            count: 2,
+        });
+        // The rows already read are kept — the job still runs on them...
+        expect(result.apps.not_recommended).toEqual(['1', '2']);
+        // ...but this must never be cached as the complete curator.
+        expect(result.partial).toBe(true);
+    });
+
+    test('a short page is the server saying "no more", not a partial run', async () => {
+        // total_count lies high (stale), but the second page comes back empty:
+        // that is Steam's own count being wrong, not a failure of ours.
+        const pageA = { success: 1, total_count: 99, results_html: row('1', 'not_recommended') };
+        const pageB = { success: 1, total_count: 99, results_html: '' };
+        const queue = [pageA, pageB];
+        let i = 0;
+        const result = await E.enumerate('999', {
+            fetch: async () => ({ ok: true, json: async () => queue[i++] }),
+            sleep: () => Promise.resolve(),
+            rand: () => 0,
+            count: 1,
+        });
+        expect(result.apps.not_recommended).toEqual(['1']);
+        expect(result.partial).toBe(false);
+    });
+
+    test('markup we cannot parse at all is a partial run, not an empty curator', async () => {
+        // What a Valve markup change looks like from in here: the server reports
+        // rows, parseResults reads none. The run must not be cached, or the
+        // emptiness it produced would be served for the whole retention week and
+        // every re-add inside it would fail identically without a request.
+        const page = { success: 1, total_count: 99, results_html: '<div class="rec_v2">x</div>' };
+        const result = await E.enumerate('999', {
+            fetch: async () => ({ ok: true, json: async () => page }),
+            sleep: () => Promise.resolve(),
+            rand: () => 0,
+            count: 1,
+        });
+        expect(result.apps.not_recommended).toEqual([]);
+        expect(result.partial, 'nothing parsed while the server reports rows').toBe(true);
+    });
+
+    test('a curator that really has nothing is NOT partial', async () => {
+        // The same empty result, with the server agreeing it is empty: cacheable.
+        const page = { success: 1, total_count: 0, results_html: '' };
+        const result = await E.enumerate('999', {
+            fetch: async () => ({ ok: true, json: async () => page }),
+            sleep: () => Promise.resolve(),
+            rand: () => 0,
+            count: 1,
+        });
+        expect(result.partial).toBe(false);
+    });
+
+    test('hitting our own page ceiling short of total_count is partial', async () => {
+        const page = { success: 1, total_count: 99, results_html: row('1', 'not_recommended') };
+        const result = await E.enumerate('999', {
+            fetch: async () => ({ ok: true, json: async () => page }),
+            sleep: () => Promise.resolve(),
+            rand: () => 0,
+            count: 1,
+            maxPages: 2,
+        });
+        expect(result.partial, 'stopped by maxPages, not by Steam').toBe(true);
     });
 });

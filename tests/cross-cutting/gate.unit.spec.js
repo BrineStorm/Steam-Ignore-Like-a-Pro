@@ -2,6 +2,8 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { loadEscape } = require('../_escape.js');
+const { loadSettingsSchema } = require('../_settings-schema.js');
 
 // Aggregate ignore-rate governor (src/gate.js) as a Node unit — no browser. The
 // pacing is pure math (nextSlot) plus a serialized claim over an async
@@ -44,6 +46,8 @@ function loadGate(initial, opts) {
     };
     const sandbox = { window: {}, chrome: { storage: { local } }, setTimeout, Date, Math, JSON };
     vm.createContext(sandbox);
+    loadEscape(sandbox);
+    loadSettingsSchema(sandbox);
     vm.runInContext(code, sandbox);
     const ILAP = sandbox.window.ILAP;
     // Default world: the TAB, the only one the gate answers for without being
@@ -77,6 +81,28 @@ test.describe('ignore-rate gate (unit)', () => {
         expect(Gate.nextSlot(now + Gate.MAX_AHEAD + 1, now, 500)).toBe(now + 500);
         expect(Gate.nextSlot(now + 3600000, now, 500)).toBe(now + 500);
         // A legitimately-queued near-future slot (within MAX_AHEAD) is respected.
+        expect(Gate.nextSlot(now + 2000, now, 500)).toBe(now + 2500);
+    });
+
+    test('nextSlot: a stored slot that is not a number counts as absent', () => {
+        // The MAX_AHEAD guard above answers for corruption, but a numeric STRING
+        // walked past it: the comparison coerces, and `last + gap` then
+        // CONCATENATES — '1700000000000' + 500 puts the slot ~50 000 years out.
+        // It self-heals (the next call reads that back and MAX_AHEAD rejects it)
+        // and an overflowing setTimeout fires at once, so the cost was one
+        // unpaced ignore rather than a dead extension — but a hand-edited or
+        // downgraded key is exactly what this guard is for.
+        const { Gate } = loadGate();
+        const now = 1_700_000_100_000;
+        // Not a number -> no previous slot -> the slot is now.
+        expect(Gate.nextSlot(String(now - 100000), now, 500)).toBe(now);
+        expect(Gate.nextSlot(NaN, now, 500)).toBe(now);
+        expect(Gate.nextSlot(Infinity, now, 500)).toBe(now);
+        expect(Gate.nextSlot({}, now, 500)).toBe(now);
+        // The absent cases keep answering the way they always did.
+        expect(Gate.nextSlot(null, now, 500)).toBe(now);
+        expect(Gate.nextSlot(undefined, now, 500)).toBe(now);
+        // And a real number is untouched.
         expect(Gate.nextSlot(now + 2000, now, 500)).toBe(now + 2500);
     });
 

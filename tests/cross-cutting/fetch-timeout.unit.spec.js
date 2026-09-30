@@ -112,3 +112,36 @@ test.describe('fetchWithTimeout (unit)', () => {
         expect(ignored.size).toBe(0);
     });
 });
+
+// The ignore POST's form fields are data in steam-net.js, shared by the tab's POST
+// (utils.js) and the worker's (background.js). A slip there breaks both worlds at
+// once, so the exact bodies the tab sends are pinned here; background.unit pins
+// the worker's.
+test.describe('ignore POST fields (unit)', () => {
+    function loadWithCookie(posts) {
+        const code = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'utils.js'), 'utf8');
+        const sandbox = {
+            window: {}, console, AbortController, URLSearchParams,
+            document: { cookie: 'foo=1; sessionid=abc123' },
+            fetch: async (url, opts) => { posts.push({ url, body: opts.body }); return { ok: true, status: 200 }; },
+            setTimeout, clearTimeout, Date, Math, Object, Promise, Set, String, RegExp,
+        };
+        vm.createContext(sandbox);
+        for (const f of ['escape.js', 'stats.js', 'steam-net.js']) {
+            vm.runInContext(fs.readFileSync(path.join(__dirname, '..', '..', 'src', f), 'utf8'), sandbox);
+        }
+        vm.runInContext(code, sandbox);
+        return sandbox.window.ILAP;
+    }
+
+    test('an ignore and its rollback send exactly the fields Steam expects', async () => {
+        const posts = [];
+        const ILAP = loadWithCookie(posts);
+        await ILAP.apiIgnoreGame('620', 2);
+        await ILAP.apiUnignoreGame('620');
+        const fields = posts.map(p => Object.fromEntries(new URLSearchParams(p.body)));
+        expect(posts.every(p => p.url === ILAP.SteamNet.IGNORE_URL)).toBe(true);
+        expect(fields[0]).toEqual({ sessionid: 'abc123', appid: '620', snr: '', ignore_reason: '2' });
+        expect(fields[1]).toEqual({ sessionid: 'abc123', appid: '620', snr: '1_account_notinterested_', remove: '1' });
+    });
+});

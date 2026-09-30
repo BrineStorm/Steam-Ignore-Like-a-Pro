@@ -49,6 +49,22 @@ test.describe('Popup — settings accordion', () => {
         await expect(page.locator('#q-sub-settings')).toHaveClass(/dimmed/);
     });
 
+    test('Blur ignored covers: ON with nothing stored, and OFF is what gets written', async ({ page, context }) => {
+        // The default flipped with the feature: an absent key now means ON, in the
+        // panel and in the content script alike. Only an explicit false turns it
+        // off, so the value written by the first click is the one that matters.
+        await openPopupAndExpandSettings(page, context, 'mi');
+
+        const mask = page.locator('#mask-toggle');
+        await expect(mask).toBeChecked();
+
+        await page.locator('#mask-toggle + .slider').click();
+        await page.waitForTimeout(300);
+
+        const stored = await getExtensionStorage(context, 'ilap_mask_enabled');
+        expect(stored.ilap_mask_enabled).toBe(false);
+    });
+
     test('Click-Next-after-ignore toggle persists ilap_q_next', async ({ page, context }) => {
         await openPopupAndExpandSettings(page, context, 'dq');
 
@@ -152,6 +168,82 @@ test.describe('Popup — settings accordion', () => {
         await page.locator('#ilap-popup-stub').waitFor({ timeout: 5000 });
     });
 
+    test('Master OFF: the surface picker stays reachable and switches back to the widget', async ({ page, context }) => {
+        // The one settings row that survives a disabled extension. Everything else
+        // in the panel is inert, but the surface must always be switchable — a
+        // user who turned the extension off in toolbar mode still has to be able
+        // to move the UI back onto the page (and vice versa).
+        await setExtensionStorage(context, { ilap_master_enabled: false });
+        // Not openPopupAndExpandSettings: every feature subcategory IS inert while
+        // the extension is off, so the helper's expand step cannot run. Only the
+        // accordion's own summary stays clickable — that is what makes the picker
+        // reachable at all.
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        await page.locator('#settings-accordion > summary').click();
+        // The real input is visually hidden — the .wide-track is the control.
+        await page.locator('#surface-toggle ~ .wide-track').waitFor({ timeout: 5000 });
+
+        await expect(page.locator('#ui-wrapper')).toHaveClass(/disabled/);
+        await page.locator('#surface-toggle ~ .wide-track').click();
+
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, 'ilap_surface_mode')).ilap_surface_mode
+        ).toBe('widget');
+    });
+
+    test('Master OFF: greyed controls are inert, keyboard included, and come back live', async ({ page, context }) => {
+        // The greying is CSS; pointer-events alone left every control reachable by
+        // Tab + Space. `inert` is what actually takes them away.
+        await setExtensionStorage(context, { ilap_master_enabled: false });
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        await page.locator('#settings-accordion > summary').click();
+        await page.locator('#dq-section').waitFor({ timeout: 5000 });
+
+        await expect(page.locator('#total-row')).toHaveJSProperty('inert', true);
+        await expect(page.locator('#dq-section')).toHaveJSProperty('inert', true);
+        await expect(page.locator('#mi-section')).toHaveJSProperty('inert', true);
+        // The survivors: the surface row and both accordions.
+        await expect(page.locator('#surface-row')).toHaveJSProperty('inert', false);
+        await expect(page.locator('#settings-accordion')).toHaveJSProperty('inert', false);
+        await expect(page.locator('#queue-accordion')).toHaveJSProperty('inert', false);
+
+        // An inert control cannot take focus, so the keyboard cannot flip it.
+        await page.locator('#q-master').evaluate(el => el.focus());
+        await expect(page.locator('#q-master')).not.toBeFocused();
+
+        // Re-enabled live: everything is reachable again without a reload.
+        await setExtensionStorage(context, { ilap_master_enabled: true });
+        await expect(page.locator('#dq-section')).toHaveJSProperty('inert', false);
+        await expect(page.locator('#total-row')).toHaveJSProperty('inert', false);
+        await page.locator('#q-master').evaluate(el => el.focus());
+        await expect(page.locator('#q-master')).toBeFocused();
+    });
+
+    test('Master OFF: the language chip still switches the language', async ({ page, context }) => {
+        // The second control that outlives a disabled extension, and it is one by
+        // CONSEQUENCE rather than by design: the chip rides in the settings
+        // accordion's <summary>, which must stay clickable or the surface picker
+        // above becomes unreachable — so the summary is greyed but never gets
+        // pointer-events: none, and the chip inside it keeps working. Deliberate
+        // (the panel has to stay readable in the user's own language whatever the
+        // toggle says), and asserted here so nobody "fixes" the grey-but-live look.
+        await setExtensionStorage(context, { ilap_master_enabled: false });
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+
+        await expect(page.locator('#ui-wrapper')).toHaveClass(/disabled/);
+        await expect(page.locator('#lang-quick-code')).toHaveText('EN');
+
+        await page.locator('#lang-quick').selectOption('ru');
+
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, 'ilap_lang')).ilap_lang
+        ).toBe('ru');
+        await expect(page.locator('#lang-quick-code')).toHaveText('RU');
+    });
+
     test('Default and Already-Played selectors mutually exclude their chosen values', async ({ page, context }) => {
         await setExtensionStorage(context, {
             ilap_shortcut_key: 'ctrlKey',
@@ -205,23 +297,16 @@ test.describe('Popup — settings accordion', () => {
         expect(await values('unignore-key')).toEqual(dflt);
     });
 
-    test('The un-ignore row hints the zigzag the circle label leaves out', async ({ page, context }) => {
-        // The selects name only the circle — one gesture per label, in a 320px
-        // row — but the detector reads the X axis alone, so a flat left-right
-        // zigzag fires the same binding. It is genuinely useful on capsules too
-        // short to circle over and there is nowhere else to learn it, so the row
-        // carries it as a hover hint. A NATIVE title on purpose: the browser
-        // paints it outside the document, where the panel's overflow:hidden
-        // cannot clip it (see tests/popup/tooltips.spec.js for the tips that CAN
-        // be clipped) — which is also why it is asserted here and not there.
+    test('The un-ignore row carries no hover hint at all', async ({ page, context }) => {
+        // It used to spell out the zigzag the circle label leaves out, as a
+        // native title. The row is a label and a select now, with nothing that
+        // pops up over them — the zigzag still fires the binding (the detector
+        // reads the X axis alone), it is simply not advertised here.
         await openPopupAndExpandSettings(page, context);
 
         const label = page.locator('[data-i18n="solo_unignore"]');
-        await expect(label).toHaveAttribute('title', /zigzag/i);
-
-        // Localized like every other tooltip, not a stuck English default.
-        await setExtensionStorage(context, { ilap_lang: 'ru' });
-        await expect(label).toHaveAttribute('title', /зигзаг/i);
+        await expect(label).not.toHaveAttribute('title', /./);
+        await expect(label).not.toHaveAttribute('data-i18n-title', /./);
     });
 
     test("Un-ignore 'off' says what it leaves behind: off, except the badge click", async ({ page, context }) => {
@@ -239,10 +324,9 @@ test.describe('Popup — settings accordion', () => {
     });
 
     test('A stored value the select has no option for falls back to the default', async ({ page, context }) => {
-        // Self-healing, and the popup does it against its own <option> list —
-        // it cannot reach ManualIgnore.UNIGNORE_KEYS, which is what the content
-        // script clamps with. Assigning an unknown value leaves .value empty,
-        // and a blank control is the one outcome worse than a wrong one.
+        // Self-healing, through the same clamp the content script uses
+        // (Settings.normalizeUnignore): a blank control is the one outcome worse
+        // than a wrong one.
         await setExtensionStorage(context, { ilap_unignore_key: 'nonsense' });
         await openPopupAndExpandSettings(page, context);
 

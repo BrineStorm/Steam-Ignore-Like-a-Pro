@@ -43,51 +43,33 @@
      * Orchestrates the initialization and binding of components.
      */
     class DiscoveryQueueController {
-        constructor() {
-            this.automator = null;
-            this.ui = null;
+        // Every collaborator comes in through deps; boot() below is the one place
+        // they are assembled.
+        //   automator          Discovery.Automator — the slide loop
+        //   ui                 Discovery.UI — the panel (isMounted() gates the probe)
+        //   registry           Discovery.Registry — cross-tab DQ-automator cap (lease)
+        //   insertionStrategy  { find(modal) → { parent, referenceNode } | null }
+        //   masterSwitch       { watch({ onInit, onChange }) } (src/master-switch.js)
+        //   ownerId            this tab's identity in the registry
+        constructor(deps) {
+            this.automator = deps.automator;
+            this.ui = deps.ui;
+            this.registry = deps.registry;
+            this.insertion = deps.insertionStrategy;
+            this.masterSwitch = deps.masterSwitch;
+            this.ownerId = deps.ownerId;
             this.observer = null;
             // Default to enabled to match popup's default and avoid a flicker
             // where the panel briefly mounts before the storage read returns.
             // init() awaits the read before starting the observer, so this
             // value is only consulted once it has been refreshed.
             this.masterEnabled = true;
-            // Identity + heartbeat handle for this tab's slot in the cross-tab
-            // DQ-automator registry (caps how many DQ loops run per profile).
-            this.ownerId = window.ILAP.newOwnerId('dq_');
-            this._beat = null;
-            this.registry = null;      // bound in init(), like the other adapters
+            this._beat = null;         // heartbeat for this tab's registry slot
             this._starting = false;    // latch: a registry acquire is in flight
         }
 
         init() {
-            // 1. Create Adapters (DIP)
-            // No direct API calls in Logic class
-            const apiAdapter = {
-                ignore: (appid, reason) => window.ILAP.apiIgnoreGame(appid, reason) // Using global utils facade for now
-            };
-            const statsAdapter = {
-                // Stats + the undo log ride one adapter call (appid → ilap_ignore_log).
-                // The log is optional, same stance as the drainer's log hooks: a
-                // partial build must degrade to stats-only, not throw mid-ignore.
-                save: (name, source, appid) => {
-                    window.ILAP.saveStats(name, source);
-                    if (window.ILAP.IgnoreLog) window.ILAP.IgnoreLog.append({ appid, name, source: 'dq' });
-                }
-            };
-            const nameExtractorAdapter = { get: (appid, el) => window.ILAP.getGameName(appid, el) };
-            // DQ is a visible source: it never yields to the background and marks foreground activity.
-            const gateAdapter = { reserve: () => window.ILAP.IgnoreGate.reserve({ foreground: true }) };
-            this.registry = window.ILAP.Discovery.Registry;
-
-            // 2. Instantiate Components
-            const AutomatorClass = window.ILAP.Discovery.Automator;
-            const UIClass = window.ILAP.Discovery.UI;
-
-            this.automator = new AutomatorClass(apiAdapter, statsAdapter, nameExtractorAdapter, gateAdapter);
-            this.ui = new UIClass();
-
-            // 3. Bind UI Updates (Logic -> UI). When the loop stops (Stop click,
+            // 1. Bind UI Updates (Logic -> UI). When the loop stops (Stop click,
             //    queue done, or a master-off teardown), free this tab's registry
             //    slot and stop the heartbeat so another tab can start.
             this.automator.setUiObserver((isRunning, count) => {
@@ -95,13 +77,14 @@
                 if (!isRunning) this._releaseSlot();
             });
 
-            // 4. Resolve the master flag before observing so the very first
-            //    modal we see is gated correctly. Subsequent flips are handled
-            //    by the storage.onChanged listener below.
-            chrome.storage.local.get('ilap_q_master', (res) => {
-                this.masterEnabled = res.ilap_q_master !== false;
-                this._subscribeMasterChanges();
-                this.startObserver();
+            // 2. Resolve the master flag before observing so the very first
+            //    modal we see is gated correctly; later flips go to
+            //    _onMasterChange. Only the GLOBAL master: `ilap_q_master` is the
+            //    Classic Discovery Queue's own switch and does not gate this panel
+            //    (a Start nobody presses does nothing).
+            this.masterSwitch.watch({
+                onInit: (on) => { this.masterEnabled = on; this.startObserver(); },
+                onChange: (on) => { this.masterEnabled = on; this._onMasterChange(); },
             });
         }
 
@@ -141,30 +124,44 @@
             this.registry.release(this.ownerId);
         }
 
-        _subscribeMasterChanges() {
-            chrome.storage.onChanged.addListener((changes, area) => {
-                if (area !== 'local' || !changes.ilap_q_master) return;
-                this.masterEnabled = changes.ilap_q_master.newValue !== false;
-                // If the user disabled the queue while the panel was already
-                // mounted, retract it and stop any in-flight loop.
-                if (!this.masterEnabled) {
-                    this.ui.unmount();
-                    this.automator.stop();
-                }
-            });
+        // Take the panel off the page and stop the loop behind it. Keep High Score
+        // is reset too: `ui.mount` draws a fresh, unticked checkbox, and the
+        // automator's config must not disagree with it.
+        _teardown() {
+            this.ui.unmount();
+            this.automator.stop();
+            this.automator.setSkipPositive(false);
+        }
+
+        _onMasterChange() {
+            // Disabled live: retract the panel and stop the loop, including
+            // the clicks that need no rate slot (Keep-High-Score skips, "Continue").
+            if (!this.masterEnabled) {
+                this._teardown();
+                return;
+            }
+            // Re-enabled with the modal still open: re-mount on idle Start.
+            this.checkForDialog();
         }
 
         startObserver() {
             this.observer = new MutationObserver((mutations) => {
+                // Once per BATCH, not once per record. Steam's React modal
+                // delivers hundreds of records per re-render — and the loop
+                // itself causes them, since every automator click re-renders the
+                // carousel — so a per-record probe ran the modal scan hundreds of
+                // times for one visual change.
+                let added = false;
+                let removed = false;
                 for (const m of mutations) {
-                    if (m.addedNodes.length > 0) this.checkForDialog();
-                    if (m.removedNodes.length > 0) {
-                        // If dialog is gone, cleanup UI and stop logic
-                        if (!document.querySelector('.FullModalOverlay div[role="dialog"]')) {
-                            this.ui.unmount();
-                            this.automator.stop();
-                        }
-                    }
+                    if (m.addedNodes.length > 0) added = true;
+                    if (m.removedNodes.length > 0) removed = true;
+                    if (added && removed) break;
+                }
+                if (added) this.checkForDialog();
+                // If dialog is gone, cleanup UI and stop logic
+                if (removed && !document.querySelector('.FullModalOverlay div[role="dialog"]')) {
+                    this._teardown();
                 }
             });
 
@@ -174,9 +171,13 @@
 
         checkForDialog() {
             if (!this.masterEnabled) return;
+            // Already on screen: there is nothing to insert, and finding where
+            // to insert it means walking every <polygon> in the modal
+            // (InsertionStrategy). mount() would no-op on it anyway.
+            if (this.ui.isMounted()) return;
             const modal = document.querySelector('.FullModalOverlay div[role="dialog"]');
             if (modal) {
-                const insertion = InsertionStrategy.find(modal);
+                const insertion = this.insertion.find(modal);
                 if (insertion) {
                     // Bind User Events (UI -> Logic)
                     this.ui.mount(insertion, {
@@ -188,10 +189,48 @@
         }
     }
 
+    // Exported for the Node unit suite only; the bootstrap below is the one construction site.
+    window.ILAP.Discovery.Controller = DiscoveryQueueController;
+
     // Bootstrap. See the readyState note in src/manual-ignore/main.js: on Firefox
     // the content script can be injected after window.onload has already fired,
     // and a bare 'load' listener would then never run at all.
-    const boot = () => { new DiscoveryQueueController().init(); };
+    const boot = () => {
+        const I = window.ILAP;
+        // Adapters (DIP): the automator never calls the global facade itself.
+        // Lenient read: a transient failure is an empty Set, one spent attempt.
+        const userdataAdapter = { fetchIgnored: () => I.fetchIgnoredApps() };
+        // Stats and the undo log ride one adapter call. Nothing awaits either:
+        // saveStats swallows its own rejection, and the log append needs its own
+        // catch for the same reason (serialChain hands the CALLER its rejection).
+        // What rejects in practice is an extension update — this page's script
+        // keeps running with no storage behind it — and one unhandled rejection
+        // per ignore is all it would produce.
+        const statsAdapter = {
+            save: (name, appid) => {
+                I.saveStats(name, I.StatsLogic.SOURCE.DQ);
+                I.IgnoreLog.append({ appid, name, source: 'dq' })
+                    .catch((e) => console.warn('[ILAP] ignore-log append failed:', e));
+            }
+        };
+        const nameExtractorAdapter = { get: (appid, el) => I.getGameName(appid, el) };
+        // DQ is a visible source: it never yields to the background and marks foreground activity.
+        const gateAdapter = { reserve: () => I.IgnoreGate.reserve({ foreground: true }) };
+
+        new DiscoveryQueueController({
+            automator: new I.Discovery.Automator({
+                userdata: userdataAdapter,
+                stats: statsAdapter,
+                nameExtractor: nameExtractorAdapter,
+                gate: gateAdapter,
+            }),
+            ui: new I.Discovery.UI(),
+            registry: I.Discovery.Registry,
+            insertionStrategy: InsertionStrategy,
+            masterSwitch: I.MasterSwitch,
+            ownerId: I.newOwnerId('dq_'),
+        }).init();
+    };
     if (document.readyState === 'complete') boot();
     else window.addEventListener('load', boot);
 

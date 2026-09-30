@@ -25,7 +25,8 @@
     // Global on/off (the panel's master toggle). While the extension is disabled
     // the pin is inert — it's a preference for an active widget, so pinning makes
     // no sense with everything off. Absent = enabled.
-    const MASTER_KEY = 'ilap_master_enabled';
+    const Settings = window.ILAP.Settings;
+    const MASTER_KEY = Settings.KEYS.MASTER;
     // New-install beacon, written by src/migrate.js on a FRESH install only: while
     // set, the collapsed chevron keeps the steady blue rim and radiates the gold
     // halo in 10 s bursts once a minute — a first-time user has never seen the
@@ -234,7 +235,7 @@
         }
     `;
 
-    const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
+    const t = window.ILAP.t;
 
     // Build the shadow host + all its elements (no behaviour). Returns the element
     // bag the controllers below wire up. Kept as pure construction so mount() reads
@@ -251,6 +252,18 @@
             zIndex: '2147483000'
         });
 
+        // `open` is a test constraint, not a UX one: `closed` would leave
+        // host.shadowRoot null, so Playwright's shadow piercing cannot reach the
+        // panel, and page.evaluate runs in the main world, so it cannot be handed
+        // an isolated-world handle either — the widget would lose its whole E2E
+        // suite on both browsers, and the only way back is a test backdoor in
+        // shipped code. What `closed` would buy is cosmetic anyway: the page can
+        // read the panel and call .click() on it, but every control that writes
+        // anything is behind an isTrusted guard — the panel's (ui/popup_*.js) and
+        // the widget's own: launcher, chevron, pin and the activity bump, which
+        // between them own `ilap_widget_expanded_ts` and `ilap_widget_pinned`. So
+        // a forged click paints, it does not act. Keep that true when adding a
+        // control here; the claim is only worth making if it holds for all of them.
         const shadow = host.attachShadow({ mode: 'open' });
 
         const sheet = document.createElement('link');
@@ -328,16 +341,19 @@
     // the panel belongs with this state). Reads the cross-cutting ghost/pinned flags
     // through ctx, and drives the shared "stashed" look of launcher + pin + chevron.
     function createCollapse(ctx, initialTs) {
-        const { host, shadow, launcher, chevron, chevronTip, pin, panel } = ctx.els;
+        const { host, shadow, launcher, chevron, pin, panel } = ctx.els;
         let ts = initialTs; // 0 = collapsed, >0 = last-activity timestamp
         let idleTimer = null;
         let inited = false;
+        let popup = null;   // ILAP_Popup handle, once inited
+        let hydrated = false; // its first render landed — the panel may be revealed
+        let wantOpen = false; // the last setOpen() — the first open waits on hydration
 
         function onIdle() {
-            if (ctx.isGhost() || !ts) return;
+            if (ctx.surface.isGhost() || !ts) return;
             if (Date.now() - ts < IDLE_MS) { applyState(); return; } // bumped meanwhile — re-arm
             // A pinned launcher or an open panel never idles out — re-bump instead.
-            if (ctx.isPinned() || panel.classList.contains('open')) { writeState(Date.now()); return; }
+            if (ctx.pin.isPinned() || panel.classList.contains('open')) { writeState(Date.now()); return; }
             writeState(0);
         }
         const writeState = (v) => {
@@ -347,7 +363,7 @@
         };
         const applyState = () => {
             clearTimeout(idleTimer);
-            if (ctx.isGhost()) {
+            if (ctx.surface.isGhost()) {
                 // Parked: force the stashed look, keep the panel closed, and never
                 // arm the idle machinery (ts stays a passive mirror).
                 launcher.classList.add('stashed');
@@ -366,26 +382,42 @@
             // every open tab re-bumps the shared timestamp once a minute forever (a
             // storage-write + onChanged fan-out cycle). Re-armed when the pin is released
             // (pin click → writeState, or a cross-tab PIN_KEY change → applyState).
-            if (!collapsed && !ctx.isPinned()) idleTimer = setTimeout(onIdle, Math.max(ts + IDLE_MS - Date.now(), 0) + 50);
+            if (!collapsed && !ctx.pin.isPinned()) idleTimer = setTimeout(onIdle, Math.max(ts + IDLE_MS - Date.now(), 0) + 50);
         };
-        const setOpen = (open) => {
+        const reveal = (open) => {
             panel.classList.toggle('open', open);
             launcher.classList.toggle('active', open); // keep the hover-style highlight while open
+        };
+        const setOpen = (open) => {
+            wantOpen = open;
             if (open && !inited) {
                 inited = true;
-                window.ILAP_Popup.init(shadow);
+                popup = window.ILAP_Popup.init(shadow, { isVisible: () => panel.classList.contains('open') });
+                // First open: reveal only once the panel is hydrated, never the bare
+                // markup (storage reads are async). Closed or collapsed meanwhile →
+                // stays shut; changes that landed while hidden were noted as stale,
+                // and show() catches up on them.
+                popup.ready.then(() => {
+                    hydrated = true;
+                    if (wantOpen && ts && !ctx.surface.isGhost()) { reveal(true); popup.show(); }
+                });
+            } else if (hydrated) {
+                reveal(open);
+                if (open) popup.show();
             }
-            if (!open && ts && !ctx.isGhost()) writeState(Date.now()); // panel closed → restart the idle minute
+            if (!open && ts && !ctx.surface.isGhost()) writeState(Date.now()); // panel closed → restart the idle minute
         };
         // Any click inside the widget is activity (capture phase catches the
         // launcher and everything in the panel; throttled here).
-        const bump = () => {
-            if (!ctx.isGhost() && ts && Date.now() - ts >= ACTIVITY_THROTTLE_MS) writeState(Date.now());
+        const bump = (e) => {
+            if (e && !e.isTrusted) return;   // see the attachShadow note: real input only
+            if (!ctx.surface.isGhost() && ts && Date.now() - ts >= ACTIVITY_THROTTLE_MS) writeState(Date.now());
         };
         shadow.addEventListener('click', bump, true);
         chevron.addEventListener('click', (e) => {
+            if (!e.isTrusted) return;
             e.stopPropagation();
-            if (ctx.isGhost()) return; // the ghost beacon is informational only
+            if (ctx.surface.isGhost()) return; // the ghost beacon is informational only
             ctx.surface.endIntro(); // the first chevron click retires the new-install glow
             writeState(Date.now()); // slide the launcher out
         });
@@ -410,7 +442,7 @@
             reset: () => { ts = 0; applyState(); }, // land collapsed (used by the surface restore)
             // Initial "stashed" look, set before the host enters the DOM (no flash).
             applyInitial: () => {
-                const collapsed = ctx.isGhost() || !ts;
+                const collapsed = ctx.surface.isGhost() || !ts;
                 launcher.classList.toggle('stashed', collapsed);
                 pin.classList.toggle('stashed', collapsed);
                 chevron.classList.toggle('shown', collapsed);
@@ -418,8 +450,8 @@
             // STATE_KEY changed in another tab.
             mirror: (v) => {
                 if (v === ts) return; // echo of our own write
-                if (ctx.isGhost()) { ts = v; return; } // parked — mirror only, visuals stay ghost
-                if (!v && (ctx.isPinned() || panel.classList.contains('open'))) {
+                if (ctx.surface.isGhost()) { ts = v; return; } // parked — mirror only, visuals stay ghost
+                if (!v && (ctx.pin.isPinned() || panel.classList.contains('open'))) {
                     // An idle sibling collapsed us while our panel is in use (or we're
                     // pinned) — re-assert expanded (the sibling just follows, no ping-pong).
                     writeState(Date.now());
@@ -434,38 +466,41 @@
     // The pin badge over PIN_KEY: pressed = the launcher stays out (the collapse
     // controller reads isPinned() to skip the idle stash). Toggling is activity, so
     // it writes STATE_KEY; a cross-tab change re-arms/cancels the idle timer.
-    function createPin(ctx, initialPinned) {
+    function createPin(ctx, initialPinned, initialMaster) {
         const { pin } = ctx.els;
-        ctx._pinned = !!initialPinned;
+        let pinned = !!initialPinned;
+        let masterOn = initialMaster;
         const applyPin = () => {
-            pin.classList.toggle('pinned', ctx._pinned);
-            pin.setAttribute('aria-pressed', String(ctx._pinned));
+            pin.classList.toggle('pinned', pinned);
+            pin.setAttribute('aria-pressed', String(pinned));
         };
         // The tooltip hints the action the pin offers, so it only shows while the pin
         // is inactive (pressed = already pinned, no hint needed).
         const applyPinTitle = () => {
-            if (ctx._pinned) pin.removeAttribute('title');
+            if (pinned) pin.removeAttribute('title');
             else pin.title = t('widget_pin');
         };
         // Master off greys the pin and makes it inert (pointer-events:none in CSS,
         // plus this guard so a synthetic/forced click can't sneak a toggle through).
-        const applyMaster = () => pin.classList.toggle('disabled', !ctx._masterOn);
+        const applyMaster = () => pin.classList.toggle('disabled', !masterOn);
         pin.addEventListener('click', (e) => {
+            if (!e.isTrusted) return;
             e.stopPropagation();
-            if (!ctx._masterOn) return; // inert while the extension is disabled
-            ctx._pinned = !ctx._pinned;
+            if (!masterOn) return; // inert while the extension is disabled
+            pinned = !pinned;
             applyPin();
             applyPinTitle();
-            chrome.storage.local.set({ [PIN_KEY]: ctx._pinned });
+            chrome.storage.local.set({ [PIN_KEY]: pinned });
             ctx.collapse.writeState(Date.now()); // toggling is activity; an unpin restarts the idle minute
         });
         pin.addEventListener('mouseenter', applyPinTitle); // locale loads async — refresh at hover time
         return {
+            isPinned: () => pinned,
             applyInitial: () => { applyPin(); applyPinTitle(); applyMaster(); },
             // MASTER_KEY changed (panel toggle or another tab) — re-gate the pin.
-            mirrorMaster: (on) => { ctx._masterOn = on; applyMaster(); },
+            mirrorMaster: (on) => { masterOn = on; applyMaster(); },
             mirror: (newVal) => {
-                ctx._pinned = !!newVal;
+                pinned = !!newVal;
                 applyPin();
                 applyPinTitle();
                 ctx.collapse.applyState(); // re-arm on a sibling unpin, or cancel on a sibling pin
@@ -476,8 +511,10 @@
     // The surface parking over Surface.KEY: popup mode parks the widget to a barely
     // visible ghost chevron; the escape hotkey / a live flip brings it back. Owns the
     // ghost flag, the chevron tooltip, and the "welcome back" restore highlight.
-    function createSurface(ctx) {
+    function createSurface(ctx, initialGhost, initialIntro) {
         const { chevron, chevronTip, push } = ctx.els;
+        let ghost = initialGhost;
+        let intro = initialIntro;
         let restoreTimer = null, goldTimer = null; // gold pulse → blue → fade
         let tipTimer = null, pushTimer = null;
 
@@ -510,9 +547,9 @@
         // box: the parked-ghost "how to get the widget back" hint appears immediately,
         // the passive "expand" hint after a short hover-intent delay.
         const applyChevronTip = () => {
-            if (ctx.isGhost()) renderGhostHint();
+            if (ghost) renderGhostHint();
             else chevronTip.textContent = t('widget_expand');
-            chevronTip.classList.toggle('expand', !ctx.isGhost());
+            chevronTip.classList.toggle('expand', !ghost);
         };
         let introBurstTimer = null, introCycleTimer = null;
         const stopIntroCycle = () => {
@@ -530,7 +567,7 @@
         // on the visible collapsed chevron; the ghost beacon is deliberately faint
         // and must stay that way.
         const applyIntro = () => {
-            if (!ctx._intro || ctx.isGhost()) return;
+            if (!intro || ghost) return;
             stopIntroCycle();
             chevron.classList.add('restored');
             const burst = () => {
@@ -541,8 +578,8 @@
             introCycleTimer = setInterval(burst, INTRO_CYCLE_MS);
         };
         const endIntro = () => {
-            if (!ctx._intro) return;
-            ctx._intro = false;
+            if (!intro) return;
+            intro = false;
             // The classes come off via clearRestore on the expand that follows the
             // click; the write retires the glow in every other tab through onChanged.
             chrome.storage.local.set({ [INTRO_KEY]: false });
@@ -550,7 +587,7 @@
         chevron.addEventListener('mouseenter', () => {
             applyChevronTip(); // locale loads async — refresh at hover time
             clearTimeout(tipTimer);
-            if (ctx.isGhost()) chevronTip.classList.add('shown');
+            if (ghost) chevronTip.classList.add('shown');
             else tipTimer = setTimeout(() => chevronTip.classList.add('shown'), 1000);
         });
         chevron.addEventListener('mouseleave', () => {
@@ -560,8 +597,13 @@
         // Escape hatch: popup mode with an unreachable popup (e.g. the profile
         // migrated into the Steam client) would otherwise be a lock-in — this rare
         // hotkey flips the surface back to the widget from any store page.
+        // `isTrusted` here and on the twin below, not inside Surface: those stay
+        // pure predicates over a key combo (unit-tested with plain objects). The
+        // listener is what a page script can reach — this one on `document`, the
+        // twin through the open shadow root — and either would flip the surface.
         document.addEventListener('keydown', (e) => {
-            if (!ctx.isGhost() || !ctx.Surface.isEscapeHotkey(e)) return;
+            if (!e.isTrusted) return;
+            if (!ghost || !ctx.Surface.isEscapeHotkey(e)) return;
             chrome.storage.local.set({ [ctx.Surface.KEY]: 'widget' });
         }, true);
         // …and its mouse twin on our own element, for the case the hotkey never
@@ -569,19 +611,20 @@
         // from the collapse controller's chevron click (which returns early while
         // parked): stopPropagation there does not silence same-element listeners.
         chevron.addEventListener('click', (e) => {
-            if (!ctx.isGhost() || !ctx.Surface.isEscapeClick(e)) return;
+            if (!e.isTrusted) return;
+            if (!ghost || !ctx.Surface.isEscapeClick(e)) return;
             chrome.storage.local.set({ [ctx.Surface.KEY]: 'widget' });
         });
 
         const applySurface = (mode) => {
             const g = (mode === 'popup');
-            if (g === ctx._ghost) return;
-            ctx._ghost = g;
-            chevron.classList.toggle('ghost', ctx._ghost);
-            if (!ctx._ghost) chevronTip.classList.remove('shown');
+            if (g === ghost) return;
+            ghost = g;
+            chevron.classList.toggle('ghost', ghost);
+            if (!ghost) chevronTip.classList.remove('shown');
             applyChevronTip();
             clearRestore();
-            if (ctx._ghost) {
+            if (ghost) {
                 ctx.collapse.applyState(); // park to the ghost beacon
             } else {
                 // Coming back from the parked popup surface: ALWAYS land on the
@@ -591,7 +634,7 @@
                 // ping-pong with the pinned re-assert branch). Then flag the chevron with
                 // the gold-halo → blue welcome-back highlight.
                 ctx.collapse.reset();
-                if (ctx._intro) {
+                if (intro) {
                     applyIntro(); // the new-install burst cycle owns the highlight — no fade timers
                 } else {
                     chevron.classList.add('restored', 'gold');
@@ -601,19 +644,20 @@
                 // Logged out: the on-page widget is the login-gated surface, so a
                 // heads-up to sign in (same copy as the launcher tooltip), shown
                 // without needing a hover, lives 10 s.
-                if (ctx._locked) showPush(t('widget_login_required'));
+                if (ctx.login.isLocked()) showPush(t('widget_login_required'));
             }
         };
         return {
             applySurface, clearRestore, endIntro,
+            isGhost: () => ghost,
             // INTRO_KEY changed (retired by a chevron click here or in another tab).
             mirrorIntro: (v) => {
-                ctx._intro = !!v;
-                if (ctx._intro) applyIntro();
+                intro = !!v;
+                if (intro) applyIntro();
                 else clearRestore();
             },
             applyInitial: () => {
-                chevron.classList.toggle('ghost', ctx.isGhost());
+                chevron.classList.toggle('ghost', ghost);
                 applyChevronTip();
                 applyIntro();
             }
@@ -627,11 +671,10 @@
     // signed in (in another tab) still reads logged-out in its own DOM.
     function createLoginGate(ctx) {
         const { launcher, loginTip, pin } = ctx.els;
-        const Auth = window.ILAP.SteamAuth;
+        const Auth = ctx.auth;
         let locked = false, probing = false, lastProbe = 0;
         const setLocked = (v) => {
             locked = v;
-            ctx._locked = v; // read by createSurface to gate the sign-in push
             launcher.classList.toggle('locked', v);
             pin.classList.toggle('locked', v);
             if (v) loginTip.textContent = t('widget_login_required');
@@ -645,6 +688,7 @@
         });
         launcher.addEventListener('mouseleave', () => loginTip.classList.remove('shown'));
         launcher.addEventListener('click', (e) => {
+            if (!e.isTrusted) return;
             e.stopPropagation();
             if (locked) {
                 const now = Date.now();
@@ -668,28 +712,28 @@
             setLocked(true);
             Auth.resolveLogin().then((ok) => { if (ok) setLocked(false); });
         }
+        // Read by the surface controller to gate the sign-in push.
+        return { isLocked: () => locked };
     }
 
     // Assemble the widget: build the DOM, wire the four single-concern controllers
-    // over a shared ctx (each owns one storage key), then a single onChanged
-    // dispatcher routes each changed key to its controller.
+    // (each owns its state and its storage key, and the others read it through the
+    // controller on ctx), then one onChanged dispatcher routes each changed key to
+    // its controller.
     function mount(initialTs, initialPinned, initialMode, initialMaster, initialIntro) {
         const els = buildDom();
         const ctx = {
             els,
             Surface: window.ILAP.Surface,
-            _ghost: (initialMode === 'popup'),
-            _pinned: !!initialPinned,
-            _masterOn: initialMaster !== false,
-            _locked: false,
-            _intro: !!initialIntro,
-            isGhost() { return this._ghost; },
-            isPinned() { return this._pinned; }
+            auth: window.ILAP.SteamAuth,
         };
 
         ctx.collapse = createCollapse(ctx, initialTs);
-        ctx.pin = createPin(ctx, initialPinned);
-        ctx.surface = createSurface(ctx);
+        ctx.pin = createPin(ctx, initialPinned, initialMaster);
+        ctx.surface = createSurface(ctx, initialMode === 'popup', !!initialIntro);
+        // All four exist before anything can call across: the controllers read
+        // each other only from handlers and from the onChanged dispatcher below.
+        ctx.login = createLoginGate(ctx);
 
         // Initial visuals before the host enters the DOM → no transition flash.
         ctx.collapse.applyInitial();
@@ -697,8 +741,6 @@
         ctx.surface.applyInitial();
 
         document.body.appendChild(els.host);
-
-        createLoginGate(ctx);
 
         // Blink once whenever a curator queue job finishes — on whichever control is
         // visible (launcher, or the chevron while stashed). The drainer writes
@@ -714,9 +756,9 @@
         };
 
         chrome.storage.onChanged.addListener((changes, area) => {
-            if (area && area !== 'local') return;
-            if (changes.ilap_curator_pulse) blink();
-            if (changes[MASTER_KEY]) ctx.pin.mirrorMaster(changes[MASTER_KEY].newValue !== false);
+            if (area !== 'local') return;
+            if (changes[window.ILAP.Curator.Store.PULSE_KEY]) blink();
+            if (changes[MASTER_KEY]) ctx.pin.mirrorMaster(Settings.isOn(changes[MASTER_KEY].newValue));
             if (changes[PIN_KEY]) ctx.pin.mirror(changes[PIN_KEY].newValue);
             if (changes[ctx.Surface.KEY]) {
                 ctx.surface.applySurface(ctx.Surface.resolve(changes[ctx.Surface.KEY].newValue, navigator.userAgent));
@@ -736,7 +778,7 @@
             const mode = Surface.resolve(data[Surface.KEY], navigator.userAgent);
             // A stale timestamp (browser closed while expanded) reads as collapsed —
             // unless pinned, which keeps the launcher out regardless of age.
-            mount(pinned ? (v || Date.now()) : (Date.now() - v < IDLE_MS ? v : 0), pinned, mode, data[MASTER_KEY] !== false, !!data[INTRO_KEY]);
+            mount(pinned ? (v || Date.now()) : (Date.now() - v < IDLE_MS ? v : 0), pinned, mode, Settings.isOn(data[MASTER_KEY]), !!data[INTRO_KEY]);
         });
     }
 

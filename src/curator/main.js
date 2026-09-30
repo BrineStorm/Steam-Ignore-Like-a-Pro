@@ -2,16 +2,13 @@
 (function() {
     'use strict';
 
-    // Phase-2 scaffolding: on a curator page, inject a single "Add to ignore queue"
-    // button just before the Options gear in `.nav_right_side > .curator_report`.
-    // Clicking the button drops its OWN filter menu out of it; picking an option is
-    // what stages the job into chrome.storage.local (`ilap_curator_queue`). The
-    // popup/widget "Ignore Queue" applet renders that staged job. Once a job is
-    // staged, the same droplist also carries the applet's job actions —
-    // Pause/Resume + Remove — so the job can be controlled right where it was
-    // staged. Enumeration and draining are NOT wired here — button + menu only.
+    // On a curator page: an "Add to ignore queue" button before the Options gear
+    // in `.nav_right_side > .curator_report`, with its own filter menu. Picking a
+    // filter stages a job through the EnqueueService, which also resolves its app
+    // list; once staged, the same menu carries the job's Pause/Resume and Remove.
+    // Draining is the drainer's (curator/drainer.js).
 
-    const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
+    const t = window.ILAP.t;
 
     const BTN_ID = 'ilap-curator-enqueue';
     const STYLE_ID = 'ilap-curator-style';
@@ -29,17 +26,15 @@
         all_but_recommended: 'background:linear-gradient(90deg,#f1de74,#ff6a4d); box-shadow:0 0 9px rgba(255,150,80,.75);'
     };
 
-    // Post-add droplist action rows (same glyphs as the queue applet's row
-    // buttons in ui/popup_queue.js — presentation constants, not shared logic;
-    // the two files live in different script worlds). Colours match the applet's
-    // hover fills: pause yellow, play green, delete red (menu's red-dot shade).
-    const ICON_PAUSE = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>';
-    const ICON_PLAY = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
-    const ICON_TRASH = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2zM6 9h12l-1 11a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 9zm4 2v8h1v-8h-1zm3 0v8h1v-8h-1z"/></svg>';
+    // Post-add droplist action rows: the queue applet's own glyphs (ui/icons.js).
+    // Colours match the applet's hover fills: pause yellow, play green, delete red
+    // (menu's red-dot shade).
+    const { PAUSE: ICON_PAUSE, PLAY: ICON_PLAY, TRASH: ICON_TRASH } = window.ILAP_Icons;
 
     // Filter vocabulary + label colours are shared with the popup applet (see
     // src/curator/filters.js, loaded before this script).
     const Filters = window.ILAP_Filters;
+    const Store = window.ILAP.Curator.Store;
     const FILTERS = Filters.FILTERS;
     const typeStyle = (value) => Filters.colorStyle(value);
 
@@ -170,18 +165,17 @@
         } else {
             html = esc(tpl);
         }
-        window.ILAP.showToast(html, duration);
+        // The markup variant on purpose: `html` above is assembled here, with
+        // every interpolated part already escaped.
+        window.ILAP.showToastHtml(html, duration);
     }
 
-    // Pick a filter from the dropdown: add a new job, or — if this curator is
-    // already queued — switch the existing job's filter in place. Staging +
-    // resolution (cache-vs-enumerate → `pending`) is owned by the injectable
-    // EnqueueService (built in boot, serialized through Store.mutateQueue); this
-    // stays the thin UI layer — gather the page-derived inputs, react to the
-    // outcome with the toast/flash, and kick off resolution.
-    function pick(value, btn) {
+    // Pick a filter: add a job, or switch this curator's queued job to it. The
+    // service owns staging and resolution; this gathers the page inputs and
+    // answers with the toast and the flash.
+    function pick(service, value, btn) {
         const id = curatorId();
-        if (!id || !service) return;
+        if (!id) return;
         const name = curatorName(id);
         const url = location.origin + location.pathname;
         service.stage(id, name, url, value).then((outcome) => {
@@ -193,25 +187,33 @@
                 flash(btn, t('curator_added'));
                 showToast('curator_toast_added', value);
             }
-            service.resolve(id, outcome.jobId, outcome.name, value).then((res) => {
+            service.resolve(id, outcome.jobId, outcome.name, value, outcome.paused).then((res) => {
                 // Enumeration produced no drainable list (fetch/parse failure, or
                 // nothing under this filter) — the job was dropped, so tell the user
                 // instead of leaving them with a silently vanished button state.
                 if (res && res.error) showToast('curator_toast_error', null, 4500);
+                // Or it produced a SHORT one: a read died part-way, so the job is
+                // real but covers only what was read. Said out loud, because the
+                // row would otherwise look like a complete curator with a small
+                // catalogue — and re-adding is what finishes the job.
+                else if (res && res.partial) showToast('curator_toast_partial', null, 5000);
             });
         });
     }
 
-    // Post-add droplist action: Pause/Resume or Remove the job staged for THIS
-    // curator — the exact effect of the queue applet's row buttons. The service
-    // re-reads the job inside the serialized queue mutation, so a click raced by
-    // another window (job already removed / already toggled there) degrades to a
-    // no-op; the storage sync then redraws this menu to whatever actually won.
-    function jobAction(act) {
+    // Pause/Resume or Remove this curator's job, like the applet's row buttons. A
+    // click raced by another window is a no-op, and the storage sync redraws the
+    // menu to whatever won.
+    function jobAction(service, act) {
         const id = curatorId();
-        if (!id || !service) return;
-        if (act === 'remove') service.remove(id);
-        else if (act === 'pause') service.togglePause(id);
+        if (!id) return;
+        // Nothing awaits these, so a rejected storage write would surface as an
+        // unhandled rejection. The one that actually happens is an extension
+        // update: this page's script keeps running with no storage left, and
+        // there is nothing to do about the click but drop it quietly.
+        const swallow = (e) => console.warn('[ILAP] curator job action failed:', e);
+        if (act === 'remove') service.remove(id).catch(swallow);
+        else if (act === 'pause') service.togglePause(id).catch(swallow);
     }
 
     // Build the control (logo + label) and place it just before the
@@ -282,7 +284,7 @@
 
     // Wire open/close, option picking, and dismissal (outside click + scroll/resize
     // reposition guard — the fixed menu would otherwise detach from the button).
-    function wireMenu(wrap, btn, menu) {
+    function wireMenu(wrap, btn, menu, signal, service) {
         const close = () => { menu.classList.remove('open'); };
         const open = () => {
             const r = btn.getBoundingClientRect();
@@ -305,15 +307,17 @@
             if (!opt) return;
             close();
             const act = opt.getAttribute('data-act');
-            if (act) { jobAction(act); return; }
-            pick(opt.getAttribute('data-value'), btn);
+            if (act) { jobAction(service, act); return; }
+            pick(service, opt.getAttribute('data-value'), btn);
         });
 
+        // These outlive the button's nodes: bound to the injection's AbortController
+        // so a master-toggle removal takes them along.
         document.addEventListener('click', (e) => {
             if (!menu.contains(e.target) && !wrap.contains(e.target)) close();
-        });
-        window.addEventListener('scroll', close, true);
-        window.addEventListener('resize', close);
+        }, { signal });
+        window.addEventListener('scroll', close, { capture: true, signal });
+        window.addEventListener('resize', close, { signal });
     }
 
     // The button spans the full dropdown width (promo slide-05 mock). The menu is
@@ -340,15 +344,21 @@
     // post-add Pause/Remove rows) now and whenever the queue changes (here, in
     // the popup applet, or in another tab/window). The re-render also hits an
     // OPEN menu, so a queue change elsewhere swaps this droplist's variant live.
-    function wireStorageSync(btn, menu, renderMenu) {
+    // Every subscription is bound to `signal`, like wireMenu's listeners: aborting
+    // the injection's controller is the whole unsubscribe, whatever channels this adds.
+    function wireStorageSync(btn, menu, renderMenu, signal) {
         // Optional, like the drainer's log hooks: without the module the button
         // still works, only the soft re-stage warning is skipped.
         const Log = window.ILAP.IgnoreLog;
         // Recently-undone window for the soft re-stage warning.
         const WARN_WINDOW_MS = 48 * 3600000;
-        const keys = Log ? ['ilap_curator_queue', Log.LOG_KEY] : ['ilap_curator_queue'];
-        const sync = () => chrome.storage.local.get(keys, (res) => {
-            const q = Array.isArray(res.ilap_curator_queue) ? res.ilap_curator_queue : [];
+        const readLog = () => (Log ? Log.getLog() : Promise.resolve([]));
+        // Aborted = injection removed. The subscriptions go with it; this guard
+        // covers a read still in flight at that moment.
+        const sync = () => chrome.storage.local.get([Store.QUEUE_KEY], async (res) => {
+            const log = await readLog();
+            if (signal.aborted) return;
+            const q = Array.isArray(res[Store.QUEUE_KEY]) ? res[Store.QUEUE_KEY] : [];
             const job = q.find(j => j.curatorId === curatorId());
             const text = job ? t('curator_added_state') : t('curator_add_to_queue');
             btn.dataset.label = text;
@@ -357,39 +367,51 @@
                 if (lbl) lbl.textContent = text;
             }
             const now = Date.now();
-            const undoneAt = Log ? Log.lastUndoneForCurator(
-                res[Log.LOG_KEY] || [], curatorId(), WARN_WINDOW_MS, now) : 0;
+            const undoneAt = Log ? Log.lastUndoneForCurator(log, curatorId(), WARN_WINDOW_MS, now) : 0;
             renderMenu(job || null, undoneAt > 0 ? now - undoneAt : 0);
             syncBtnWidth(btn, menu);
         });
         sync();
-        chrome.storage.onChanged.addListener((changes, area) => {
-            // Deliberately NOT keyed on the log: the drainer writes it 1–3×/s
-            // mid-drain and each sync re-measures the menu. The warning's inputs
-            // change meaningfully only when an undo job finishes — which removes
-            // the job from the queue and lands here anyway.
-            if (area === 'local' && changes.ilap_curator_queue) sync();
-        });
+        // Deliberately NOT keyed on the log: the drainer writes it 1–3×/s
+        // mid-drain and each sync re-measures the menu. The warning's inputs
+        // change meaningfully only when an undo job finishes — which removes
+        // the job from the queue and lands here anyway.
+        const onChanged = (changes, area) => {
+            if (area === 'local' && changes[Store.QUEUE_KEY]) sync();
+        };
+        chrome.storage.onChanged.addListener(onChanged);
         // A language change re-derives the same things a queue change does
         // (button label + menu option labels), so it rides the same sync.
         window.ILAP.i18n.onLangChange(sync);
+        // Re-injected on every master flip, so these must not leak.
+        signal.addEventListener('abort', () => {
+            chrome.storage.onChanged.removeListener(onChanged);
+            window.ILAP.i18n.offLangChange(sync);
+        }, { once: true });
     }
 
-    let service = null; // EnqueueService, assembled in boot() once deps are present
-
     // Owns the injected curator-button lifecycle: the injection handle plus the
-    // login gate that decides whether it's shown. The button is deliberately NOT
-    // surface-gated: since the SW drain landed, the queue is stageable and
-    // manageable from either surface (the popup hosts the same applet), so the
-    // mode only decides where the UI lives, not what is allowed.
-    function createButtonController() {
+    // two gates that decide whether it's shown — the login gate and the master
+    // toggle. The button is deliberately NOT surface-gated: the queue is
+    // stageable and manageable from either surface, drained by the SW too (the
+    // popup hosts the same applet), so the mode only decides where the UI lives,
+    // not what is allowed.
+    function createButtonController(service) {
+        // The live injection ({ wrap, menu, ac }), or null.
+        let handle = null;
+        let obs = null;
+        let loggedIn = false;
+        let masterOn = null;   // unknown until the first storage read — inject nothing yet
+
         function inject(report) {
             if (report.querySelector('#' + BTN_ID)) return;
             injectStyle();
             const { wrap, btn } = buildButton(report);
             const { menu, renderMenu } = buildMenu();
-            wireMenu(wrap, btn, menu);
-            wireStorageSync(btn, menu, renderMenu);
+            const ac = new AbortController();
+            wireMenu(wrap, btn, menu, ac.signal, service);
+            wireStorageSync(btn, menu, renderMenu, ac.signal);
+            handle = { wrap, menu, ac };
         }
 
         function tryInject() {
@@ -399,40 +421,67 @@
             return true;
         }
 
+        // Takes the observer to stop, so a give-up timer from an EARLIER start
+        // (master flipped off and on inside the window) can't clear the current one.
+        function stopObserver(o = obs) {
+            if (!o) return;
+            o.disconnect();
+            if (obs === o) obs = null;
+        }
+
         function start() {
+            if (handle || obs) return;
             if (tryInject()) return;
             // The curator chrome can render after load; watch briefly, then give up.
-            const obs = new MutationObserver(() => { if (tryInject()) obs.disconnect(); });
-            obs.observe(document.documentElement, { childList: true, subtree: true });
-            setTimeout(() => obs.disconnect(), 10000);
+            const o = new MutationObserver(() => { if (tryInject()) stopObserver(o); });
+            obs = o;
+            o.observe(document.documentElement, { childList: true, subtree: true });
+            setTimeout(() => stopObserver(o), 10000);
+        }
+
+        function remove() {
+            stopObserver();
+            if (!handle) return;
+            handle.ac.abort();   // every listener and subscription of the injection
+            handle.wrap.remove();
+            handle.menu.remove();   // lives on <body>, not inside the wrapper
+            const style = document.getElementById(STYLE_ID);
+            if (style) style.remove();   // injectStyle() puts it back with the button
+            handle = null;
+        }
+
+        function apply() {
+            if (loggedIn && masterOn === true) start();
+            else remove();
         }
 
         return {
             // Login gate settled positive: inject.
-            onLogin() { start(); }
+            onLogin() { loggedIn = true; apply(); },
+            // The global master toggle: off removes the control, on puts it back.
+            // Already-staged jobs are untouched.
+            setMaster(on) { masterOn = on; apply(); }
         };
     }
 
     function boot() {
         if (!curatorId()) return;          // no-op on every non-curator store page
 
-        // Assemble the enqueue service with its real deps (DIP: pick() no longer
-        // reaches into the Store/Enumerator singletons itself). If the Phase-2
-        // curator scripts aren't present, `service` stays null and pick() no-ops.
         const C = window.ILAP.Curator;
-        if (C && C.Store && C.Enumerator && C.EnqueueService) {
-            service = new C.EnqueueService({
-                store: C.Store, enumerator: C.Enumerator, maxJobs: C.Store.MAX_JOBS
-            });
-        }
-
-        const ctl = createButtonController();
+        const service = new C.EnqueueService({
+            store: C.Store, enumerator: C.Enumerator, maxJobs: C.Store.MAX_JOBS
+        });
+        const ctl = createButtonController(service);
 
         // Login gate: staging an ignore job makes no sense without a Steam
         // session, so the control isn't injected at all on a logged-out page
         // (same SteamAuth policy as the widget lock — header DOM first, live
         // probe only when there is no header to read).
         window.ILAP.SteamAuth.resolveLogin().then((ok) => { if (ok) ctl.onLogin(); });
+
+        // Master gate, resolved and then followed live (no reload needed).
+        const setMaster = (on) => ctl.setMaster(on);
+        window.ILAP.MasterSwitch.watch({ onInit: setMaster, onChange: setMaster });
     }
 
     if (document.readyState === 'loading') {

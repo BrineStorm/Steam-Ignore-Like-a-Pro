@@ -2,6 +2,9 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { withVocab } = require('./_store-vocab.js');
+const { loadEscape } = require('../_escape.js');
+const { loadEnumerator } = require('../_curator.js');
 
 // CuratorQueueDrainer lease discipline as Node units — no browser. The E2E
 // drain.spec covers the happy paths; these guards are timing races (lease TTL
@@ -16,13 +19,184 @@ function loadDrainerClass(DateImpl, timers) {
         Math, Date: DateImpl || Date, Promise, Object, Array, String, Set,
         setInterval: (timers && timers.setInterval) || setInterval,
         clearInterval: (timers && timers.clearInterval) || clearInterval,
+        // The trailing re-kick MIN_PASS_GAP_MS defers with. Stubbable so a unit
+        // can see WHAT was deferred without waiting the real gap out.
+        setTimeout: (timers && timers.setTimeout) || setTimeout,
+        clearTimeout: (timers && timers.clearTimeout) || clearTimeout,
     };
     vm.createContext(sandbox);
     vm.runInContext(code, sandbox);
-    return sandbox.window.ILAP.Curator.CuratorQueueDrainer;
+    // Every drainer dependency is required. A unit fills in what it is not about
+    // with inert stand-ins: a confirmed login probe, no-op stats and log hooks, a
+    // gate that never stops, and pulses that go nowhere. The lease reads through to
+    // the stub store's lock methods (the units model one storage), held when the
+    // stub has none; the store gets the real job vocabulary.
+    const Drainer = sandbox.window.ILAP.Curator.CuratorQueueDrainer;
+    const noop = async () => {};
+    return class extends Drainer {
+        constructor(deps) {
+            const store = deps.store && withVocab(deps.store);
+            if (store) {
+                for (const m of ['signalCompleted', 'signalUnignored', 'signalUndoFailed', 'bumpSkipped']) {
+                    if (!store[m]) store[m] = noop;
+                }
+            }
+            const viaStore = (name, fallback) => (...args) =>
+                (store && store[name] ? store[name](...args) : fallback());
+            super(Object.assign({
+                probeLogin: async () => true,
+                lease: {
+                    acquireLock: viaStore('acquireLock', async () => true),
+                    renewLock: viaStore('renewLock', async () => true),
+                    holdsLock: viaStore('holdsLock', async () => true),
+                    releaseLock: viaStore('releaseLock', noop),
+                    LOCK_PREFIX: 'ilap_curator_lock_',
+                },
+                fetchUserdata: async () => new Set(),
+                saveStats: noop, bumpCount: noop, dropCount: noop,
+            }, deps, {
+                api: Object.assign({
+                    ignore: async () => { throw new Error('unexpected ignore POST'); },
+                    unignore: async () => { throw new Error('unexpected unignore POST'); },
+                }, deps.api),
+                log: Object.assign({
+                    append: noop, markUndone: noop,
+                    lastIgnoredAt: async () => -Infinity, wasReIgnoredAfter: async () => false,
+                }, deps.log),
+                gate: Object.assign({
+                    reserve: async () => { throw new Error('unexpected gate reservation'); },
+                    reportRateLimited: noop, stopped: async () => null,
+                }, deps.gate),
+            }));
+        }
+    };
+}
+
+// drainer.js as a store tab loads it: the facade present, so the tab host at the
+// bottom builds its own drainer and wires the storage listener. The document is
+// still loading, so the boot kick waits; a test fires the listener by hand.
+function loadTabHost() {
+    const code = fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'curator', 'drainer.js'), 'utf8');
+    const listeners = [];
+    const fn = async () => {};
+    const store = withVocab({ QUEUE_KEY: 'ilap_curator_queue' });
+    const sandbox = {
+        Math, Date, Promise, Object, Array, String, Set,
+        setInterval, clearInterval, setTimeout, clearTimeout,
+        document: { readyState: 'loading', addEventListener: () => {} },
+        chrome: { storage: { onChanged: { addListener: (l) => listeners.push(l) } } },
+        window: { ILAP: {
+            newOwnerId: () => 'tab',
+            Settings: { KEYS: { MASTER: 'ilap_master_enabled' } },
+            Curator: {
+                Store: store,
+                Lease: { acquireLock: fn, renewLock: fn, holdsLock: fn, releaseLock: fn,
+                    LOCK_PREFIX: 'ilap_curator_lock_' },
+            },
+            apiIgnoreGame: fn, apiUnignoreGame: fn, classifyRefusal: (a, r) => r,
+            IgnoreGate: { reserve: fn, reportRateLimited: fn, stopVerdict: fn },
+            fetchIgnoredAppsStrict: fn,
+            SteamAuth: { probeLogin: fn },
+            saveStats: fn, bumpIgnoredCount: fn, dropIgnoredCount: fn,
+            StatsLogic: { miSourceLabel: () => '' },
+            IgnoreLog: { drainerHooks: () => ({ append: fn, markUndone: fn, lastIgnoredAt: fn, wasReIgnoredAfter: fn }) },
+        } },
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(code, sandbox);
+    return { drainer: sandbox.window.ILAP.Curator.drainer, listeners };
+}
+
+// A complete set of real-shaped deps, for the construction contract.
+function fullDeps() {
+    const fn = async () => {};
+    return {
+        store: withVocab({}),
+        lease: { acquireLock: fn, renewLock: fn, holdsLock: fn, releaseLock: fn },
+        api: { ignore: fn, unignore: fn },
+        gate: { reserve: fn, reportRateLimited: fn, stopped: fn },
+        fetchUserdata: fn,
+        probeLogin: fn,
+        ownerId: 't',
+        log: { append: fn, markUndone: fn, lastIgnoredAt: fn, wasReIgnoredAfter: fn },
+        saveStats: fn, bumpCount: fn, dropCount: fn,
+    };
 }
 
 test.describe('CuratorQueueDrainer (unit)', () => {
+
+    test('a drainer missing any dependency refuses to be built, naming it', async () => {
+        // A missing probe would read as "signed in", a missing gate.stopped as
+        // "never stopped", a missing log as nothing to record: each would switch
+        // a check or a record off without a trace.
+        const code = fs.readFileSync(
+            path.join(__dirname, '..', '..', 'src', 'curator', 'drainer.js'), 'utf8');
+        const sandbox = { window: {},
+            Math, Date, Promise, Object, Array, String, Set, TypeError,
+            setInterval, clearInterval, setTimeout, clearTimeout };
+        vm.createContext(sandbox);
+        vm.runInContext(code, sandbox);
+        const Raw = sandbox.window.ILAP.Curator.CuratorQueueDrainer;
+        expect(() => new Raw(fullDeps())).not.toThrow();
+        for (const name of Object.keys(fullDeps())) {
+            const deps = fullDeps();
+            delete deps[name];
+            expect(() => new Raw(deps), name).toThrow(new RegExp(`deps\\.${name}`));
+        }
+        const noStopped = fullDeps();
+        delete noStopped.gate.stopped;
+        expect(() => new Raw(noStopped)).toThrow(/deps\.gate/);
+    });
+
+    test('tab host: only the queue, the master switch and a lease wake a pass', async () => {
+        // The listener lives in the host now, not in the drainer. A pass on every
+        // write would re-read userdata for a drain's own cursor advances.
+        const { drainer, listeners } = loadTabHost();
+        expect(listeners).toHaveLength(1);
+        let kicks = 0;
+        drainer.drain = async () => { kicks++; };
+        const fire = (key, area = 'local') => listeners[0]({ [key]: { newValue: 1 } }, area);
+
+        fire('ilap_curator_queue');
+        fire('ilap_master_enabled');   // re-enabling resumes a gate-stopped drain
+        fire('ilap_curator_lock_123');   // a released lease hands the job over
+        expect(kicks).toBe(3);
+
+        fire('ilap_curator_cursor_job_1');
+        fire('ilap_ignore_gate');
+        fire('ilap_ignore_log_c1');
+        fire('ilap_curator_queue', 'sync');
+        expect(kicks).toBe(3);
+    });
+
+    test('a cursor write after a POST re-reads the queue; a skip reuses the read it made', async () => {
+        // A remove can land while the POST is out. Handing setCursor the queue
+        // read before the request would miss it, and the removed job's cursor
+        // key would be written back, never to be cleaned up.
+        const Drainer = loadDrainerClass();
+        const writes = [];
+        let cursor = 0;
+        const d = new Drainer({
+            store: {
+                getQueue: async () => [{ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20'] }],
+                getCursor: async () => cursor,
+                setCursor: async (id, c, snapshot) => { cursor = c; writes.push({ c, snapshot }); },
+                removeIfDrained: async () => true,
+            },
+            fetchUserdata: async () => new Set(['10']),     // '10' is a dedupe skip
+            api: { ignore: async () => ({ ok: true }) },    // '20' is POSTed
+            gate: { reserve: async () => ({ ok: true }) },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+
+        await d.drain();
+
+        expect(writes.map(w => w.c)).toEqual([1, 2]);
+        expect(Array.isArray(writes[0].snapshot)).toBe(true);   // the skip: no network wait since the read
+        expect(writes[1].snapshot).toBeUndefined();              // after the POST: read again
+    });
 
     test('a dedupe-skip run heartbeats the lease (no POSTs, lease still renewed)', async () => {
         // Every appid is already ignored → the whole job drains via the skip
@@ -89,6 +263,92 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         await d._drainJob(job);
         expect(posts).toEqual([]); // single-drainer invariant: no POST after the steal
         expect(cursor).toBe(0);    // and the stolen iteration burned no cursor
+    });
+
+    test('the lease is renewed while a POST is in flight, and the renewal stops with it', async () => {
+        // A POST (10 s deadline) plus a 400's appdetails read can outlast the
+        // 8 s lease with no loop-top heartbeat in between; a standby drainer
+        // would then take the lease and send the same entry again.
+        const intervals = new Map();
+        let nextId = 1;
+        const Drainer = loadDrainerClass(undefined, {
+            setInterval: (fn, ms) => { const id = nextId++; intervals.set(id, { fn, ms }); return id; },
+            clearInterval: (id) => { intervals.delete(id); },
+        });
+        const job = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10'] };
+        let cursor = 0;
+        let renews = 0;
+        let release = null;
+        const store = {
+            getQueue: async () => [{ ...job }],
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            renewLock: async () => { renews++; return true; },
+            removeIfDrained: async () => true,
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            api: { ignore: () => new Promise(r => { release = () => r({ ok: true }); }) },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            ownerId: 't1',
+        });
+        const pending = d._drainJob(job);
+        while (!release) await new Promise(r => setImmediate(r));   // POST in flight
+
+        expect(intervals.size).toBe(1);
+        const [{ fn, ms }] = intervals.values();
+        expect(ms).toBeLessThan(8000);   // beats inside the lease TTL
+        fn(); fn();                      // a slow POST spans two beats
+        await new Promise(r => setImmediate(r));
+        expect(renews).toBe(2);
+
+        release();
+        await pending;
+        expect(intervals.size).toBe(0);  // no beat outlives the POST
+        expect(cursor).toBe(1);
+    });
+
+    test('a renewal still in flight when the POST returns is awaited before the entry moves on', async () => {
+        // Otherwise its write could land after the pass released the lease and
+        // put it back for a full TTL.
+        const intervals = new Map();
+        const Drainer = loadDrainerClass(undefined, {
+            setInterval: (fn) => { intervals.set(1, fn); return 1; },
+            clearInterval: (id) => { intervals.delete(id); },
+        });
+        const job = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10'] };
+        const order = [];
+        let cursor = 0;
+        let finishRenew = null;
+        let release = null;
+        const store = {
+            getQueue: async () => [{ ...job }],
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; order.push('cursor'); },
+            renewLock: () => new Promise(r => { finishRenew = () => { order.push('renewed'); r(true); }; }),
+            removeIfDrained: async () => true,
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            api: { ignore: () => new Promise(r => { release = () => r({ ok: true }); }) },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            ownerId: 't1',
+        });
+        const pending = d._drainJob(job);
+        while (!release) await new Promise(r => setImmediate(r));
+        intervals.get(1)();              // a beat starts a renewal…
+        release();                       // …and the POST answers before it lands
+        await new Promise(r => setImmediate(r));
+        expect(order).toEqual([]);       // the loop is held on the renewal
+        finishRenew();
+        await pending;
+        expect(order).toEqual(['renewed', 'cursor']);
     });
 
     test('a 429 (rate-limited) ends the pass without burning fails or cursor', async () => {
@@ -960,37 +1220,6 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(posts).toEqual(['10']);
     });
 
-    test('a drainer built without a gate.stopped adapter still drains (optional dep)', async () => {
-        // Stubs and partial builds pass a bare { reserve } gate; the pre-check
-        // must fall back to "never stopped" rather than throwing.
-        const Drainer = loadDrainerClass();
-        let cursor = 0;
-        let removed = false;
-        const posts = [];
-        const d = new Drainer({
-            store: {
-                getQueue: async () => (removed
-                    ? []
-                    : [{ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10'] }]),
-                acquireLock: async () => true,
-                releaseLock: async () => {},
-                holdsLock: async () => true,
-                getCursor: async () => cursor,
-                setCursor: async (id, c) => { cursor = c; },
-                renewLock: async () => {},
-                removeIfDrained: async () => { removed = true; return true; },
-                signalCompleted: async () => {},
-            },
-            api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
-            gate: { reserve: async () => ({ ok: true }) },   // no `stopped`
-            fetchUserdata: async () => new Set(),
-            ownerId: 't1',
-            standbyMs: 0,
-        });
-        await d.drain();
-        expect(posts).toEqual(['10']);
-    });
-
     test('a failed POST blamed on the session stops the pass and parks the drainer', async () => {
         // The half-dead session: cookies present (so gate.reserve() keeps
         // granting slots) but Steam no longer accepts them, and appdetails says
@@ -1226,6 +1455,22 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect((await d._pickJob(queue.slice(0, 2))).id).toBe('c');
     });
 
+    test('a job of an unknown type is skipped, and the rest of the queue still drains', async () => {
+        // After a downgrade the queue can hold a type this build does not know. It
+        // might be a rollback, so it is never drained as an ignore — and it must not
+        // stall the jobs behind it either.
+        const Drainer = loadDrainerClass();
+        const d = new Drainer({
+            store: { getCursor: async () => 0 }, api: {}, gate: {},
+            fetchUserdata: async () => new Set(), ownerId: 't1',
+        });
+        const unknown = { id: 'x', curatorId: 'x', type: 'from-a-newer-build', status: 'pending', appids: ['1'] };
+        const curator = { id: 'c', curatorId: '1', status: 'pending', appids: ['2'] };
+        expect(await d._drainable(unknown)).toBe(false);
+        expect((await d._pickJob([unknown, curator])).id).toBe('c');
+        expect(await d.hasDrainableWork([unknown])).toBe(false);
+    });
+
     test('progress comes from the cursor KEY, not the queue record', async () => {
         // The `cursor` field on a job is a legacy pre-cursor-key value that no
         // build writes any more — reading it instead of the key called every job
@@ -1427,6 +1672,146 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(d._timer).toBe(null);
     });
 
+    test('back-to-back kicks cost ONE userdata read; the second is deferred, not dropped', async () => {
+        // Flipping the master toggle off and on is a storage write each way, and
+        // every write this drainer watches kicks a pass. The rate gate paces the
+        // ignore POSTs but not the dedupe GET at the top of a pass, so without a
+        // floor a user could spend one userdata read per flip, per host.
+        let now = 1_000_000;
+        const deferred = [];
+        const Drainer = loadDrainerClass({ now: () => now }, {
+            setTimeout: (fn, ms) => { deferred.push({ fn, ms }); return 1; },
+            clearTimeout: () => {},
+        });
+        let reads = 0;
+        let cursor = 0;
+        let reserves = 0;
+        const posts = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => [{ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20'] }],
+                acquireLock: async () => true,
+                releaseLock: async () => {},
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => true,
+                signalCompleted: async () => {},
+            },
+            api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
+            // One slot per pass, so each pass ends with the job still drainable —
+            // the shape a re-kick has to find something to do in.
+            gate: { reserve: async () => ({ ok: reserves++ % 2 === 0 }) },
+            fetchUserdata: async () => { reads += 1; return new Set(); },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+
+        await d.drain();
+        expect(reads).toBe(1);
+        expect(posts).toEqual(['10']);
+
+        // A second kick in the same instant: no read, and a re-kick armed for
+        // what is left of the gap.
+        await d.drain();
+        expect(reads).toBe(1);
+        expect(deferred).toHaveLength(1);
+        expect(deferred[0].ms).toBe(2000);
+
+        // A third one does not stack a second timer — one deferred kick answers
+        // for every kick the gap swallowed.
+        await d.drain();
+        expect(deferred).toHaveLength(1);
+
+        // The deferred kick is a real pass once the gap has passed.
+        now += 2000;
+        await deferred[0].fn();
+        await new Promise(r => setTimeout(r, 0));
+        expect(reads).toBe(2);
+    });
+
+    test('a deferred kick re-enters through the host rekick, not straight into drain()', async () => {
+        // The SW wraps every pass in its own kick(): the halt check before, the
+        // alarm re-sync after. A pass the gap deferred must not skip both.
+        let now = 1_000_000;
+        const deferred = [];
+        const Drainer = loadDrainerClass({ now: () => now }, {
+            setTimeout: (fn, ms) => { deferred.push({ fn, ms }); return 1; },
+            clearTimeout: () => {},
+        });
+        let hostKicks = 0;
+        let cursor = 0;
+        let reserves = 0;
+        const d = new Drainer({
+            store: {
+                getQueue: async () => [{ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20'] }],
+                acquireLock: async () => true,
+                releaseLock: async () => {},
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => true,
+                signalCompleted: async () => {},
+            },
+            api: { ignore: async () => ({ ok: true }) },
+            gate: { reserve: async () => ({ ok: reserves++ % 2 === 0 }) },
+            fetchUserdata: async () => new Set(),
+            ownerId: 't1',
+            standbyMs: 0,
+            rekick: () => { hostKicks += 1; },
+        });
+
+        await d.drain();                 // a real pass: the gap starts
+        await d.drain();                 // deferred
+        expect(deferred).toHaveLength(1);
+
+        now += 2000;
+        deferred[0].fn();
+        expect(hostKicks).toBe(1);
+    });
+
+    test('a kick that costs nothing does not delay the next real pass', async () => {
+        // The floor is measured from the last pass that reached the NETWORK. A
+        // pass the gate stopped (master off) spends nothing, so re-enabling must
+        // drain at once rather than sit out a gap it never earned.
+        let now = 1_000_000;
+        const deferred = [];
+        const Drainer = loadDrainerClass({ now: () => now }, {
+            setTimeout: (fn, ms) => { deferred.push({ fn, ms }); return 1; },
+            clearTimeout: () => {},
+        });
+        let verdict = 'disabled';
+        let reads = 0;
+        let cursor = 0;
+        const d = new Drainer({
+            store: {
+                getQueue: async () => [{ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10'] }],
+                acquireLock: async () => true,
+                releaseLock: async () => {},
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => true,
+                signalCompleted: async () => {},
+            },
+            api: { ignore: async () => ({ ok: true }) },
+            gate: { reserve: async () => ({ ok: true }), stopped: async () => verdict },
+            fetchUserdata: async () => { reads += 1; return new Set(); },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+
+        await d.drain();                 // refused up front — no lease, no read
+        expect(reads).toBe(0);
+        verdict = null;                  // the toggle came back in the same instant
+        await d.drain();
+        expect(reads).toBe(1);
+        expect(deferred).toEqual([]);    // nothing was ever deferred
+    });
+
     test('standbyMs: 0 disables the standby interval (the SW host retries via alarms)', async () => {
         const arms = [];
         const Drainer = loadDrainerClass(null, {
@@ -1445,86 +1830,244 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(arms).toEqual([]);
         expect(d._timer).toBe(null);
     });
+
+    test('kick() absorbs a storage that throws — nothing awaits a pass', async () => {
+        // The drainer is kicked from a storage listener and from a boot call,
+        // neither of which awaits it. On a content script an extension update has
+        // replaced, every chrome.storage call throws from then on, and the shims
+        // hand that rejection straight to the caller (serialChain swallows only
+        // its own continuation). kick() is where it stops.
+        const Drainer = loadDrainerClass();
+        const d = new Drainer({
+            store: {
+                getQueue: async () => { throw new Error('Extension context invalidated'); },
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            ownerId: 't1',
+        });
+
+        // drain() still rejects — it is awaited by the tests and by nothing else.
+        await expect(d.drain()).rejects.toThrow('Extension context invalidated');
+
+        const leaked = [];
+        const onUnhandled = (e) => leaked.push(e);
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            d.kick();
+            await new Promise((r) => setTimeout(r, 50));
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+        expect(leaked.map(String)).toEqual([]);
+    });
+
+    test('the standby interval stops in the pass that empties the queue, not a tick later', async () => {
+        // It is synced against the queue as READ, so a job the same pass then
+        // collects would leave it armed for one more idle kick (9 s).
+        let cleared = 0;
+        const Drainer = loadDrainerClass(null, {
+            setInterval: () => 7,
+            clearInterval: () => { cleared += 1; },
+        });
+        // A job whose cursor already sits at its end: the picker skips it, so
+        // this pass drains nothing and collects it instead.
+        let queue = [{ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['1'] }];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => queue,
+                getCursor: async () => 1,
+                removeIfDrained: async () => { queue = []; return true; },
+                signalCompleted: async () => {},
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Set(),
+            ownerId: 't1',
+        });
+
+        await d.drain();
+
+        expect(cleared).toBeGreaterThan(0);
+        expect(d._timer).toBe(null);
+    });
+
+    test('undo skip: a Remove landing inside markUndone does not get its cursor key back', async () => {
+        // The cursor-write optimization hands setCursor the queue the loop already
+        // read, on the premise that nothing awaited since. An undo skip breaks that
+        // premise: markUndone reads every log chunk and writes one back. Remove
+        // landing in that window takes the job AND its cursor key; re-creating the
+        // key from the stale snapshot poisons the NEXT gesture job, which reuses the
+        // fixed MIUNDO_JOB_ID and would mount already past its own end — the
+        // rollback never goes out and removeIfDrained clears it with none of
+        // removeJob's pulses, leaving the badge pale with nothing said.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'job_mi_undo', curatorId: 'miundo', type: 'miundo',
+            status: 'pending', appids: ['1'], snapshotTs: 500,
+            meta: { '1': { ts: 500 } },
+        };
+        let removed = false;
+        const cursorWrites = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            holdsLock: async () => true,
+            getCursor: async () => 0,
+            // The real guard in src/curator/store.js: a cursor write is refused for
+            // a job no longer queued, because removeJob is the key's only cleanup.
+            setCursor: async (id, c, queue) => {
+                if (!(queue || await store.getQueue()).some(j => j.id === id)) return false;
+                cursorWrites.push(c);
+                return true;
+            },
+            renewLock: async () => {},
+            removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            gate: { reserve: async () => ({ ok: true }) },
+            // '1' is absent, so the inverse dedupe fires and no POST is spent.
+            fetchUserdata: async () => new Set(['999']),
+            log: {
+                append: async () => {},
+                lastIgnoredAt: async () => 0,   // ignored long ago → the skip is trusted
+                markUndone: async () => { removed = true; },   // the user presses Remove here
+                wasReIgnoredAfter: async () => false,
+            },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(cursorWrites).toEqual([]);
+    });
+
+    test('MI skip: a Remove landing mid-iteration does not get its cursor key back either', async () => {
+        // The twin of the case above, and the reason the re-read is keyed on the
+        // job id being REUSED rather than on the pass being an undo: `job_mi` is
+        // just as fixed as `job_mi_undo`. The window is narrower (no log rewrite,
+        // but still holdsLock → renewLock → getCursor between the queue read and
+        // the write), and the outcome is worse to diagnose — the next swipe
+        // recreates `job_mi`, it mounts past its own end, removeIfDrained clears
+        // it with none of removeJob's pulses, and the badge sits there over an
+        // ignore that was never sent.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'job_mi', curatorId: 'mi', type: 'mi',
+            status: 'pending', appids: ['1'], meta: { '1': { name: 'A', reason: 0 } },
+        };
+        let removed = false;
+        const cursorWrites = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            // The user presses Remove in the applet right here, after the loop has
+            // read the queue for this iteration.
+            holdsLock: async () => { removed = true; return true; },
+            getCursor: async () => 0,
+            setCursor: async (id, c, queue) => {
+                if (!(queue || await store.getQueue()).some(j => j.id === id)) return false;
+                cursorWrites.push(c);
+                return true;
+            },
+            renewLock: async () => {},
+            removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            gate: { reserve: async () => ({ ok: true }) },
+            // '1' is already ignored → the MI dedupe skips it, so no POST is spent
+            // and the iteration ends at exactly the cursor write under test.
+            fetchUserdata: async () => new Set(['1']),
+            ownerId: 't1',
+        });
+
+        await d._drainJob(job);
+
+        expect(cursorWrites).toEqual([]);
+    });
 });
 
-// --- content-script boot: the SW sessionid cache ---------------------------
-// The boot block caches the page's sessionid into ilap_sw_sid for the SW
-// drainer (which cannot read document.cookie) and clears a halted SW route
-// (ilap_sw_halt). Writes must be change-only: every store page boots this, and
-// a same-value write would wake the service worker via onChanged for nothing.
-
-function bootDrainer(sid, stored) {
-    const code = fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'curator', 'drainer.js'), 'utf8');
-    const gets = [];
-    const sets = [];
-    const sandbox = {
-        window: {
-            ILAP: {
-                Curator: { Store: { getQueue: async () => [] } },
-                apiIgnoreGame: async () => ({ ok: true }),
-                apiUnignoreGame: async () => ({ ok: true }),
-                IgnoreGate: { reserve: async () => ({ ok: true }), reportRateLimited: async () => {} },
-                getSessionID: () => sid,
-                newOwnerId: (p) => p + 'test',
-                fetchIgnoredAppsStrict: async () => new Set(),
-                SteamAuth: { probeLogin: async () => true },
-            },
-        },
-        chrome: {
-            storage: {
-                local: {
-                    get: (query, cb) => {
-                        gets.push(query);
-                        setTimeout(() => {
-                            const out = {};
-                            for (const k of Object.keys(query)) {
-                                out[k] = (stored && k in stored) ? stored[k] : query[k];
-                            }
-                            cb(out);
-                        }, 0);
-                    },
-                    set: (obj) => { sets.push({ ...obj }); },
-                },
-                onChanged: { addListener: () => {} },
-            },
-        },
-        document: { readyState: 'complete', addEventListener: () => {} },
-        Math, Date, Promise, Object, Array, String, Set,
-        setTimeout, clearTimeout, setInterval, clearInterval,
+// A filter switch through the REAL store and staging service, racing a drainer
+// that is mid-iteration on the old list. The stub stores above cannot show it:
+// the bug lived in how the two real modules share one job id.
+function loadRealStore(initial) {
+    const clone = (v) => JSON.parse(JSON.stringify(v));
+    const norm = (keys) => (Array.isArray(keys) ? keys : [keys]);
+    const data = clone(initial);
+    const tick = (fn) => setTimeout(fn, 0);
+    const local = {
+        get: (keys, cb) => tick(() => {
+            const out = {};
+            for (const k of norm(keys)) if (k in data) out[k] = clone(data[k]);
+            cb(out);
+        }),
+        set: (obj, cb) => tick(() => { for (const k of Object.keys(obj)) data[k] = clone(obj[k]); if (cb) cb(); }),
+        remove: (keys, cb) => tick(() => { for (const k of norm(keys)) delete data[k]; if (cb) cb(); }),
     };
+    const sandbox = { window: {}, chrome: { storage: { local } }, setTimeout, Date, Math, JSON };
     vm.createContext(sandbox);
-    vm.runInContext(code, sandbox);
-    const flush = async () => {
-        for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
-    };
-    return { gets, sets, flush };
+    loadEscape(sandbox);
+    vm.runInContext(fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'curator', 'store.js'), 'utf8'), sandbox);
+    return { Store: sandbox.window.ILAP.Curator.Store, data };
 }
 
-test.describe('drainer boot: SW sessionid cache (unit)', () => {
+function loadEnqueueService() {
+    const sandbox = { window: {} };
+    vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'curator', 'enqueue-service.js'), 'utf8'), sandbox);
+    return sandbox.window.ILAP.Curator.EnqueueService;
+}
 
-    test('a new sessionid is cached (with the halt flag cleared)', async () => {
-        const b = bootDrainer('sess-1', {});
-        await b.flush();
-        expect(b.sets).toEqual([{ ilap_sw_sid: 'sess-1', ilap_sw_halt: false }]);
-    });
+test.describe('CuratorQueueDrainer × EnqueueService — filter switch mid-drain (unit)', () => {
 
-    test('an unchanged sessionid writes nothing (no pointless SW wake)', async () => {
-        const b = bootDrainer('sess-1', { ilap_sw_sid: 'sess-1', ilap_sw_halt: false });
-        await b.flush();
-        expect(b.sets).toEqual([]);
-    });
+    test('a switch during the gate wait stops the old list: no stale POST, the new list starts at 0', async () => {
+        const OLD = 'job_123_1';
+        const { Store, data } = loadRealStore({
+            ilap_curator_queue: [{ id: OLD, type: 'curator', curatorId: '123', curatorName: 'Cur',
+                filter: 'not_recommended', status: 'pending', appids: ['1', '2', '3'], total: 3 }],
+            ['ilap_curator_cursor_' + OLD]: 1,
+            ['ilap_curator_skipped_' + OLD]: 4,
+            ilap_curator_cache: { '123': { fetchedAt: Date.now(), apps: {
+                not_recommended: ['1', '2', '3'], informational: ['7', '8'], recommended: [] } } },
+        });
+        const EnqueueService = loadEnqueueService();
+        const svc = new EnqueueService({ store: Store, enumerator: loadEnumerator(), maxJobs: 3 });
+        const Drainer = loadDrainerClass();
+        const posts = [];
+        let switched = false;
+        const d = new Drainer({
+            store: Store,
+            api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
+            gate: {
+                reserve: async () => {
+                    if (!switched) {
+                        switched = true;
+                        // The user picks another filter while the POST for '2'
+                        // waits its slot, and the cache answers before it arrives.
+                        const o = await svc.stage('123', 'Cur', 'url', 'informational');
+                        await svc.resolve('123', o.jobId, o.name, 'informational', o.paused);
+                    }
+                    return { ok: true };
+                },
+            },
+            fetchUserdata: async () => new Set(),
+            ownerId: 't1',
+        });
 
-    test('a halted SW route is re-armed by the page visit even with the same sid', async () => {
-        const b = bootDrainer('sess-1', { ilap_sw_sid: 'sess-1', ilap_sw_halt: true });
-        await b.flush();
-        expect(b.sets).toEqual([{ ilap_sw_sid: 'sess-1', ilap_sw_halt: false }]);
-    });
+        await d._drainJob((await Store.getQueue())[0]);
+        expect(posts).toEqual([]);   // nothing from the old list after the switch
 
-    test('no sessionid (logged out) → the cache is left alone', async () => {
-        const b = bootDrainer(null, { ilap_sw_sid: 'old', ilap_sw_halt: false });
-        await b.flush();
-        expect(b.sets).toEqual([]);
-        expect(b.gets).toEqual([]); // not even a read — nothing to compare
+        const [job] = await Store.getQueue();
+        expect(job.id).not.toBe(OLD);
+        expect(job).toMatchObject({ filter: 'informational', status: 'pending', appids: ['7', '8'] });
+        expect(await Store.getCursor(job.id)).toBe(0);
+        expect(data).not.toHaveProperty('ilap_curator_cursor_' + OLD);
+        expect(data).not.toHaveProperty('ilap_curator_skipped_' + OLD);
+
+        await d._drainJob(job);
+        expect(posts).toEqual(['7', '8']);   // the new list, from its first entry
     });
 });

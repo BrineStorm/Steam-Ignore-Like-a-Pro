@@ -32,18 +32,31 @@ function loadAutomator(warns, setTimeoutImpl) {
     return { Automator: sandbox.window.ILAP.Discovery.Automator, window: sandbox.window, sandbox };
 }
 
-const noopAdapters = () => [
-    { ignore: async () => true },
-    { save: () => {} },
-    { get: () => 'Unknown Game' },
-];
+const noopAdapters = () => ({
+    userdata: { fetchIgnored: async () => new Set() },
+    stats: { save: () => {} },
+    nameExtractor: { get: () => 'Unknown Game' },
+    gate: { reserve: async () => ({ ok: true }) },
+});
 
 test.describe('DiscoveryQueueAutomator (unit)', () => {
+
+    test('no review palette refuses construction instead of sparing every game', async () => {
+        // Without the palette no review reads as bad, and Keep High Score would
+        // quietly ignore nothing: the 1.2.2 failure, silent again.
+        const sandbox = { window: {}, console, document: { querySelector: () => null },
+            setTimeout, clearTimeout, Date, Math, Promise, Object, Array, String };
+        vm.createContext(sandbox);
+        vm.runInContext(fs.readFileSync(
+            path.join(__dirname, '..', '..', 'src', 'discovery-queue', 'logic.js'), 'utf8'), sandbox);
+        const Automator = sandbox.window.ILAP.Discovery.Automator;
+        expect(() => new Automator(noopAdapters())).toThrow('SteamPalette');
+    });
 
     test('a throw mid-iteration still lands in stop() — no zombie isRunning/slot', async () => {
         const warns = [];
         const { Automator } = loadAutomator(warns);
-        const a = new Automator(...noopAdapters());
+        const a = new Automator(noopAdapters());
         const states = [];
         a.setUiObserver((isRunning) => states.push(isRunning));
         a._processCurrentSlide = () => { throw new Error('steam dom changed'); };
@@ -60,11 +73,9 @@ test.describe('DiscoveryQueueAutomator (unit)', () => {
     test('a Stop landing during the confirm poll refuses the Next advance', async () => {
         const { Automator } = loadAutomator();
         const saved = [];
-        const a = new Automator(
-            { ignore: async () => true },
-            { save: (name, source) => saved.push([name, source]) },
-            { get: () => 'Unknown Game' },
-        );
+        const a = new Automator(Object.assign(noopAdapters(), {
+            stats: { save: (name, appid) => saved.push([name, appid]) },
+        }));
 
         // Minimal DOM slice satisfying the SlideScanner path: an active slide
         // with a game link + ignore icon, and a Next arrow on the dialog.
@@ -107,7 +118,56 @@ test.describe('DiscoveryQueueAutomator (unit)', () => {
         expect(result).toBe(false);        // loop ends, no further iteration
         expect(clicks).toEqual([ignoreBtn]); // the ignore click only — NO Next click
         expect(a.processedCount).toBe(1);  // the confirmed ignore is still counted
-        expect(saved).toEqual([['Test Game', 'Queue']]); // …and recorded in stats
+        expect(saved).toEqual([['Test Game', '123']]); // …and recorded in stats
+    });
+});
+
+// The name a confirmed ignore is recorded under. A card whose link carries no
+// readable title falls back to the name lookup, which must be asked for the
+// card's own appid: it was once asked for game 0 and "AppID 0" landed in Last
+// Ignored. When nothing at all yields a name, the record says so.
+test.describe('DQ recorded name (unit)', () => {
+    async function recordOne(nameExtractor) {
+        const { Automator } = loadAutomator();
+        const saved = [];
+        const a = new Automator(Object.assign(noopAdapters(), {
+            stats: { save: (name, appid) => saved.push([name, appid]) },
+            nameExtractor,
+        }));
+        // The card's only /app/ link wraps its cover image: no title text to read.
+        const link = {
+            querySelector: (sel) => (sel === 'img' ? {} : null),
+            textContent: '',
+            getAttribute: () => '/app/620/Portal_2/',
+        };
+        const ignoreBtn = { getAttribute: () => null, classList: [] };
+        const ignorePath = { getAttribute: (n) => (n === 'd' ? 'M600,96c0-1' : null), closest: () => ignoreBtn };
+        const nextPath = { getAttribute: (n) => (n === 'd' ? 'M16.0855 0' : null), closest: () => ({}) };
+        const slide = {
+            querySelector: (sel) => (sel.includes('/app/') && !sel.includes('#app_reviews_hash') ? link : null),
+            querySelectorAll: (sel) => (sel === 'path' ? [ignorePath] : sel.includes('/app/') ? [link] : []),
+        };
+        const dialog = {
+            querySelector: (sel) => (sel.includes('_3q6eNRFBrPSFSGEn8uRFZ3') ? { children: [{}, {}, slide] } : null),
+            querySelectorAll: (sel) => (sel === 'path' ? [nextPath] : []),
+        };
+        a._clickWithDelay = () => Promise.resolve();
+        a._confirmIgnored = async () => { a.isRunning = false; return true; };
+        a.isRunning = true;
+        await a._processCurrentSlide(dialog);
+        return saved;
+    }
+
+    test('a card with no title asks the name lookup for its own appid', async () => {
+        const asked = [];
+        const saved = await recordOne({ get: (appid) => { asked.push(appid); return 'Portal 2'; } });
+        expect(asked).toEqual(['620']);
+        expect(saved).toEqual([['Portal 2', '620']]);
+    });
+
+    test('no name from anywhere is recorded as Unknown Game, never as an appid', async () => {
+        const saved = await recordOne({ get: () => null });
+        expect(saved).toEqual([['Unknown Game', '620']]);
     });
 });
 
@@ -207,7 +267,7 @@ test.describe('DQ end-of-queue / exhausted pool (unit)', () => {
 
     test('exhausted pool: exactly MAX_CONTINUE_STREAK clicks, then the loop stops', async () => {
         const { Automator } = loadAutomator([], instant);
-        const a = new Automator(...noopAdapters());
+        const a = new Automator(noopAdapters());
         const states = [];
         a.setUiObserver((isRunning) => states.push(isRunning));
 
@@ -233,7 +293,7 @@ test.describe('DQ end-of-queue / exhausted pool (unit)', () => {
     // it would start a download). Stop, and touch nothing.
     test('a final slide with no Next arrow stops the loop without clicking anything', async () => {
         const { Automator } = loadAutomator([], instant);
-        const a = new Automator(...noopAdapters());
+        const a = new Automator(noopAdapters());
 
         const { dialog, cont, done, junk } = fakeDialog('final-slide');
         const clicks = [];
@@ -254,7 +314,7 @@ test.describe('DQ end-of-queue / exhausted pool (unit)', () => {
     // own rightmost leaf button — a real store action on a real game.
     test('a card whose Ignore control is unfindable stops the loop, clicking nothing', async () => {
         const { Automator } = loadAutomator([], instant);
-        const a = new Automator(...noopAdapters());
+        const a = new Automator(noopAdapters());
 
         // 'final-slide' is a card with no ignore icon; give it a Next arrow so the
         // loop gets all the way past the end-of-queue branch to the ignore path.
@@ -286,7 +346,7 @@ test.describe('DQ end-of-queue / exhausted pool (unit)', () => {
     // branch was never reached, so MAX_CONTINUE_STREAK never got to fire.
     test('interstitial with a stale card still in the DOM: Continue, never the stale card', async () => {
         const { Automator } = loadAutomator([], instant);
-        const a = new Automator(...noopAdapters());
+        const a = new Automator(noopAdapters());
 
         const { dialog, cont } = fakeDialog('interstitial');
         const link = {
@@ -340,7 +400,7 @@ test.describe('DQ end-of-queue / exhausted pool (unit)', () => {
 
     test('the loop ends on an exhausted pool (isRunning false, UI notified)', async () => {
         const { Automator, sandbox } = loadAutomator([], instant);
-        const a = new Automator(...noopAdapters());
+        const a = new Automator(noopAdapters());
         const states = [];
         a.setUiObserver((isRunning) => states.push(isRunning));
 
@@ -356,9 +416,26 @@ test.describe('DQ end-of-queue / exhausted pool (unit)', () => {
         expect(states[states.length - 1]).toBe(false); // frees the registry slot
     });
 
+    test('the loop acts on the Discovery Queue modal, not the first dialog on the page', async () => {
+        // The controller mounts into `.FullModalOverlay div[role="dialog"]`; a
+        // bare `div[role="dialog"]` would pick any dialog ahead of it in the DOM.
+        const { Automator, sandbox } = loadAutomator([], instant);
+        const a = new Automator(noopAdapters());
+        const { dialog, cont } = fakeDialog('interstitial');
+        const decoy = { querySelector: () => null, querySelectorAll: () => [] };
+        sandbox.document.querySelector = (sel) =>
+            (sel === '.FullModalOverlay div[role="dialog"]' ? dialog : decoy);
+        const clicks = [];
+        a._clickWithDelay = (el) => { clicks.push(el); return Promise.resolve(); };
+
+        await a.start();
+
+        expect(clicks).toEqual([cont, cont, cont]);   // the modal's Continue, not a dead stop
+    });
+
     test('a confirmed ignore clears the streak — a long run survives repeated boundaries', async () => {
         const { Automator } = loadAutomator([], instant);
-        const a = new Automator(...noopAdapters());
+        const a = new Automator(noopAdapters());
         a._clickWithDelay = () => Promise.resolve();
         a._confirmIgnored = async () => true;
         a.isRunning = true;
@@ -389,11 +466,12 @@ test.describe('DQ userdata confirm fallback pacing (unit)', () => {
     function makeHarness(fetchResults) {
         const delays = [];
         const fakeTimeout = (fn, ms) => { delays.push(ms); return setTimeout(fn, 0); };
-        const { Automator, window } = loadAutomator([], fakeTimeout);
+        const { Automator } = loadAutomator([], fakeTimeout);
         let reads = 0;
-        window.ILAP.fetchIgnoredApps = async () =>
-            new Set(fetchResults[Math.min(reads++, fetchResults.length - 1)] || []);
-        const a = new Automator(...noopAdapters());
+        const userdata = {
+            fetchIgnored: async () => new Set(fetchResults[Math.min(reads++, fetchResults.length - 1)] || []),
+        };
+        const a = new Automator(Object.assign(noopAdapters(), { userdata }));
         return { a, delays, readCount: () => reads };
     }
 

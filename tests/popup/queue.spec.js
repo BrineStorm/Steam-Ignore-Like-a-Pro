@@ -80,6 +80,70 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect(page.locator('#queue-accordion')).toBeHidden();
     });
 
+    test('Master OFF: the queue survives the flip and stays manageable', async ({ page, context }) => {
+        // Turning the extension off stops the DRAIN. It must not delete a single
+        // staged job — curator, MI or solo un-ignore alike — and it must not lock
+        // the user out of managing them either: this applet is the only surface
+        // that can pause or remove a job, so it stays live inside the dimmed panel.
+        const curator = makeJob({ curatorId: '901', curatorName: 'Curator job' });
+        const mi = makeJob({ id: 'job_mi', type: 'mi', curatorId: 'mi', curatorName: '', appids: ['10', '11'], meta: {}, total: 2 });
+        const miundo = makeJob({ id: 'job_miundo', type: 'miundo', curatorId: 'miundo', curatorName: '', appids: ['12'], meta: {}, total: 1 });
+        await seedQueue(context, [curator, mi, miundo]);
+        await setExtensionStorage(context, { ilap_master_enabled: false });
+        await openPopup(page, context);
+
+        // The panel is locked…
+        await expect(page.locator('#ui-wrapper')).toHaveClass(/disabled/);
+        // …and nothing was dropped by the flip.
+        await expect(page.locator('#queue-accordion')).toBeVisible();
+        await expect(page.locator('#queue-jobs-chip')).toHaveText('3');
+
+        // The applet is exempt from the panel lock — but only half of it. Remove
+        // acts; Pause/Resume is blocked, because a disabled extension must not let
+        // you ask for a run it cannot perform.
+        await page.locator('#queue-accordion summary').click();
+        for (const row of await page.locator('.queue-act[data-act="pause"]').all()) {
+            await expect(row).toBeDisabled();
+        }
+        await page.locator('.queue-act-del').first().click();
+        await expect.poll(async () => (await readQueue(context)).map(j => j.id)).toEqual([mi.id, miundo.id]);
+    });
+
+    test('The master toggle never writes the queue; Pause/Resume is dead while off', async ({ page, context }) => {
+        // Driven through the REAL toggle. It writes its own key only: the queue
+        // array belongs to its serialized writers, and a drainer in another
+        // context (the SW) may be rewriting it at the same moment — a whole-array
+        // write from here could resurrect a job that drainer just finished.
+        const pending = makeJob({ curatorId: '903' });
+        const byHand = makeJob({ curatorId: '904', status: 'paused' });
+        await seedQueue(context, [pending, byHand]);
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+
+        await page.locator('#master-toggle + .slider').click();   // OFF
+        await expect.poll(async () => getExtensionStorage(context, 'ilap_master_enabled'))
+            .toEqual({ ilap_master_enabled: false });
+
+        // Both pause/play buttons are dead — a real click cannot reach either of them,
+        // which is the whole assertion. (Forcing one past the attribute was tried
+        // and dropped: the list re-renders under it, and the synthetic click it
+        // would land tests the isTrusted guard rather than the master one. The
+        // `_onAction` master guard behind the attribute covers the narrow race
+        // where another surface flips the switch between a render and a click,
+        // which is not reachable from a single popup either way.)
+        const plays = page.locator('.queue-act[data-act="pause"]');
+        await expect(plays.first()).toBeDisabled();
+        await expect(plays.last()).toBeDisabled();
+        await page.waitForTimeout(500);
+        // The flip left every stored status exactly as it was.
+        expect((await readQueue(context)).map(j => j.status)).toEqual(['pending', 'paused']);
+
+        // Back on: the buttons come back to life, the statuses still untouched.
+        await page.locator('#master-toggle + .slider').click();   // ON
+        await expect(plays.first()).toBeEnabled();
+        expect((await readQueue(context)).map(j => j.status)).toEqual(['pending', 'paused']);
+    });
+
     test('Applet appears once there are jobs; the chip shows the job count', async ({ page, context }) => {
         await seedQueue(context, [makeJob(), makeJob()]);
         await openPopup(page, context);
@@ -219,6 +283,63 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect(page.locator('.queue-job-pct')).toHaveText('40%');
     });
 
+    test('A burst of drain progress collapses into renders, and the LAST one lands', async ({ page, context }) => {
+        // Cursor writes are the one storage write this panel cannot keep up with:
+        // a dedupe skip sends no POST, so it is not paced by the rate gate and the
+        // cursor advances as fast as storage answers. Those renders are throttled
+        // to one a second — and a throttle that drops its trailing edge would be
+        // worse than none, because the row would then sit on a stale number until
+        // something else happened to move.
+        const job = makeJob({ total: 10, appids: Array.from({ length: 10 }, (_, i) => String(i + 1)) });
+        await setExtensionStorage(context, {
+            ilap_curator_queue: [job],
+            ['ilap_curator_cursor_' + job.id]: 0,
+        });
+        await openPopup(page, context);
+        await expect(page.locator('.queue-job-count')).toHaveText('0 / 10 0%');
+
+        for (let i = 1; i <= 8; i++) {
+            await setExtensionStorage(context, { ['ilap_curator_cursor_' + job.id]: i });
+        }
+
+        await expect(page.locator('.queue-job-count')).toHaveText('8 / 10 80%');
+    });
+
+    test('...and that burst costs far fewer rebuilds than it has writes', async ({ page, context }) => {
+        // The other half of the throttle: the trailing edge landing is worth
+        // nothing if every write still rebuilt the list on its way there. Count
+        // the rebuilds rather than trust the clock — one innerHTML assignment is
+        // one childList batch on #queue-list, and the i18n pass that follows
+        // touches descendants only (no subtree: true here, so it is not counted).
+        const job = makeJob({ total: 10, appids: Array.from({ length: 10 }, (_, i) => String(i + 1)) });
+        await setExtensionStorage(context, {
+            ilap_curator_queue: [job],
+            ['ilap_curator_cursor_' + job.id]: 0,
+        });
+        await openPopup(page, context);
+        await expect(page.locator('.queue-job-count')).toHaveText('0 / 10 0%');
+
+        await page.evaluate(() => {
+            window.__ilapRebuilds = 0;
+            new MutationObserver(() => { window.__ilapRebuilds += 1; })
+                .observe(document.getElementById('queue-list'), { childList: true });
+        });
+
+        const WRITES = 8;
+        for (let i = 1; i <= WRITES; i++) {
+            await setExtensionStorage(context, { ['ilap_curator_cursor_' + job.id]: i });
+        }
+        await expect(page.locator('.queue-job-count')).toHaveText('8 / 10 80%');
+
+        const rebuilds = await page.evaluate(() => window.__ilapRebuilds);
+        expect(rebuilds).toBeGreaterThan(0);
+        // One trailing render a second. The ceiling is generous on purpose — a
+        // slow machine may stretch the burst over a few windows — but an
+        // unthrottled path costs one rebuild per write and blows straight past it.
+        expect(rebuilds, `${WRITES} cursor writes must not cost ${WRITES} rebuilds`)
+            .toBeLessThanOrEqual(4);
+    });
+
     test('A Manual-Ignore job renders highlighted with a remaining COUNT (no filter, no bar)', async ({ page, context }) => {
         // The MI job auto-fills while it drains, so a percent would jump backward
         // on a fresh swipe — it shows a live "In queue: N" count instead, gets the
@@ -308,6 +429,28 @@ test.describe('Popup — ignore-queue applet', () => {
         // No un-badge pulse: an un-ignore job never badged anything.
         expect((await getExtensionStorage(context, 'ilap_unignored')).ilap_unignored)
             .toBeUndefined();
+    });
+
+    test('A job of a type this build does not know renders under its record name and can be removed', async ({ page, context }) => {
+        // What a downgrade leaves behind. The drainer skips it (it could be a
+        // rollback); the applet must still show it, not break on it, and let the
+        // user get rid of it — next to a normal job that renders as usual.
+        const unknown = makeJob({ type: 'from-a-newer-build', curatorId: 'newer', curatorName: 'Newer job' });
+        const normal = makeJob({ curatorName: 'Normal' });
+        await seedQueue(context, [unknown, normal]);
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+
+        const rows = page.locator('.queue-job');
+        await expect(rows).toHaveCount(2);
+        const row = rows.first();
+        await expect(row.locator('.queue-job-name')).toHaveText('Newer job');
+        await expect(row.locator('.queue-job-sub')).toHaveCount(0);   // no curator filter to name
+        await expect(row).not.toHaveClass(/\bmi\b/);                // not drawn as a gesture job
+        await expect(rows.nth(1).locator('.queue-job-name')).toHaveText('Normal');
+
+        await row.locator('.queue-act-del').click();
+        await expect.poll(async () => (await readQueue(context)).map(j => j.curatorName)).toEqual(['Normal']);
     });
 
     test('Filter label uses the Steam category colour (orange for Not Recommended)', async ({ page, context }) => {

@@ -5,21 +5,12 @@
     window.ILAP = window.ILAP || {};
     window.ILAP.Discovery = window.ILAP.Discovery || {};
 
-    // Cross-tab cap on concurrently-active Discovery-Queue automators. The
-    // aggregate ignore-rate gate already bounds the POST rate (a 3rd DQ tab just
-    // starves on it), so this is a UX bound, not a safety one: give the user a
-    // clear "already running" signal instead of silently stacking DQ loops.
-    //
-    // Model mirrors the curator lease (Store.acquireLock): a heartbeated owner map
-    // in chrome.storage.local, TTL-reclaimed so a closed tab frees its slot with no
-    // explicit release. All writes funnel through one per-context serialized RMW.
-    //
-    // Known slack (accepted — this is a UX bound, not a safety one): Chrome throttles
-    // a backgrounded tab's timers to ~1/min after a few minutes, so a hidden DQ tab's
-    // heartbeat can lapse and its 8 s slot expire even though its automator keeps
-    // ignoring (background loops run, ~3× slower). The cap can then undercount and let
-    // an extra tab start. That's fine — the aggregate rate gate still bounds the POST
-    // rate regardless of how many automators the registry admits.
+    // Cross-tab cap on running Discovery Queue automators. A UX bound, not a
+    // safety one: the rate gate already bounds the POSTs, this gives a clear
+    // "already running" instead of stacked loops. A heartbeated owner map with a
+    // TTL, like the curator lease, so a closed tab frees its slot by itself.
+    // A backgrounded tab's throttled heartbeat can lapse while its loop still
+    // runs, letting one extra tab start; the gate still bounds the rate.
     const KEY = 'ilap_dq_active';    // { ownerId: expiresAt }
     const CAP = 2;                   // max concurrent DQ automators per profile
     const TTL_MS = 8000;             // slot expiry; renewed by the heartbeat
@@ -45,30 +36,24 @@
         return out;
     }
 
-    // Deliberately duplicated shim/lease math — see the world-isolation note in
-    // src/curator/store.js (the canonical copy of that decision). NB the lease
-    // constants here (TTL 8 s / heartbeat 3 s) intentionally mirror the curator
-    // lease pair (store.js LOCK_TTL / drainer.js HEARTBEAT_MS) — keep them in step.
+    // Storage shim, duplicated per world on purpose (see src/curator/store.js).
+    // TTL and heartbeat mirror the curator lease (lease.js LEASE_MS, drainer.js
+    // HEARTBEAT_MS).
     const get = (k) => new Promise(r => chrome.storage.local.get(k, r));
     const set = (o) => new Promise(r => chrome.storage.local.set(o, r));
 
-    // Serialized read-modify-write, same reasoning as Store.mutateQueue. The
-    // mutator gets the pruned map and returns the next map, or null to skip the
-    // write. Cross-context (other tabs) still races on the missing CAS — two tabs
-    // acquiring in the same instant could both pass the cap check and briefly make
-    // 3 active; accepted (the rate gate still bounds the aggregate POST rate), same
-    // residual class as the curator lease.
-    let chain = Promise.resolve();
+    // Serialized read-modify-write, like Store.mutateQueue: the mutator gets the
+    // pruned map and returns the next one, or null. Two tabs acquiring at once can
+    // both pass the cap (no CAS); the gate still bounds the rate.
+    const serial = window.ILAP.serialChain();
     function mutate(mutator) {
-        const run = chain.then(async () => {
+        return serial(async () => {
             const map = prune((await get(KEY))[KEY] || {}, Date.now());
             const next = mutator(map);
             if (!next) return map;
             await set({ [KEY]: next });
             return next;
         });
-        chain = run.catch(() => {});
-        return run;
     }
 
     // Claim a slot. true if acquired (or already held → renewed); false if OTHER

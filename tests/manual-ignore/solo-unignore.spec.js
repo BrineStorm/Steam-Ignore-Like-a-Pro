@@ -257,22 +257,30 @@ test.describe('Manual Ignore — solo un-ignore gesture', () => {
     test('the badge-click floor is still under the master toggle', async ({ page, context }) => {
         // Hard-wired against the un-ignore SETTING, not against the extension
         // being switched off — an extension the user disabled must queue nothing
-        // and swallow nothing. Same guard the right-click test below asserts,
-        // reached through the other event.
+        // and swallow nothing. The master now also takes the BADGE off the page
+        // (it is a mark the extension drew), so the gated half is asserted the
+        // only way left: there is nothing to click and nothing was queued. The
+        // other half is that this is a gate and not a loss — re-enabling repaints
+        // the badge and the floor answers a click exactly as before.
         const calls = await gotoWithStubs(page, context, searchUrl());
         await page.waitForTimeout(300);
 
         const { appid } = await ignoreFirstRow(page, calls);
 
         await setExtensionStorage(context, { ilap_master_enabled: false });
-        await page.waitForTimeout(300);   // ConfigService re-reads on onChanged
+        await expect(badgeFor(page, appid)).toHaveCount(0, { timeout: 5000 });
 
-        await searchRow(page, appid).locator(SEL.overlay).first().click();
         await page.waitForTimeout(600);
-
         expect(await miUndoJob(context)).toBeNull();
         expect(calls.filter(c => c.remove)).toHaveLength(0);
-        await expect(badgeFor(page, appid).first()).not.toHaveClass(new RegExp(PENDING));
+
+        await setExtensionStorage(context, { ilap_master_enabled: true });
+        await expect(badgeFor(page, appid)).not.toHaveCount(0, { timeout: 5000 });
+
+        await searchRow(page, appid).locator(SEL.overlay).first().click();
+        await expect.poll(() => calls.filter(c => c.remove).length,
+            { timeout: DRAIN_TIMEOUT }).toBe(1);
+        expect(calls.find(c => c.remove).appid).toBe(appid);
     });
 
     test('ctrlKey binding: a modifier-click rolls the ignore back', async ({ page, context }) => {
@@ -348,19 +356,20 @@ test.describe('Manual Ignore — solo un-ignore gesture', () => {
         const calls = await gotoWithStubs(page, context, searchUrl());
         await page.waitForTimeout(300);
 
-        const { appid } = await ignoreFirstRow(page, calls);
+        const { link, appid } = await ignoreFirstRow(page, calls);
 
-        // Off AFTER the ignore landed, so there is a real badge to right-click.
+        // Off AFTER the ignore landed, so there was a real badge to lose: the
+        // master takes it off the page with everything else the extension drew,
+        // and the right-click below therefore lands on the bare capsule.
         await setExtensionStorage(context, { ilap_master_enabled: false });
-        await page.waitForTimeout(300);   // ConfigService re-reads on onChanged
+        await expect(badgeFor(page, appid)).toHaveCount(0, { timeout: 5000 });
 
         await installContextMenuSpy(page);
-        await searchRow(page, appid).locator(SEL.overlay).first().click({ button: 'right' });
+        await link.click({ button: 'right', force: true });
         await page.waitForTimeout(600);
 
         expect(await miUndoJob(context)).toBeNull();
         expect(calls.filter(c => c.remove)).toHaveLength(0);
-        await expect(badgeFor(page, appid).first()).not.toHaveClass(new RegExp(PENDING));
         // The other half of the regression: the binding's listener sits in
         // CAPTURE phase and calls stopPropagation, so a handled right-click never
         // reaches this document-level spy at all. Seeing the event — unprevented
@@ -371,10 +380,9 @@ test.describe('Manual Ignore — solo un-ignore gesture', () => {
     });
 
     test('an unrecognised stored binding falls back to the default instead of disabling the gesture', async ({ page, context }) => {
-        // ilap_unignore_key is clamped against UNIGNORE_KEYS rather than run
-        // through normalizeShortcut, so a value from an older build (or a hand
-        // edit) that matches no branch would otherwise silently become an inert
-        // binding with nothing on screen to explain it.
+        // ilap_unignore_key is clamped (Settings.normalizeUnignore), so a value
+        // from an older build (or a hand edit) that matches no branch cannot
+        // silently become an inert binding with nothing on screen to explain it.
         await setExtensionStorage(context, { ilap_unignore_key: 'swipeUp' });
         const calls = await gotoWithStubs(page, context, searchUrl());
         await page.waitForTimeout(300);

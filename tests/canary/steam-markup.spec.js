@@ -34,6 +34,9 @@ const { tagUrl } = require('../_tags.js');
 // feature that had silently stopped ignoring anything. A guard with its own copy
 // of the thing it guards guards nothing.
 const { PALETTE } = require('../_palette.js');
+// The curator id and the product's own recommendations URL — same principle as
+// the palette above: read out of src/, not retyped here.
+const { CURATOR_ID, curatorPath, recommendationsPath } = require('../_curator.js');
 
 // The review-summary colours src/explore-queue/utils.js classifies by: a game is
 // only IGNORE-worthy when a row colour matches MIXED or NEGATIVE, and anything
@@ -186,6 +189,61 @@ test.describe('Steam markup canary', () => {
             .toBeGreaterThan(0);
         expect(await page.locator('a[href*="/app/"]').count(), 'no app links on the tag page')
             .toBeGreaterThan(0);
+    });
+
+    // The curator surfaces, which ARE public — unlike the Discovery Queue modal
+    // and the /explore/ chrome, which need a session and stay with the local
+    // run schedule. This is the quietest failure in the extension: the enqueue
+    // path reads rows out of a JSON field with a string parser, and a markup
+    // change there does not throw — it parses zero rows, the job is dropped and
+    // the user gets a generic "couldn't build a list" toast with nothing naming
+    // the cause. A curator id is discovered live rather than pinned, so the test
+    // does not rot when one curator goes away.
+    test('curator recommendations still carry the rows the enqueue path parses', async ({ page }) => {
+        // Land on the curator page first, so the ajax call below is same-origin
+        // and carries the Referer a real enumeration carries.
+        await page.goto(curatorPath(), { waitUntil: 'domcontentloaded' });
+
+        const data = await page.evaluate(async (url) => {
+            const res = await fetch(url, {
+                credentials: 'include',
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+            });
+            if (!res.ok) return { httpError: res.status };
+            return res.json();
+        }, recommendationsPath());
+
+        expect(data.httpError, `the curator recommendations endpoint answered HTTP ${data.httpError}`)
+            .toBeUndefined();
+        expect(data.success, 'curator recommendations no longer answer success:1').toBe(1);
+        expect(typeof data.total_count,
+            'total_count is gone from the response — enumerate paginates on it').toBe('number');
+        expect(typeof data.results_html,
+            'results_html is gone from the response — the row source the parser splits').toBe('string');
+
+        // The three anchors parseResults depends on, asserted separately so a red
+        // run names which one moved. A curator with no recommendations at all
+        // would fail these for an innocent reason, so require rows first.
+        expect(data.results_html.length,
+            `curator ${CURATOR_ID} returned an empty results_html`).toBeGreaterThan(0);
+        expect(data.results_html,
+            'no class="recommendation" wrapper — parseResults splits the rows on exactly this string')
+            .toContain('class="recommendation"');
+        expect(data.results_html,
+            'no data-ds-appid in a recommendation row — the appid the parser reads')
+            .toMatch(/data-ds-appid="\d+"/);
+        expect(data.results_html,
+            'no color_* review class — the type the parser classifies rows by')
+            .toMatch(/color_(not_recommended|recommended|informational)/);
+    });
+
+    test('curator page still exposes the button injection point', async ({ page }) => {
+        await page.goto(curatorPath(), { waitUntil: 'domcontentloaded' });
+        // src/curator/main.js injects its control into .curator_report, before the
+        // first <a> in it (the Options gear).
+        await expect(page.locator('.curator_report').first(),
+            '.curator_report is gone from the curator page — the "Add to ignore queue" control has nowhere to mount')
+            .toBeAttached({ timeout: 15000 });
     });
 
     test('home page still exposes the hero capsule and structural roots', async ({ page }) => {

@@ -2,26 +2,28 @@
 (function() {
     'use strict';
 
-    // The "Last Ignored" record — its key names, its cap and the two pure
-    // transforms over it — exposed as window.ILAP.StatsLogic and shared by the
-    // TWO worlds that WRITE it: the content script (utils.js StatsManager) and
-    // the MV3 service worker (background.js's saveStats shim, which records a
-    // drained manual-ignore job). Loaded before utils.js in content_scripts and
-    // in the worker's importScripts; popup.html only READS these keys (by name,
-    // in ui/popup_main.js) and does not load this file.
-    //
-    // Pure: no chrome.*, no DOM. The chrome.storage read-modify-write AROUND it
-    // stays per-world — that half is the knowingly-duplicated storage plumbing
-    // whose canonical note lives in src/curator/store.js. The split is the same
-    // one escape.js and steam-net.js apply: what can be one definition is one.
-    // A "if you change the shape here, visit the sibling" comment is not a
-    // substitute — the name normalizers carried exactly that comment and had
-    // drifted anyway.
+    // The "Last Ignored" record: its key names, its cap and the pure transforms
+    // over it. Written by the content script (utils.js StatsManager) and the
+    // service worker (background.js); popup.html loads it for the key names.
+    // Pure: the chrome.storage read-modify-write around it stays per world.
 
     const COUNT_KEY = 'ilap_ignored_count';
     const HISTORY_KEY = 'ilap_ignored_history';
     const LAST_KEY = 'ilap_last_ignored_name';
     const HISTORY_LIMIT = 20;   // max entries kept in ilap_ignored_history
+    // Every history label (stored, so never renamed): the two queue automators
+    // and Manual Ignore's two reasons.
+    const SOURCE = Object.freeze({
+        EQ: 'Explore Auto-Queue',
+        DQ: 'Queue',
+        MI_DEFAULT: 'Default Ignore',
+        MI_PLAYED: 'Played Elsewhere',
+    });
+
+    // An MI entry's reason → its label. 2 is the Played Elsewhere swipe; a reason
+    // read back from storage may be a string. The badge colour in
+    // manual-ignore/ui.js is a separate presentation of the same reason.
+    const miSourceLabel = (reason) => (Number(reason) === 2 ? SOURCE.MI_PLAYED : SOURCE.MI_DEFAULT);
 
     function increment(currentCount) {
         return (currentCount || 0) + 1;
@@ -35,8 +37,14 @@
         return Math.max(0, (currentCount || 0) - 1);
     }
 
+    // Array.isArray, not `|| []`: a stored value that is neither an array nor
+    // falsy (a corrupt or hand-edited record) is truthy and not spreadable, and
+    // the TypeError would be thrown inside a chrome.storage callback — where it
+    // wedges the caller's write chain rather than failing one save (see
+    // StatsManager in src/utils.js).
     function pushHistory(currentHistory, name, source) {
-        return [{ name, source }, ...(currentHistory || [])].slice(0, HISTORY_LIMIT);
+        const prev = Array.isArray(currentHistory) ? currentHistory : [];
+        return [{ name, source }, ...prev].slice(0, HISTORY_LIMIT);
     }
 
     // The complete next state for ONE recorded ignore, ready to hand straight to
@@ -77,7 +85,7 @@
     window.ILAP = window.ILAP || {};
     window.ILAP.StatsLogic = {
         increment, decrement, pushHistory, nextState, countState, uncountState,
-        COUNT_KEY, HISTORY_KEY, LAST_KEY, HISTORY_LIMIT
+        miSourceLabel, COUNT_KEY, HISTORY_KEY, LAST_KEY, HISTORY_LIMIT, SOURCE
     };
 
 })();

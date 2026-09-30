@@ -17,11 +17,16 @@ const vm = require('vm');
 //   - onStartup re-asserts 'widget' when the key is absent (a lost onInstalled
 //     write), no glow flags, and YIELDS to an install/update event fired in the
 //     same lifetime (the update-while-browser-closed race).
+// The same file also reaps the worker's sessionid cache where no worker exists
+// (second describe): `opts.alarms` is what stands in for the platform, since
+// chrome.alarms is the API the Chromium drain runs on and Firefox has no right
+// to it.
 
 function loadMigrate(initial, opts) {
     const code = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'migrate.js'), 'utf8');
     let data = { ...(initial || {}) };
     const sets = [];
+    const removes = [];
     let onInstalled = null;
     let onStartup = null;
     const runtime = {
@@ -46,9 +51,19 @@ function loadMigrate(initial, opts) {
             sets.push({ ...obj });
             if (cb) cb();
         }, 0),
+        remove: (keys, cb) => setTimeout(() => {
+            const list = Array.isArray(keys) ? keys : [keys];
+            for (const k of list) delete data[k];
+            removes.push([...list]);
+            if (cb) cb();
+        }, 0),
     };
+    const chrome = { runtime, storage: { local } };
+    // The Chromium background drain's own API, and the one thing that tells the
+    // two platforms apart from inside this script. Absent = Firefox.
+    if (opts && opts.alarms) chrome.alarms = { create() {}, clear() {} };
     const sandbox = {
-        chrome: { runtime, storage: { local } },
+        chrome,
         // The onStartup re-assert delays 3 s in product; collapse every sandbox
         // timer to a 0 ms macrotask so the unit is instant AND deterministic
         // (the race-guard contract rides the installEventSeen flag, not wall time).
@@ -65,7 +80,7 @@ function loadMigrate(initial, opts) {
     return {
         fire: (details) => onInstalled(details),
         fireStartup: () => onStartup(),
-        flush, sets, data: () => data,
+        flush, sets, removes, data: () => data,
     };
 }
 
@@ -151,5 +166,34 @@ test.describe('surface install-default migration (unit)', () => {
         await m.flush();
         expect(m.sets).toEqual([{ ilap_surface_mode: 'popup', ilap_update_glow: true }]);
         expect(m.data().ilap_surface_mode).toBe('popup');
+    });
+});
+
+test.describe('service-worker sessionid reap (unit)', () => {
+
+    test('no alarms API: the cached token and its halt flag go, with no event fired', async () => {
+        // Firefox. Nothing is fired here on purpose: the reap runs at load, and
+        // an upgraded profile whose onInstalled this lifetime never sees is
+        // exactly the case where the copy would otherwise outlive everything
+        // able to read or clear it.
+        const m = loadMigrate({
+            ilap_sw_sid: 'abc123', ilap_sw_halt: false, ilap_surface_mode: 'widget',
+        });
+        await m.flush();
+        expect(m.removes).toEqual([['ilap_sw_sid', 'ilap_sw_halt']]);
+        expect('ilap_sw_sid' in m.data()).toBe(false);
+        expect('ilap_sw_halt' in m.data()).toBe(false);
+        // Nothing else is collateral: the surface key is not this migration's.
+        expect(m.data().ilap_surface_mode).toBe('widget');
+        expect(m.sets).toEqual([]);
+    });
+
+    test('with the alarms API the worker keeps its own cache', async () => {
+        // Chromium, where the token is live state the drain reads on every POST.
+        const m = loadMigrate({ ilap_sw_sid: 'abc123', ilap_sw_halt: true }, { alarms: true });
+        await m.flush();
+        expect(m.removes).toEqual([]);
+        expect(m.data().ilap_sw_sid).toBe('abc123');
+        expect(m.data().ilap_sw_halt).toBe(true);
     });
 });

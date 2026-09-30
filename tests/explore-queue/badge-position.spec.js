@@ -21,6 +21,32 @@ async function mountUI(page) {
     });
 }
 
+test('clearVisuals gives the card back the inline styles Steam gave it', async ({ page }) => {
+    // Steam renders #ignoreBtn with an inline `position: relative; display: flex`.
+    // Turning the extension off must strip what WE drew and nothing of Steam's:
+    // a reset to '' would break Steam's own layout of the button.
+    await mountUI(page);
+    const styles = await page.evaluate(() => {
+        document.body.innerHTML = '';
+        const container = document.createElement('div');
+        container.id = 'ignoreBtn';
+        container.style.cssText = 'position: sticky; display: flex; box-shadow: none;';
+        document.body.appendChild(container);
+        const colors = { RED_BG: '#c0392b', BLUE_BG: '#3498db', BADGE_BLUE_BG: '#2980b9' };
+        const ui = new window.ILAP.Explore.UI({ getIconUrl: () => 'icon16.png' }, colors, () => container);
+        const read = () => ({ position: container.style.position, display: container.style.display,
+            boxShadow: container.style.boxShadow, badges: container.querySelectorAll('.ilap-micro-badge').length });
+        ui.applyVisuals('IGNORE', 'bad');
+        const drawn = read();
+        ui.applyVisuals('IGNORE', 'bad');   // a second paint must not record OUR styles as Steam's
+        ui.clearVisuals();
+        return { drawn, cleared: read() };
+    });
+    expect(styles.drawn.position).toBe('relative');
+    expect(styles.drawn.badges).toBe(1);
+    expect(styles.cleared).toEqual({ position: 'sticky', display: 'flex', boxShadow: 'none', badges: 0 });
+});
+
 // Render a badge of the given decision type and report its placement + label.
 async function renderBadge(page, type) {
     return page.evaluate((t) => {

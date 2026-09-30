@@ -1,8 +1,8 @@
 # Privacy Policy for Steam Ignore Like a Pro
 
-**Effective Date:** August 11, 2026
+**Effective Date:** September 30, 2026
 
-Steam Ignore Like a Pro is a free, open-source browser extension. This Privacy Policy explains our commitment to your privacy.
+Steam Ignore Like a Pro is a free, open-source browser extension. This Privacy Policy explains our commitment to your privacy — in the extension and on its website.
 
 ### Data Collection & Usage
 This extension **does not** collect, transmit, or share any personal data or user information. Anything it saves stays on your own device (see Permissions & Local Storage below).
@@ -19,13 +19,16 @@ The extension requires the `storage` browser permission to function. This permis
 
 On Chrome and Edge the extension additionally requires the `alarms` permission. It is used **solely** to wake the extension's own background worker on a timer, so a queued list of ignores keeps progressing while no Steam tab is open. It grants no access to your data.
 
-So the queue can keep progressing with no Steam tab open, the extension caches a copy of your Steam `sessionid` in that same local storage — the background worker cannot read cookies itself. The copy is refreshed whenever you open a Steam store page, and it is sent only back to Steam, with the ignore requests you queued, exactly as your browser sends it when you use the site yourself.
+On Chrome and Edge, so the queue can keep progressing with no Steam tab open, the extension caches a copy of your Steam `sessionid` in that same local storage — the background worker cannot read cookies itself. The copy is refreshed whenever you open a Steam store page, the worker clears it once it finds that session has ended, and it is sent only back to Steam, with the ignore requests you queued, exactly as your browser sends it when you use the site yourself. On Firefox nothing of the kind is stored: the queue is worked by the Steam page itself there, so there is no copy to keep — and a copy left behind by a version before 1.3.0, which did store one there, is deleted when you update.
 
 ### Third Parties
 This extension does not integrate with any third-party services, analytics platforms, or advertising networks.
 
-### User Rights (GDPR & CCPA)
-Because we do not collect, receive, or process any personal data, there is no user data for us to provide, modify, or delete upon request.
+### The Website
+The website, [steamignorelikeapro.com](https://steamignorelikeapro.com), sets **no cookies**, runs **no analytics, tracking or ads**, and loads nothing from third parties. It is hosted on Cloudflare. To deliver each page, Cloudflare necessarily receives technical connection data — your IP address, browser type and the page requested — and processes it on our behalf as our hosting provider, including to protect the site against abuse. We keep visitor logs and analytics switched off, so we **do not receive, log or store** that data, and it is never used to identify or track anyone. Cloudflare's handling of it is covered by [Cloudflare's Privacy Policy](https://www.cloudflare.com/privacypolicy/). This processing rests on our legitimate interest in delivering the website securely (Art. 6(1)(f) GDPR).
+
+### Your Rights (GDPR & CCPA)
+We hold no personal data about you, so there is nothing of yours for us to provide, correct or delete. Your rights under the GDPR and CCPA still apply — including access, erasure and objection, and the right to lodge a complaint with a data protection authority — and you can raise any of them with us at the address below.
 
 ### Contact
-If you have any questions or concerns regarding this Privacy Policy, please open an issue on our [GitHub repository](https://github.com/BrineStorm/Steam-Ignore-Like-a-Pro/issues).
+The extension and its website are run by their developer, BrineStorm, who is responsible for them under data protection law. For questions about this Privacy Policy or your data, write to [brinestormdev@gmail.com](mailto:brinestormdev@gmail.com) or open an issue on our [GitHub repository](https://github.com/BrineStorm/Steam-Ignore-Like-a-Pro/issues). The same address takes notices from rights holders about any material shown on the website.

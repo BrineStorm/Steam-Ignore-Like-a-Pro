@@ -15,6 +15,10 @@ const { searchUrl } = require('../_search.js'); // random search term per naviga
 const MODE_KEY = 'ilap_surface_mode';
 const STATE_KEY = 'ilap_widget_expanded_ts';
 
+// Retried like the rest of the widget suite: hover-driven, and the widget shares
+// the top-right corner with Steam's header (see collapse.spec.js).
+test.describe.configure({ retries: 2 });
+
 test.describe('on-page widget — surface mode', () => {
 
     test('popup mode: mounts parked — ghost chevron with the escape-hatch tooltip, inert click', async ({ context, page }) => {

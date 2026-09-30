@@ -2,10 +2,12 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { loadEscape } = require('../_escape.js');
 
 // The curator storage model (src/curator/store.js) keeps its decision logic in
-// three pure helpers — evictCache (TTL + LRU), lockFree (lease takeability),
-// isFresh — so they unit-test in Node without chrome.storage. The queue RMW
+// pure helpers — evictCache (TTL + LRU), isFresh, and lockFree (lease
+// takeability, src/curator/lease.js) — so they unit-test in Node without
+// chrome.storage. The queue RMW
 // path (mutateQueue serialization, cursor keys) is unit-tested below against an
 // async in-memory chrome.storage stub; the rest is exercised via the drainer E2E.
 function loadStore() {
@@ -15,6 +17,7 @@ function loadStore() {
     );
     const sandbox = { window: {} };
     vm.createContext(sandbox);
+    loadEscape(sandbox);
     vm.runInContext(code, sandbox);
     return sandbox.window.ILAP.Curator.Store;
 }
@@ -47,6 +50,7 @@ function loadStoreWithChrome(initial) {
     };
     const sandbox = { window: {}, chrome: { storage: { local } }, setTimeout, Date, Math, JSON };
     vm.createContext(sandbox);
+    loadEscape(sandbox);
     vm.runInContext(code, sandbox);
     return { Store: sandbox.window.ILAP.Curator.Store, data: () => data };
 }
@@ -63,14 +67,33 @@ test.describe('Curator storage — pure helpers (unit)', () => {
         expect(S.isFresh(null, now)).toBe(false);
     });
 
-    test('miSourceLabel maps an MI reason to its Last-Ignored label', () => {
-        // One mapping for both drain hosts (the content-script wiring in
-        // drainer.js and the SW's saveStats shim): reason 2 is the
-        // Already-Played swipe, everything else is the default ignore.
-        expect(S.miSourceLabel(2)).toBe('Played Elsewhere');
-        expect(S.miSourceLabel('2')).toBe('Played Elsewhere');   // meta survives a JSON round-trip
-        expect(S.miSourceLabel(0)).toBe('Default Ignore');
-        expect(S.miSourceLabel(undefined)).toBe('Default Ignore');
+    test('job types: an untyped job reads as curator, an unknown one has no traits', () => {
+        // Curator jobs staged before the field existed have no `type` in storage.
+        expect(S.jobType({ id: 'j1', curatorId: '42' })).toBe(S.JOB_TYPE.CURATOR);
+        expect(S.jobTraits({ id: 'j1' })).toEqual({ undo: false, gesture: false });
+        // A type this build does not know is NOT guessed into curator: it could be a
+        // rollback, and draining it as an ignore would ignore what the user wanted back.
+        expect(S.jobType({ type: 'from-a-newer-build' })).toBe('from-a-newer-build');
+        expect(S.jobTraits({ type: 'from-a-newer-build' })).toBe(null);
+        expect(S.jobTraits({ type: S.JOB_TYPE.UNDO })).toEqual({ undo: true, gesture: false });
+        expect(S.jobTraits({ type: S.JOB_TYPE.MI })).toEqual({ undo: false, gesture: true });
+        expect(S.jobTraits({ type: S.JOB_TYPE.MIUNDO })).toEqual({ undo: true, gesture: true });
+    });
+
+    test('cappedCount counts what MAX_JOBS limits: never the gesture jobs, always an unknown type', () => {
+        // The staging services used to compare queue.length, so a pending swipe
+        // cost a curator slot. The rule lives here now; both services call it.
+        const T = S.JOB_TYPE;
+        expect(S.cappedCount([])).toBe(0);
+        expect(S.cappedCount([
+            { id: 'a' },                          // untyped = curator
+            { id: 'b', type: T.CURATOR },
+            { id: 'u', type: T.UNDO },
+            { id: 'm', type: T.MI },
+            { id: 'r', type: T.MIUNDO },
+        ])).toBe(3);
+        // Unknown: it could be either kind, so it takes a place.
+        expect(S.cappedCount([{ id: 'x', type: 'from-a-newer-build' }])).toBe(1);
     });
 
     test('evictCache drops entries older than the 7-day TTL', () => {
@@ -100,11 +123,17 @@ test.describe('Curator storage — pure helpers (unit)', () => {
     });
 
     test('lockFree: a lock is takeable when missing, ours, or expired', () => {
+        const sandbox = { window: {} };
+        vm.createContext(sandbox);
+        loadEscape(sandbox);
+        vm.runInContext(fs.readFileSync(
+            path.join(__dirname, '..', '..', 'src', 'curator', 'lease.js'), 'utf8'), sandbox);
+        const L = sandbox.window.ILAP.Curator.Lease;
         const now = 1_000_000;
-        expect(S.lockFree(null, 'me', now)).toBe(true);
-        expect(S.lockFree({ owner: 'me', expiresAt: now + 5000 }, 'me', now)).toBe(true);
-        expect(S.lockFree({ owner: 'other', expiresAt: now - 1 }, 'me', now)).toBe(true);   // expired
-        expect(S.lockFree({ owner: 'other', expiresAt: now + 5000 }, 'me', now)).toBe(false); // held
+        expect(L.lockFree(null, 'me', now)).toBe(true);
+        expect(L.lockFree({ owner: 'me', expiresAt: now + 5000 }, 'me', now)).toBe(true);
+        expect(L.lockFree({ owner: 'other', expiresAt: now - 1 }, 'me', now)).toBe(true);   // expired
+        expect(L.lockFree({ owner: 'other', expiresAt: now + 5000 }, 'me', now)).toBe(false); // held
     });
 });
 
@@ -189,6 +218,15 @@ test.describe('Curator storage — serialized queue writes (unit)', () => {
         expect(await Store.setCursor('j1', 4)).toBe(false);
         expect(data()['ilap_curator_cursor_j1']).toBeUndefined();
         expect(await Store.getCursor('j1')).toBeNull();
+    });
+
+    test('setCursor checks a passed queue snapshot instead of reading the queue again', async () => {
+        const { Store, data } = loadStoreWithChrome({ ilap_curator_queue: [{ id: 'j1' }] });
+        // Stored queue holds j1, the snapshot does not: the snapshot decides.
+        expect(await Store.setCursor('j1', 5, [{ id: 'other' }])).toBe(false);
+        expect(data()['ilap_curator_cursor_j1']).toBeUndefined();
+        expect(await Store.setCursor('j1', 5, [{ id: 'j1' }])).toBe(true);
+        expect(await Store.getCursor('j1')).toBe(5);
     });
 
     test('removeIfDrained drops a fully-drained job and cleans its progress keys', async () => {
@@ -293,6 +331,29 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         expect(data().ilap_curator_queue[0].appids).toHaveLength(MI_MAX); // unchanged
     });
 
+    test('at MI_MAX, a game ALREADY queued still dedupes instead of reading as full', async () => {
+        // The cap may only refuse a gesture that would GROW the job. A swipe on a
+        // game already in the undrained tail changes nothing, so answering it
+        // with 'full' would raise the stuck-queue card over a no-op — reachable
+        // from a second tab, which has no badge of its own to stop the gesture
+        // earlier.
+        const MI_MAX = loadStore().MI_MAX;
+        const appids = Array.from({ length: MI_MAX }, (_, i) => String(i));
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: 'job_mi', type: 'mi', curatorId: 'mi',
+                appids, meta: { '7': { name: 'A', reason: 0 } },
+                total: appids.length, status: 'pending',
+            }],
+        });
+
+        expect(await Store.enqueueMi({ appid: 7, name: 'A', reason: 2 }))
+            .toEqual({ kind: 'added', total: MI_MAX });
+        const job = data().ilap_curator_queue[0];
+        expect(job.appids).toHaveLength(MI_MAX);          // not grown
+        expect(job.meta['7']).toEqual({ name: 'A', reason: 2 });  // but re-aimed
+    });
+
     test('MI is the one type allowed to exceed MAX_JOBS (exclusive 4th slot)', async () => {
         const { Store, data } = loadStoreWithChrome({
             ilap_curator_queue: [
@@ -360,6 +421,23 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         // it was never asked to perform.
         expect(data()[Store.UNIGNORE_PULSE_KEY])
             .toMatchObject({ appids: ['11', '12'], reason: 'removed' });
+    });
+
+    test('removing an un-ignore job with rollbacks left reports them; a drained one reports nothing', async () => {
+        const job = {
+            id: 'job_mi_undo', type: 'miundo', curatorId: 'miundo', appids: ['10', '11'],
+            meta: {}, total: 2, status: 'pending',
+        };
+        const left = loadStoreWithChrome({ ilap_curator_queue: [job], ilap_curator_cursor_job_mi_undo: 1 });
+        await left.Store.removeJob('job_mi_undo');
+        // '11' will never be rolled back: its pending mark has to come off, silently.
+        expect(left.data()[left.Store.UNDO_FAILED_KEY]).toMatchObject({ reason: 'removed' });
+        expect(left.data()[left.Store.UNIGNORE_PULSE_KEY]).toBeUndefined();   // nothing to un-badge
+
+        const drained = loadStoreWithChrome({ ilap_curator_queue: [job], ilap_curator_cursor_job_mi_undo: 2 });
+        await drained.Store.removeJob('job_mi_undo');
+        expect(drained.data()[drained.Store.UNDO_FAILED_KEY]).toBeUndefined();
+        expect(drained.data().ilap_curator_cursor_job_mi_undo).toBeUndefined();
     });
 
     test('removing a curator job pulses nothing (no optimistic badges to correct)', async () => {

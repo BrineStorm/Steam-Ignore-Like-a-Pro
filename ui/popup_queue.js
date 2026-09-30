@@ -2,26 +2,18 @@
 (function() {
     'use strict';
 
-    // Renders the curator ignore queue inside the popup/widget as a collapsible
-    // applet (mirrors the SETTINGS accordion). It renders from a full storage
-    // snapshot: the job records (`ilap_curator_queue`) hold only user-owned state,
-    // drain progress comes from the per-job cursor keys, and "running" is derived
-    // from a live drain lease — the drainer never stores a status, so it can never
-    // clobber a pause/remove written here. The whole <details> is hidden when the
-    // queue is empty, so it never shows even when the rest of the UI is locked.
+    // The ignore queue applet in the popup/widget. It renders from a storage
+    // snapshot: the job records, the per-job cursor keys for progress, and the
+    // live lease for "running". Hidden while the queue is empty.
 
-    const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
+    const t = window.ILAP.t;
 
-    // Shared HTML-escaper (src/escape.js, loaded first in popup.html + content_scripts).
     const esc = window.ILAP.Sanitizer.escapeHTML;
-
-    // Storage model (src/curator/store.js, loaded before this script in both
-    // content_scripts and popup.html) — serialized queue writes + key prefixes.
     const Store = window.ILAP.Curator.Store;
+    const Lease = window.ILAP.Curator.Lease;
+    const Settings = window.ILAP.Settings;
 
-    // Filter vocabulary + label colours are shared with the curator-page control
-    // (see src/curator/filters.js, loaded before this script in both content_scripts
-    // and popup.html). Bold + a muted fallback match this applet's own styling.
+    // Filter labels and colours shared with the curator button (src/curator/filters.js).
     const Filters = window.ILAP_Filters;
     const filterStyle = (value) => Filters.colorStyle(value, { bold: true, fallback: 'var(--muted)' });
 
@@ -51,10 +43,18 @@
     // Shared parser (src/curator/filters.js) so this and main.js agree.
     const currentCuratorId = () => Filters.curatorIdFromPath(location.pathname);
 
-    // Inline icons (inherit the button colour via currentColor).
-    const ICON_PAUSE = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>';
-    const ICON_PLAY = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
-    const ICON_TRASH = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2zM6 9h12l-1 11a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 9zm4 2v8h1v-8h-1zm3 0v8h1v-8h-1z"/></svg>';
+    // Inline icons (inherit the button colour via currentColor), shared with the
+    // curator droplist (ui/icons.js).
+    const { PAUSE: ICON_PAUSE, PLAY: ICON_PLAY, TRASH: ICON_TRASH } = window.ILAP_Icons;
+
+    // Row names of the job types that have no curator to name them. Null-prototype
+    // because the key is a job's stored `type`: an unknown one must fall through
+    // to the record's own name (see _row), which a prototype hit would take away.
+    const JOB_NAME_KEYS = Object.assign(Object.create(null), {
+        [Store.JOB_TYPE.UNDO]: 'undo_job_name',
+        [Store.JOB_TYPE.MI]: 'mi_job_name',
+        [Store.JOB_TYPE.MIUNDO]: 'miundo_job_name',
+    });
 
     class QueueManager {
         constructor(root) {
@@ -63,6 +63,7 @@
             this.list = root.getElementById('queue-list');
             this.chip = root.getElementById('queue-jobs-chip');
             this._closeTimer = null;   // "collapse on completion" timer
+            this._masterOff = false;   // as of the last render — see _onAction
             // Delegated handler — the list HTML is rebuilt on every render.
             if (this.list) this.list.addEventListener('click', (e) => this._onAction(e));
         }
@@ -71,6 +72,9 @@
         // is never stored); Remove drops the job. Both go through Store's
         // serialized queue writers, so a click here can't interleave with a
         // concurrent queue write in the same context.
+        //
+        // With the extension OFF only Remove works. Pause renders `disabled`; the
+        // guard below also covers a master flip between that render and the click.
         _onAction(e) {
             if (!e.isTrusted) return; // real clicks only — not page-synthesized events
             const btn = e.target.closest('.queue-act');
@@ -79,17 +83,17 @@
             const act = btn.dataset.act;
             if (act === 'remove') {
                 Store.removeJob(id);
-            } else if (act === 'pause') {
+            } else if (act === 'pause' && !this._masterOff) {
                 Store.updateJob(id, (j) => ({ status: j.status === 'paused' ? 'pending' : 'paused' }));
             }
         }
 
-        // `store` is a full chrome.storage.local snapshot: the queue array plus
-        // the per-job lock/cursor keys this view derives running/progress from.
+        // `store` is a storage snapshot: the queue array plus the per-job
+        // lock/cursor keys this view derives running/progress from.
         render(store) {
             if (!this.accordion) return;
             store = store || {};
-            const jobs = Array.isArray(store.ilap_curator_queue) ? store.ilap_curator_queue : [];
+            const jobs = Array.isArray(store[Store.QUEUE_KEY]) ? store[Store.QUEUE_KEY] : [];
 
             if (jobs.length === 0) {
                 this._collapseEmpty();
@@ -105,6 +109,8 @@
             }
 
             this.accordion.hidden = false;
+            // From the render snapshot, so _onAction judges by what the row shows.
+            this._masterOff = !Settings.isOn(store[Settings.KEYS.MASTER]);
             const now = Date.now();
             const statuses = jobs.map(j => this._effectiveStatus(j, store, now));
             // Barber-pole indicator while any job is actively ignoring.
@@ -117,7 +123,7 @@
                 // store page fixes both at content-script boot, so the hint just
                 // points there. Tab drainers are unaffected: with a store page
                 // open the flag has already been cleared.
-                const halt = store.ilap_sw_halt
+                const halt = store[Store.SW_HALT_KEY]
                     ? `<div class="queue-halt-hint">${esc(t('queue_sw_halt'))}</div>`
                     : '';
                 this.list.innerHTML = jobs
@@ -155,7 +161,7 @@
         // live IS being drained by some tab right now.
         _effectiveStatus(job, store, now) {
             if (job.status === 'enumerating' || job.status === 'paused') return job.status;
-            const lock = store[Store.LOCK_PREFIX + job.curatorId];
+            const lock = store[Lease.LOCK_PREFIX + job.curatorId];
             return (lock && (lock.expiresAt || 0) > now) ? 'running' : 'pending';
         }
 
@@ -174,28 +180,26 @@
         }
 
         _row(job, cur, effStatus, cursor, skipped) {
-            // Undo and Manual-Ignore jobs have no curator: localized row name, no
-            // filter sub-line (the footer says everything else). The MI job is
-            // highlighted (a special auto-filling job) and renders differently —
-            // see the progress branch below.
-            const isUndo = job.type === 'undo';
-            // The two AUTO-FILLING gesture jobs render alike: no curator, no
-            // filter line, and a live remaining count instead of a percent bar
-            // (see the progress branch below). `isGesture` covers both — the same
-            // bucket the drainer calls `isForeground`; do not read it as "the MI
-            // job", which is only the ignore half.
-            const isMiUndo = job.type === 'miundo';
-            const isGesture = job.type === 'mi' || isMiUndo;
-            const name = isMiUndo ? esc(t('miundo_job_name'))
-                : isGesture ? esc(t('mi_job_name'))
-                : isUndo ? esc(t('undo_job_name'))
+            // Only a curator job has a curator: every other type shows a localized
+            // name and no filter sub-line (the footer says everything else). The
+            // AUTO-FILLING gesture jobs also swap the percent bar for a live
+            // remaining count (see the progress branch below). A type this build
+            // does not know keeps whatever name its record carries, and can only
+            // be removed from here — the drainer skips it.
+            const type = Store.jobType(job);
+            const traits = Store.jobTraits(job);
+            const isCuratorJob = type === Store.JOB_TYPE.CURATOR;
+            const isGesture = !!traits && traits.gesture;
+            const nameKey = JOB_NAME_KEYS[type];
+            const name = nameKey
+                ? esc(t(nameKey))
                 : esc(job.curatorName || job.curatorId || '');
             const total = job.total || 0;
             const done = Math.min(cursor, total || cursor);
             const status = esc(t(STATUS_LABELS[effStatus] || 'queue_status_pending'));
             const statusColor = STATUS_COLORS[effStatus];
-            const isCurrent = !isUndo && !isGesture && !!cur && job.curatorId === cur;
-            const filter = (isUndo || isGesture) ? '' : esc(t(Filters.labelKey(job.filter)));
+            const isCurrent = isCuratorJob && !!cur && job.curatorId === cur;
+            const filter = isCuratorJob ? esc(t(Filters.labelKey(job.filter))) : '';
             const pct = total > 0 ? Math.round(done / total * 100) : 0;
             const count = total > 0 ? `${done} / ${total}` : '—';
             const jobId = esc(job.id || '');
@@ -206,7 +210,7 @@
 
             const actions = `
                         <span class="queue-job-actions">
-                            <button type="button" class="queue-act ${paused ? 'is-play' : 'is-pause'}" data-act="pause" data-job-id="${jobId}" title="${pauseTitle}" aria-label="${pauseTitle}">${pauseIcon}</button>
+                            <button type="button" class="queue-act ${paused ? 'is-play' : 'is-pause'}" data-act="pause" data-job-id="${jobId}" title="${pauseTitle}" aria-label="${pauseTitle}"${this._masterOff ? ' disabled' : ''}>${pauseIcon}</button>
                             <button type="button" class="queue-act queue-act-del" data-act="remove" data-job-id="${jobId}" title="${removeTitle}" aria-label="${removeTitle}">${ICON_TRASH}</button>
                         </span>`;
             const skipLine = skipped > 0
@@ -232,7 +236,7 @@
                         <span class="queue-job-name">${name}</span>
                         <span class="queue-job-status"${statusColor ? ` style="color:${statusColor}"` : ''}>${status}</span>
                     </div>
-                    ${(isUndo || isGesture) ? '' : `<div class="queue-job-sub" style="${filterStyle(job.filter)}">${filter}</div>`}
+                    ${!isCuratorJob ? '' : `<div class="queue-job-sub" style="${filterStyle(job.filter)}">${filter}</div>`}
                     ${progress}
                 </div>`;
         }

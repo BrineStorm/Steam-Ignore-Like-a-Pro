@@ -12,6 +12,10 @@ const KEY = 'ilap_widget_expanded_ts';
 const PIN_KEY = 'ilap_widget_pinned';
 const IDLE_MS = 60000;
 
+// Retried like the rest of the widget suite: hover-driven, and the widget shares
+// the top-right corner with Steam's header (see collapse.spec.js).
+test.describe.configure({ retries: 2 });
+
 test.describe('on-page widget — pin badge', () => {
 
     test('hidden by default; launcher hold reveals after a delay; pin hover reveals instantly', async ({ page }) => {

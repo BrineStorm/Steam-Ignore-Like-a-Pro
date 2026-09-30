@@ -37,4 +37,27 @@ test.describe('Explore Queue — Disable button', () => {
 
         await expect(page.locator(SEL.toast)).toHaveCount(0);
     });
+
+    // The queue toggle is EQ's own switch — Manual-Ignore does not listen to it
+    // and keeps its badges. Both modules share the .ilap-tooltip class (MI nests
+    // one in every IGNORED plate), so EQ's teardown must strip only what it painted
+    // on its card, not every tooltip in the document. The MI badge is planted by
+    // hand in MI's own markup: a real one would need a live gesture ignore.
+    test('Turning ilap_q_master off leaves Manual-Ignore badge tooltips alone', async ({ page, context }) => {
+        await openExploreQueue(page);
+        await expect(page.locator(SEL.toast)).toBeVisible({ timeout: 15000 });
+
+        await page.evaluate(() => {
+            const overlay = document.createElement('div');
+            overlay.className = 'ilap-ignored-overlay';
+            overlay.id = 'ilap-test-mi-badge';
+            overlay.innerHTML = 'IGNORED<div class="ilap-tooltip">Ignored by default</div>';
+            document.body.appendChild(overlay);
+        });
+
+        await setExtensionStorage(context, { ilap_q_master: false });
+        await expect(page.locator(SEL.toast)).toHaveCount(0);
+
+        await expect(page.locator('#ilap-test-mi-badge .ilap-tooltip')).toHaveCount(1);
+    });
 });

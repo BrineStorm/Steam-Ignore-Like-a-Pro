@@ -2,6 +2,8 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { loadEscape } = require('../_escape.js');
+const { withVocab } = require('./_store-vocab.js');
 
 // UndoService staging as Node units — no browser. The snapshot semantics (a
 // static appid list frozen at staging time) and the outcome branching
@@ -16,6 +18,7 @@ function loadModules() {
         setTimeout, clearTimeout,
     };
     vm.createContext(sandbox);
+    loadEscape(sandbox);
     for (const rel of [['src', 'ignore-log.js'], ['src', 'undo-service.js']]) {
         const code = fs.readFileSync(path.join(__dirname, '..', '..', ...rel), 'utf8');
         vm.runInContext(code, sandbox);
@@ -26,14 +29,14 @@ function loadModules() {
 // In-memory Store stub with the real mutateQueue contract: the mutator gets a
 // copy and returns the next array (or a non-array to skip the write).
 function makeStore(queue) {
-    return {
+    return withVocab({
         queue,
         mutateQueue(mutator) {
             const next = mutator(this.queue.slice());
             if (Array.isArray(next)) this.queue = next;
             return Promise.resolve(this.queue);
         },
-    };
+    });
 }
 
 function makeLog(ILAP, entries) {
@@ -101,6 +104,19 @@ test.describe('UndoService (unit)', () => {
         const svc = new ILAP.UndoService({ store, log: makeLog(ILAP, [e('1', 10)]), maxJobs: 3 });
         expect(await svc.stageLastN(1)).toEqual({ kind: 'full' });
         expect(store.queue.length).toBe(3);
+    });
+
+    test('the gesture jobs take no place under the cap', async () => {
+        const ILAP = loadModules();
+        const store = makeStore([
+            { id: 'job_mi', type: 'mi', curatorId: 'mi', status: 'pending' },
+            { id: 'job_mi_undo', type: 'miundo', curatorId: 'miundo', status: 'pending' },
+            { id: 'a', curatorId: '1', status: 'pending' },
+            { id: 'b', curatorId: '2', status: 'pending' },
+        ]);
+        const svc = new ILAP.UndoService({ store, log: makeLog(ILAP, [e('1', 10)]), maxJobs: 3 });
+        expect(await svc.stageLastN(1)).toMatchObject({ kind: 'added' });
+        expect(store.queue.length).toBe(5);
     });
 
     test('stageSince snapshots only the requested window', async () => {

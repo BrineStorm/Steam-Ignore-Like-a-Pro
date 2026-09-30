@@ -2,16 +2,10 @@
 (function() {
     'use strict';
 
-    // Phase-2 curator enumeration: turns a curator id into the list of appids it
-    // recommends, grouped by recommendation type. Steam paginates a curator's
-    // recommendations through a clean JSON endpoint that honours a large `count`,
-    // so a 2000-game list resolves in ~4 reads (count=500) rather than ~200.
-    //
-    // The HTML parsing is LANGUAGE-INDEPENDENT: each row carries a stable
-    // `data-ds-appid` and a `.color_not_recommended / .color_informational /
-    // .color_recommended` class — we never look at the visible "Not Recommended"
-    // text. Parsing/URL/filtering are pure (Node-unit-testable); `enumerate`
-    // takes injected fetch/sleep/rand so the network loop is testable too.
+    // A curator id → the appids it recommends, by recommendation type. The JSON
+    // endpoint honours a large `count`, so 2000 games take ~4 reads.
+    // Language-independent: rows are read by `data-ds-appid` and the
+    // `.color_*` class, never by the visible label.
 
     window.ILAP = window.ILAP || {};
     window.ILAP.Curator = window.ILAP.Curator || {};
@@ -66,9 +60,8 @@
         return apps;
     }
 
-    // Resolve the appids a job should ignore for a given filter. We classify
-    // client-side off the parsed color class (the server `curations=` param
-    // vocabulary is unknown and probes returned 0).
+    // The appids a job ignores under `filter`, classified here: the server's
+    // `curations=` values are unknown.
     function filterAppids(apps, filter) {
         apps = apps || {};
         const nr = apps.not_recommended || [];
@@ -82,23 +75,12 @@
         return JITTER_MIN + Math.floor((rand || Math.random)() * (JITTER_MAX - JITTER_MIN));
     }
 
-    // Walk the curator's recommendations in big pages until we've covered
-    // total_count. Returns { total, apps, fetchedAt }. `opts.fetch/sleep/rand`
-    // are injectable for tests; defaults hit the live endpoint same-origin.
-    //
-    // ACCEPTED (triage of the audit PLAUSIBLE finding): a
-    // list that changes BETWEEN page reads shifts rows across page boundaries.
-    // Duplicates are harmless (categorize() de-dupes on appid); a row shifted
-    // into an already-read range is MISSED for this enumeration. With count=500
-    // pages, sort=recent and sub-second gaps the window is a curator posting a
-    // review during those exact seconds — at worst one game is picked up by the
-    // next stage/re-enumeration (cache TTL 7 d, or any filter re-pick). Snapshot
-    // consistency isn't worth extra passes here.
+    // Pages through the recommendations until total_count. { total, apps, fetchedAt }.
+    // A review posted between two page reads can shift a row out of this pass;
+    // the next enumeration picks it up, which is cheaper than snapshot passes.
     async function enumerate(curatorId, opts) {
         opts = opts || {};
-        // 15 s deadline per page (a 500-row page is a big payload on a slow
-        // link) — a hung read must throw like a network error, not stall the
-        // enumeration forever.
+        // A 500-row page is big: a longer deadline than the default.
         const doFetch = opts.fetch || ((url) => window.ILAP.fetchWithTimeout(url, {
             credentials: 'include',
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
@@ -110,17 +92,25 @@
         const parsed = [];
         let total = 0;
         let start = 0;
+        // A read that FAILED before the list was covered, as opposed to one that
+        // finished. Without it a page-two timeout looks exactly like a complete
+        // curator, and the truncated list would be cached for the TTL and drained
+        // as if it were the whole thing. Set only where the evidence is
+        // unambiguous — a failed request or our own page ceiling — never for a
+        // short page, which is the server saying it has no more rows.
+        let partial = false;
 
         for (let page = 0; page < maxPages; page++) {
             let data;
             try {
                 const res = await doFetch(buildUrl(curatorId, start, count));
-                if (!res || !res.ok) break;
+                if (!res || !res.ok) { partial = true; break; }
                 data = await res.json();
             } catch (e) {
+                partial = true;
                 break;
             }
-            if (!data || data.success !== 1) break;
+            if (!data || data.success !== 1) { partial = true; break; }
             total = data.total_count || total;
 
             const rows = parseResults(data.results_html || '');
@@ -129,10 +119,23 @@
 
             start += count;
             if (start >= total) break;
+            // Last allowed page and the list still is not covered: we stopped,
+            // Steam did not. Checked before the pause, which would otherwise be
+            // spent on a loop that is about to exit anyway.
+            if (page === maxPages - 1) { partial = true; break; }
             await sleep(jitter(opts.rand));
         }
 
-        return { total, apps: categorize(parsed), fetchedAt: Date.now() };
+        // Not one row parsed while the server says this curator HAS rows: that is
+        // the markup moving under parseResults, not an empty curator. It matters
+        // because of what happens next — an empty result drops the job and shows
+        // the error toast, and a run that is not `partial` is CACHED, so a parse
+        // break would serve its own emptiness for the retention week and every
+        // re-add in it would fail the same way with no network touched. Marking
+        // it keeps the failure per-attempt, which is what a fix (ours or Valve's
+        // own revert) needs to be visible. The canary reports the cause.
+        if (parsed.length === 0 && total > 0) partial = true;
+        return { total, apps: categorize(parsed), fetchedAt: Date.now(), partial };
     }
 
     window.ILAP.Curator.Enumerator = {

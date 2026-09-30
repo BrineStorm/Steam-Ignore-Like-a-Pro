@@ -3,7 +3,7 @@
     'use strict';
 
     const Sanitizer = window.ILAP.Sanitizer;
-    const t = (k, p) => (window.ILAP && window.ILAP.t) ? window.ILAP.t(k, p) : k;
+    const t = window.ILAP.t;
 
     function getModeLabel(mode) {
         return mode === 'all' ? t('mode_every_game') : t('mode_bad_reviews');
@@ -53,25 +53,67 @@
             this.resources = resourceService;
             this.colors = themeColors;
             this.getContainer = containerProviderFunc;
+            // The card's own inline boxShadow/position from before applyVisuals
+            // first touched it, so clearVisuals can put back what Steam had: Steam
+            // renders #ignoreBtn with an inline `position: relative; display: flex`,
+            // which a reset to '' would strip.
+            this._inlineBefore = new WeakMap();
+            // OUR toast node. Everything inside it is reached through this
+            // reference, never through document.getElementById: the toast lives in
+            // the Steam page's DOM, and a page that plants its own
+            // <div id="ilap-run-btn"> earlier in the document would otherwise take
+            // our handler while the real button stayed dead. The ids are kept —
+            // the E2E suite locates the toast by #ilap-toast.
+            this._toast = null;
+        }
+
+        // Real user input only. These controls sit in the page's DOM, so a page
+        // script can call .click() on them; every other surface in the extension
+        // already refuses a synthetic event (curator menu, MI gestures, the popup
+        // panel), and Run / Fast-forward / Disable are the heaviest of the lot —
+        // Run starts a paced but unattended ignore run, Disable writes a setting.
+        static _real(fn) {
+            return (e) => { if (e && e.isTrusted) fn(e); };
         }
 
         clearStartPrompt() {
-            const prompt = document.getElementById('ilap-toast');
+            const prompt = this._toast;
             if (prompt && !prompt.querySelector('#ilap-stop-btn')) {
                 prompt.remove();
+                this._toast = null;
             }
         }
 
         // Remove any Queue-Helper toast (start prompt OR running/FF toast). Used when
         // the master switch is turned off live and automation is being torn down.
         removeToast() {
-            document.querySelectorAll('#ilap-toast').forEach(el => el.remove());
+            if (this._toast) this._toast.remove();
+            this._toast = null;
+        }
+
+        // Undo applyVisuals (outline, micro-badge/tooltip, positioning) when the
+        // switch goes off live. Steam's own ignore-button state stays: the game
+        // really is ignored.
+        clearVisuals() {
+            const container = this.getContainer();
+            if (!container) return;
+            // Scoped to the card: .ilap-tooltip is shared with Manual-Ignore's plates.
+            container.querySelectorAll('.ilap-micro-badge, .ilap-tooltip').forEach(el => el.remove());
+            // Nothing recorded means applyVisuals never ran on this card, so these
+            // inline styles are not ours to clear — restoring a default of '' would
+            // strip whatever else put them there. Reachable: _setupListener runs
+            // before the globalOn/queueOn gate, so a queue page that never drew a
+            // verdict still answers a live master-off with clearVisuals().
+            const before = this._inlineBefore.get(container);
+            if (!before) return;
+            container.style.boxShadow = before.boxShadow;
+            container.style.position = before.position;
+            this._inlineBefore.delete(container);
         }
 
         showStartPrompt(initialMode, handlers) {
-            const existingToasts = document.querySelectorAll('#ilap-toast');
-            existingToasts.forEach(t => t.remove());
-            
+            this.removeToast();
+
             const toast = document.createElement('div');
             toast.id = 'ilap-toast';
             toast.style.cssText = `
@@ -109,18 +151,19 @@
             `;
 
             document.body.appendChild(toast);
+            this._toast = toast;
 
-            document.getElementById('ilap-run-btn').onclick = handlers.onRun;
+            const ffBtn = toast.querySelector('#ilap-ff-btn');
+            toast.querySelector('#ilap-run-btn').onclick = ActionUI._real(handlers.onRun);
 
-            document.getElementById('ilap-ff-btn').onclick = () => {
-                const btn = document.getElementById('ilap-ff-btn');
-                btn.textContent = t('skipping');
-                btn.style.opacity = "0.7";
+            ffBtn.onclick = ActionUI._real(() => {
+                ffBtn.textContent = t('skipping');
+                ffBtn.style.opacity = "0.7";
                 handlers.onFastForward();
-            };
+            });
 
-            const disableBtn = document.getElementById('ilap-disable-btn');
-            disableBtn.onclick = () => { toast.remove(); handlers.onDisable(); };
+            const disableBtn = toast.querySelector('#ilap-disable-btn');
+            disableBtn.onclick = ActionUI._real(() => { this.removeToast(); handlers.onDisable(); });
             
             disableBtn.onmouseenter = () => { 
                 disableBtn.style.backgroundColor = '#d32f2f';
@@ -133,20 +176,19 @@
                 disableBtn.style.borderColor = '#3d4a5d';
             };
 
-            const closeX = document.getElementById('ilap-close-x');
-            closeX.onclick = () => toast.remove();
+            const closeX = toast.querySelector('#ilap-close-x');
+            closeX.onclick = ActionUI._real(() => this.removeToast());
             closeX.onmouseenter = () => closeX.style.color = '#fff';
             closeX.onmouseleave = () => closeX.style.color = '#8f98a0';
         }
 
         updateRunButtonMode(newMode) {
-            const badge = document.getElementById('ilap-mode-badge');
+            const badge = this._toast && this._toast.querySelector('#ilap-mode-badge');
             if (badge) badge.textContent = `[${getModeLabel(newMode)}]`; 
         }
 
         showRunningToast(message, onStop) {
-            const existingToasts = document.querySelectorAll('#ilap-toast');
-            existingToasts.forEach(t => t.remove());
+            this.removeToast();
 
             let toast = document.createElement('div');
             toast.id = 'ilap-toast';
@@ -157,6 +199,7 @@
                 display: flex; flex-direction: column; gap: 10px;
             `;
             document.body.appendChild(toast);
+            this._toast = toast;
 
             const { bold = '', text = '' } = message || {};
             const safeBold = bold ? `<b>${Sanitizer.escapeHTML(bold)}</b>` : '';
@@ -170,13 +213,13 @@
                 </div>
             `;
 
-            const btn = document.getElementById('ilap-stop-btn');
-            btn.onclick = () => {
+            const btn = toast.querySelector('#ilap-stop-btn');
+            btn.onclick = ActionUI._real(() => {
                 btn.textContent = t('toast_stopped');
                 btn.style.opacity = "0.7";
                 btn.style.cursor = "default";
                 onStop();
-            };
+            });
         }
 
         showFastForwardToast(onStop) {
@@ -198,6 +241,9 @@
             };
             const color = theme[type] || this.colors.BLUE_BG;
 
+            if (!this._inlineBefore.has(container)) {
+                this._inlineBefore.set(container, { boxShadow: container.style.boxShadow, position: container.style.position });
+            }
             container.style.boxShadow = `0 0 0 1px ${color}`;
             container.style.position = 'relative';
 

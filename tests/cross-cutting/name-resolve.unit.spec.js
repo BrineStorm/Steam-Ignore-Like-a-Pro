@@ -3,16 +3,15 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-// window.ILAP.resolveGameName (src/utils.js) — async name resolution: the five
+// window.ILAP.resolveGameName (src/game-name.js) — async name resolution: the five
 // DOM strategies first, then the store's appdetails endpoint when they ALL miss
 // (some React capsules — e.g. the front-page release-calendar carousel — carry
 // no alt text, no title node, no name slug, so the DOM has nothing to extract).
-// utils.js is loaded in Node (vm + a window stub, mirroring the sanitize-name
-// unit) with fetch stubbed, so the fallback contract is asserted without a
-// browser or Steam.
+// game-name.js is loaded in Node (vm + a window stub) with fetch stubbed, so
+// the fallback contract is asserted without a browser or Steam.
 function loadILAP(fetchStub) {
     const code = fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'utils.js'),
+        path.join(__dirname, '..', '..', 'src', 'game-name.js'),
         'utf8'
     );
     const sandbox = {
@@ -24,14 +23,9 @@ function loadILAP(fetchStub) {
         clearTimeout
     };
     vm.createContext(sandbox);
-    // escape.js owns the shared string helpers (escapeHTML + sanitizeName) for
-    // all three worlds, stats.js the Last-Ignored record shape for the two that
-    // write it, steam-net.js the Steam reads for the two that fetch; all three
-    // load before utils.js wherever it runs — the sandbox mirrors that.
+    // The appdetails fallback is steam-net.js's, and it sanitizes through escape.js.
     vm.runInContext(fs.readFileSync(
         path.join(__dirname, '..', '..', 'src', 'escape.js'), 'utf8'), sandbox);
-    vm.runInContext(fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'stats.js'), 'utf8'), sandbox);
     vm.runInContext(fs.readFileSync(
         path.join(__dirname, '..', '..', 'src', 'steam-net.js'), 'utf8'), sandbox);
     vm.runInContext(code, sandbox);
@@ -115,6 +109,32 @@ test.describe('resolveGameName — DOM first, appdetails fallback (unit)', () =>
     test('network failure keeps the AppID fallback', async () => {
         const ILAP = loadILAP(makeFetch(() => Promise.reject(new Error('offline'))));
         expect(await ILAP.resolveGameName('444', bareCapsule())).toBe('AppID 444');
+    });
+
+    // A capsule whose only name is its link's href slug (UrlPathStrategy).
+    function sluggedCapsule(href) {
+        return {
+            closest: () => null,
+            parentElement: null,
+            matches: () => true,          // the capsule IS the /app/ link
+            getAttribute: (n) => (n === 'href' ? href : null),
+            querySelector: () => null,
+            querySelectorAll: () => []
+        };
+    }
+
+    test('a malformed %-sequence in the slug is a strategy miss, not a throw', async () => {
+        const fetchStub = makeFetch(() =>
+            okJson({ '666': { success: true, data: { name: '100% Orange Juice' } } })
+        );
+        const ILAP = loadILAP(fetchStub);
+        // The well-formed slug proves the capsule reaches UrlPathStrategy…
+        expect(ILAP.getGameName('667', sluggedCapsule('/app/667/Half_Life/'))).toBe('Half Life');
+        // …and the broken one falls through to the next resolver instead of
+        // ending the chain with a URIError.
+        expect(ILAP.getGameName('666', sluggedCapsule('/app/666/100%_Orange/'))).toBe('AppID 666');
+        expect(await ILAP.resolveGameName('666', sluggedCapsule('/app/666/100%_Orange/')))
+            .toBe('100% Orange Juice');
     });
 
     test('getGameName keeps its synchronous contract', () => {

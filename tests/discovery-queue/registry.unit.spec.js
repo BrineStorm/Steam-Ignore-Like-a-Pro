@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { loadEscape } = require('../_escape.js');
 
 // Cross-tab DQ-automator cap (src/discovery-queue/registry.js) as a Node unit.
 // Pure helpers (activeCount / prune) plus the serialized tryAcquire/renew/release
@@ -26,6 +27,7 @@ function loadRegistry(initial) {
     };
     const sandbox = { window: {}, chrome: { storage: { local } }, setTimeout, Date, Math, JSON, Object };
     vm.createContext(sandbox);
+    loadEscape(sandbox);
     vm.runInContext(code, sandbox);
     return { R: sandbox.window.ILAP.Discovery.Registry, data: () => data };
 }

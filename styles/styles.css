@@ -41,7 +41,7 @@
     position: relative !important;
 }
 
-/* Opt-in gaussian blur on an ignored capsule's cover art (key: ilap_mask_enabled).
+/* Gaussian blur on an ignored capsule's cover art, on by default (key: ilap_mask_enabled).
    Applied DIRECTLY to the media element (not an overlay) so it matches the art's
    exact rendered box — including when Steam's layout lets a capsule image overflow
    onto a neighbouring trailer video. The IGNORED badge is a sibling, so it stays
@@ -164,49 +164,10 @@
 }
 
 /* =========================================
-   4. Discovery Queue UI (Legacy / Automation)
-   ========================================= */
-
-.ilap-controls-container {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-left: auto;
-    margin-right: 10px;
-}
-
-.ilap-checkbox-label {
-    display: flex;
-    align-items: center;
-    color: #8f98a0;
-    font-size: 12px;
-    font-family: Arial, sans-serif;
-    cursor: pointer;
-    user-select: none;
-}
-.ilap-checkbox-label:hover { color: #fff; }
-.ilap-checkbox { margin-right: 6px; cursor: pointer; }
-
-#queue-auto-ignore-btn {
-    padding: 6px 14px; 
-    background: #5c7e10; 
-    color: white;
-    border: 1px solid #4c6b22; 
-    border-radius: 4px; 
-    cursor: pointer;
-    font-family: Arial, sans-serif; 
-    font-size: 14px; 
-    height: fit-content;
-    display: flex; 
-    align-items: center; 
-    justify-content: center;
-    transition: background-color 0.2s, transform 0.1s;
-}
-#queue-auto-ignore-btn:active { transform: scale(0.97); }
-#queue-auto-ignore-btn .btn-symbol { margin-right: 8px; font-size: 12px; line-height: 1; vertical-align: middle; }
-#queue-auto-ignore-btn.running .btn-symbol { font-size: 14px; font-weight: bold; animation: ilap-blink-symbol 1.5s infinite; }
-
-@keyframes ilap-blink-symbol { 
-    0%, 100% { opacity: 1; } 
-    50% { opacity: 0.5; } 
-}
+   4. Discovery Queue UI — not here
+   =========================================
+   The queue panel (#queue-auto-ignore-btn, .ilap-controls-container,
+   .ilap-checkbox*) styles itself from src/discovery-queue/ui.js, which injects
+   them with the panel it builds. This file used to carry a second, diverging
+   copy of the same selectors; which values won was decided by injection order.
+   One owner: put panel styles there, not here. */

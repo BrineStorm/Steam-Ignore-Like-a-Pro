@@ -16,6 +16,10 @@ const { searchUrl } = require('../_search.js'); // random search term per naviga
 const MASTER_KEY = 'ilap_master_enabled';
 const PIN_KEY = 'ilap_widget_pinned';
 
+// Retried like the rest of the widget suite: hover-driven, and the widget shares
+// the top-right corner with Steam's header (see collapse.spec.js).
+test.describe.configure({ retries: 2 });
+
 test.describe('on-page widget — master gate', () => {
 
     test('disabled: chevron still expands; the pin is inert and re-enabling revives it', async ({ context, page }) => {

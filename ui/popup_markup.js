@@ -38,19 +38,18 @@
             <a id="count-link" href="https://store.steampowered.com/account/notinterested/" target="_blank">0</a>
 
             <!-- Undo droplist: "un-ignore the last X" (by count) / "over the last X
-                 hours/days" (by time). Chips fill the number field; each row has
-                 its own Go. -->
+                 hours/days" (by time). The count row is a -[ ]+ stepper whose
+                 field carries the undoable total as its pale hint (double-click
+                 the empty field to take all of it); each row has its own Go. -->
             <div id="undo-menu" class="undo-menu">
-              <div class="undo-title" data-i18n="undo_menu_title">Un-ignore the last…</div>
+              <div class="undo-title" data-i18n="undo_menu_title">Un-ignore the last N games</div>
               <div class="undo-row">
-                <button type="button" class="undo-chip" data-n="10">10</button>
-                <button type="button" class="undo-chip" data-n="25">25</button>
-                <button type="button" class="undo-chip" data-n="100">100</button>
+                <button type="button" class="undo-chip undo-step" id="undo-minus">−</button>
                 <input id="undo-count" inputmode="numeric" maxlength="6" autocomplete="off">
-                <span class="undo-of" id="undo-of"></span>
+                <button type="button" class="undo-chip undo-step" id="undo-plus">+</button>
                 <button type="button" class="undo-go" id="undo-go-count" data-i18n="undo_go" disabled>Un-ignore</button>
               </div>
-              <div class="undo-title undo-time-title" data-i18n="undo_time_title">…or ignored within the last</div>
+              <div class="undo-title undo-time-title" data-i18n="undo_time_title">Un-ignore games ignored within the last N</div>
               <div class="undo-row">
                 <input id="undo-time" inputmode="numeric" maxlength="4" autocomplete="off">
                 <button type="button" class="undo-chip undo-unit selected" id="undo-unit-h" data-i18n="undo_hours">hours</button>
@@ -76,13 +75,13 @@
 
           <!-- Curator ignore queue applet — sits ABOVE the SETTINGS applet. Stays
                [hidden] whenever the queue is empty, so it never shows even when locked. -->
-          <details id="queue-accordion" hidden>
+          <details id="queue-accordion" data-master-exempt hidden>
             <summary><span data-i18n="ignore_queue">IGNORE QUEUE</span><span class="queue-summary-right"><span class="queue-running-bar" aria-hidden="true"></span><span class="queue-jobs-chip" id="queue-jobs-chip">0</span></span></summary>
             <div class="settings-content" id="queue-list"></div>
           </details>
 
-          <details id="settings-accordion">
-            <summary><span style="display: flex; align-items: center; gap: 8px;">⚙ <span data-i18n="settings">SETTINGS</span></span><span class="lang-chip"><span class="lang-chip-code" id="lang-quick-code">EN</span><select id="lang-quick" aria-label="Language"></select></span><span class="lang-tip" id="lang-tip" role="tooltip" data-i18n="language">Language:</span></summary>
+          <details id="settings-accordion" data-master-exempt>
+            <summary><span style="display: flex; align-items: center; gap: 8px;">⚙ <span data-i18n="settings">SETTINGS</span></span><span class="lang-chip" data-master-exempt><span class="lang-chip-code" id="lang-quick-code">EN</span><select id="lang-quick" aria-label="Language"></select></span><span class="lang-tip" id="lang-tip" data-master-exempt role="tooltip" data-i18n="language">Language:</span></summary>
             <div class="settings-content" id="settings-placeholder"></div>
           </details>
       </div>

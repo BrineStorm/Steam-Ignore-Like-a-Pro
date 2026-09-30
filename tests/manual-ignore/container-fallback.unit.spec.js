@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { loadSettingsSchema } = require('../_settings-schema.js');
 
 // ContainerStrategyProvider Fallback strategy (src/manual-ignore/utils.js) —
 // where the IGNORED badge anchors on a sale/discount capsule. utils.js is an
@@ -18,6 +19,7 @@ function loadProvider() {
     );
     const sandbox = { window: {} };
     vm.createContext(sandbox);
+    loadSettingsSchema(sandbox);
     vm.runInContext(code, sandbox);
     return sandbox.window.ILAP.ManualIgnore.ContainerStrategyProvider;
 }
