@@ -37,6 +37,9 @@ const { PALETTE } = require('../_palette.js');
 // The curator id and the product's own recommendations URL — same principle as
 // the palette above: read out of src/, not retyped here.
 const { CURATOR_ID, curatorPath, recommendationsPath } = require('../_curator.js');
+// The sale-reward check, run as the product runs it (src/sale-reward.js builds
+// the request and reads the answer); only the network is the canary's.
+const { loadSaleReward } = require('../_sale-reward.js');
 
 // The review-summary colours src/explore-queue/utils.js classifies by: a game is
 // only IGNORE-worthy when a row colour matches MIXED or NEGATIVE, and anything
@@ -256,5 +259,43 @@ test.describe('Steam markup canary', () => {
         expect(await page.locator('[data-ds-appid]').count(),
             'no [data-ds-appid] on the storefront — the structural container root the resolver falls back to')
             .toBeGreaterThan(0);
+    });
+
+    // Not markup but the same kind of dependency: the queue automators gate on
+    // the sale reward, and its public half (GetCurrentDefinition) needs no
+    // token, so it can be asked from here. The PRODUCT judges the shape, not
+    // this test: src/sale-reward.js runs on the live answer, with only the
+    // account's progress (the half behind a login) canned at 0 earned. A shape it
+    // can read gives 'pending' (a reward running) or 'allowed' (none running);
+    // anything else gives 'unknown', which keeps both queue helpers from
+    // advancing on their own — fail-closed, so this is the alarm for it. A copy
+    // of the parsing rules here would drift from the product's (it already did
+    // once: numbers sent as strings). The answer must also carry the CORS header
+    // for the store's origin: the content script's request is cross-origin, and
+    // without it the browser hides the answer, which reads 'unknown' just the same.
+    test('sale reward API still answers the store in a shape the reward check reads', async ({ request }) => {
+        const STORE = 'https://store.steampowered.com';
+        const seen = [];
+        const { SaleReward } = loadSaleReward({
+            token: 'canary',   // no account behind it: the progress request below is canned
+            fetchWithTimeout: async (url) => {
+                if (url.includes('/GetClaimedSaleRewards/')) {
+                    return { ok: true, json: async () => ({ response: { num_items_earned: 0 } }) };
+                }
+                const res = await request.get(url, { headers: { Origin: STORE } });
+                const body = await res.json().catch(() => null);
+                seen.push({ url, status: res.status(), acao: res.headers()['access-control-allow-origin'], body });
+                return { ok: res.ok(), json: async () => body };
+            },
+        });
+        const verdict = await SaleReward.check();
+
+        const asked = seen.find(r => r.url.includes('/GetCurrentDefinition/'));
+        expect(asked, 'the reward check no longer asks GetCurrentDefinition — update this guard').toBeTruthy();
+        expect(asked.status).toBe(200);
+        expect(asked.acao, 'no CORS header for the store origin: every check would read unknown').toBe(STORE);
+        expect(['pending', 'allowed'],
+            `the reward check cannot read today's answer: ${JSON.stringify(asked.body).slice(0, 400)}`)
+            .toContain(verdict);
     });
 });

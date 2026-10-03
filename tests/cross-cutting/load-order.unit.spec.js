@@ -44,6 +44,8 @@ const PROVIDERS = [
     [/ILAP\.Surface\b/, 'src/surface.js'],
     [/ILAP\.(t|i18n)\b/, 'src/i18n.js'],
     [/ILAP\.showToast\b/, 'src/toast.js'],
+    [/ILAP\.SaleReward\b/, 'src/sale-reward.js'],
+    [/ILAP\.AutomationNotice\b/, 'src/automation-notice.js'],
     [/Curator\.Lease\b/, 'src/curator/lease.js'],
     [/Curator\.Store\b/, 'src/curator/store.js'],
     [/Curator\.Enumerator\b/, 'src/curator/enumerate.js'],

@@ -9,7 +9,7 @@ const vm = require('vm');
 // of that, and neither is visible from a screenshot:
 //
 //   1. its controls answer to real input only. Run starts an unattended ignore
-//      run, Fast-forward walks the queue, Disable writes a setting — a page
+//      run, Disable writes a setting — a page
 //      script calling .click() on any of them must get nothing. The master
 //      switch and the rate gate are checked LATER and would let a forged click
 //      through;
@@ -23,23 +23,19 @@ const vm = require('vm');
 
 const UI_SRC = path.join(__dirname, '..', '..', 'src', 'explore-queue', 'ui.js');
 
-function loadUI() {
-    const sandbox = {
-        window: { ILAP: { Sanitizer: { escapeHTML: (s) => String(s) }, t: (k) => k, Explore: {} } },
-        document: { getElementById: () => null, querySelectorAll: () => [] },
-        Object, Array, String, Math, Date, WeakMap,
-    };
-    vm.createContext(sandbox);
-    vm.runInContext(fs.readFileSync(UI_SRC, 'utf8'), sandbox, { filename: 'ui.js' });
-    return sandbox.window.ILAP.Explore.UI;
-}
+const ESCAPE_SRC = path.join(__dirname, '..', '..', 'src', 'escape.js');
 
 test.describe('Explore Queue toast — contract with the page it lives in (unit)', () => {
 
     test('a handler wrapped for real input ignores a forged event', () => {
-        const ActionUI = loadUI();
+        // The toast takes the shared guard (src/escape.js), and it refuses.
+        expect(fs.readFileSync(UI_SRC, 'utf8'), 'the toast no longer takes the shared real-input guard')
+            .toMatch(/const realInput = window\.ILAP\.realInput;/);
+        const sandbox = { window: {}, Promise };
+        vm.createContext(sandbox);
+        vm.runInContext(fs.readFileSync(ESCAPE_SRC, 'utf8'), sandbox, { filename: 'escape.js' });
         const seen = [];
-        const handler = ActionUI._real((e) => seen.push(e));
+        const handler = sandbox.window.ILAP.realInput((e) => seen.push(e));
 
         handler({ isTrusted: false });                 // a page script's .click()
         handler({});                                   // no flag at all
@@ -57,12 +53,12 @@ test.describe('Explore Queue toast — contract with the page it lives in (unit)
         // for the paths the fake happens to reach.
         const src = fs.readFileSync(UI_SRC, 'utf8');
 
-        // `onclick = something` must be `onclick = ActionUI._real(...)`. The
+        // `onclick = something` must be `onclick = realInput(...)`. The
         // hover handlers (onmouseenter/leave) only restyle and are exempt.
         const clickAssignments = [...src.matchAll(/\.onclick\s*=\s*([^\n]+)/g)].map(m => m[1].trim());
         expect(clickAssignments.length, 'no click handlers found — did the toast move?')
             .toBeGreaterThan(3);
-        expect(clickAssignments.filter(a => !a.startsWith('ActionUI._real(')),
+        expect(clickAssignments.filter(a => !a.startsWith('realInput(')),
             'a toast control was wired without the real-input guard').toEqual([]);
 
         // The toast is appended to document.body, so a document-wide lookup can

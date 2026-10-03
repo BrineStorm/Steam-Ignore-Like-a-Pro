@@ -43,11 +43,11 @@ async function useLocale(page, context, code) {
 // Park the cursor in a corner that belongs to no tooltip trigger.
 const unhover = (page) => page.mouse.move(2, 2);
 
-// The undo and language tips deliberately wait 2.5s before they appear (see the
-// dedicated test below). What THESE walks measure is geometry, not patience, so
-// they drop the delay rather than paying it 19 times per locale list.
+// The undo and language tips wait 2.5s before they appear and the Auto-advance
+// tip 2s (see the dedicated tests below). What THESE walks measure is geometry,
+// not patience, so they drop the delay rather than paying it 19 times per locale list.
 const dropTipDelay = (page) => page.addStyleTag({
-    content: '#undo-tip, #lang-tip { transition-delay: 0s !important; }',
+    content: '#undo-tip, #lang-tip, .dq-next-tip { transition-delay: 0s !important; }',
 });
 
 // Hover a trigger until ITS tooltip is actually up. The retry is not "wait a bit
@@ -185,6 +185,7 @@ test.describe('Popup — our own tooltips fit the panel', () => {
     test('the Auto-advance tooltip is ours, not the browser title, and fits in every locale', async ({ page, context }) => {
         test.setTimeout(3 * 60 * 1000);
         await openPopup(page, context);
+        await dropTipDelay(page);
 
         // Settings render lazily; the row lives in the Discovery Queue subcategory.
         await page.locator('#settings-accordion > summary').click();
@@ -223,6 +224,21 @@ test.describe('Popup — our own tooltips fit the panel', () => {
             await expect(page.locator(tip), `${tip} must still be down after 1s`).toBeHidden();
             await expect(page.locator(tip)).toBeVisible({ timeout: 4000 });
         }
+    });
+
+    test('the Auto-advance tip waits 2s before it appears', async ({ page, context }) => {
+        // It hangs over the Ignore Mode block, where a cursor crossing the row
+        // is usually headed.
+        await openPopup(page, context);
+        await page.locator('#settings-accordion > summary').click();
+        await page.locator('#dq-section summary .section-title').click();
+        await expect(page.locator('#dq-section')).toHaveJSProperty('open', true);
+
+        await unhover(page);
+        await page.locator('.dq-next-row').hover();
+        await page.waitForTimeout(1000);
+        await expect(page.locator('.dq-next-tip'), 'the tip must still be down after 1s').toBeHidden();
+        await expect(page.locator('.dq-next-tip')).toBeVisible({ timeout: 4000 });
     });
 
     test('opening the language list hides the tooltip instead of stacking it', async ({ page, context }) => {

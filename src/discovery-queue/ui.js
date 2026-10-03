@@ -10,6 +10,9 @@
         BUTTON: 'queue-auto-ignore-btn'
     };
 
+    // The colour of a lock the user can lift: the sale's queue reward, theirs to earn.
+    const LOCK = '#f2c94c';
+
     // The panel's ONLY stylesheet. It used to share the job with a block in
     // styles/styles.css, which set some of the same properties to other values
     // and some that were only there — so what the panel looked like was decided
@@ -23,6 +26,7 @@
                 /* margin-left:auto parks the panel at the right end of the
                    modal's header row, next to the close button. */
                 .ilap-controls-container {
+                    position: relative;
                     display: flex; align-items: center; gap: 10px;
                     margin-left: auto; margin-right: 15px;
                     height: 34px; flex-grow: 0; flex-shrink: 0; font-size: 13px;
@@ -46,6 +50,23 @@
                 #${IDS.BUTTON}.refused {
                     background-color: #4a4a4a; border: 1px solid #333; cursor: default;
                 }
+                /* Start waiting on the sale-reward check (a request or two). */
+                #${IDS.BUTTON}.checking { cursor: progress; opacity: .7; }
+                /* Refused by the sale-reward check: outlined, and the reason on
+                   hover in the tip right after the button, above it. */
+                #${IDS.BUTTON}.locked {
+                    box-shadow: 0 0 0 2px ${LOCK}, 0 0 12px rgba(242,201,76,.55);
+                }
+                .ilap-dq-tip {
+                    position: absolute; bottom: calc(100% + 8px); right: 0; width: 300px; z-index: 10;
+                    background: #171a21; color: #c7d5e0; border: 1px solid ${LOCK}; border-radius: 4px;
+                    padding: 8px 12px; font: 12px/1.4 "Motiva Sans", Arial, sans-serif; text-align: left;
+                    display: flex; align-items: flex-start; gap: 6px;
+                    visibility: hidden; opacity: 0; transition: opacity .15s; pointer-events: none;
+                }
+                .ilap-dq-tip img { width: 14px; height: 14px; flex-shrink: 0; margin-top: 2px; }
+                #${IDS.BUTTON}.locked:hover + .ilap-dq-tip,
+                #${IDS.BUTTON}.locked:focus-visible + .ilap-dq-tip { visibility: visible; opacity: 1; }
                 
                 .ilap-checkbox-label {
                     display: flex; align-items: center; font-size: 12px;
@@ -86,12 +107,16 @@
     const escapeHTML = (s) => (window.ILAP && window.ILAP.Sanitizer) ? window.ILAP.Sanitizer.escapeHTML(s) : String(s);
 
     class DiscoveryQueueUI {
-        constructor() {
+        // resources: { getIconUrl(fileName) } (src/utils.js ResourceService)
+        constructor(resources) {
+            this.resources = resources;
             this.container = null;
             this.button = null;
             this.checkbox = null;
             this._refuseTimer = null;
             this._labelText = null;   // the checkbox label's text node, for live relabel
+            this._tipText = null;     // the lock tip's text node, and the key it shows
+            this._tipKey = null;
             this._lastRunning = false;
             this._lastCount = 0;
             Styles.inject();
@@ -105,6 +130,7 @@
         _relabel() {
             if (!this.isMounted()) return;
             if (this._labelText) this._labelText.nodeValue = t('keep_high_score');
+            if (this._tipText && this._tipKey) this._tipText.nodeValue = t(this._tipKey);
             // Re-render the button from the last known state. A transient
             // "cap reached" message reverts early — acceptable for a 3.5 s flash.
             this.updateState(this._lastRunning, this._lastCount);
@@ -139,7 +165,7 @@
             // filter that decides WHICH games the run ignores. The master switch
             // and the rate gate are checked later, inside the loop, and on an
             // enabled extension with a live session they would let it through.
-            const real = (fn) => (e) => { if (e && e.isTrusted) fn(e); };
+            const real = window.ILAP.realInput;
             this.checkbox.addEventListener('change',
                 real((e) => events.onCheckboxChange(e.target.checked)));
 
@@ -152,8 +178,20 @@
             this.button.innerHTML = `<span class="btn-symbol">▶</span> ${escapeHTML(t('start_auto_ignore'))}`;
             this.button.addEventListener('click', real(events.onToggle));
 
+            // The sale-reward lock's reason, shown on hover while the button is
+            // locked. Right after the button: the stylesheet reveals it with `+`.
+            const tip = document.createElement('div');
+            tip.className = 'ilap-dq-tip';
+            const icon = document.createElement('img');
+            icon.src = this.resources.getIconUrl('icon16.png');
+            icon.alt = '';
+            this._tipText = document.createTextNode('');
+            tip.appendChild(icon);
+            tip.appendChild(this._tipText);
+
             this.container.appendChild(label);
             this.container.appendChild(this.button);
+            this.container.appendChild(tip);
 
             if (insertionPoint.parent && !insertionPoint.parent.contains(this.container)) {
                 insertionPoint.parent.insertBefore(this.container, insertionPoint.referenceNode);
@@ -168,6 +206,8 @@
                 this.container = null;
                 this.button = null;
                 this.checkbox = null;
+                this._tipText = null;
+                this._tipKey = null;
             }
         }
 
@@ -182,6 +222,27 @@
             this._refuseTimer = setTimeout(() => {
                 if (this.button) { this.button.classList.remove('refused'); this.updateState(false, 0); }
             }, 3500);
+        }
+
+        // A Start refused by the sale-reward check (src/sale-reward.js): the
+        // button stays outlined in gold and says why on hover — the reward is
+        // unearned (`pending`), or its status could not be read. Lifted by
+        // clearRewardLock() once a check lets a Start through.
+        showRewardRefused(pending) {
+            if (!this.button) return;
+            this._tipKey = pending ? 'reward_pending' : 'reward_unknown';
+            this._tipText.nodeValue = t(this._tipKey);
+            this.button.classList.add('locked');
+        }
+
+        clearRewardLock() {
+            this._tipKey = null;
+            if (this.button) this.button.classList.remove('locked');
+        }
+
+        // Start is waiting on the sale-reward check: the click has landed.
+        setChecking(on) {
+            if (this.button) this.button.classList.toggle('checking', on);
         }
 
         updateState(isRunning, processedCount) {

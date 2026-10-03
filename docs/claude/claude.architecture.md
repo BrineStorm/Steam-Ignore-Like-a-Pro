@@ -39,6 +39,7 @@ window.ILAP.Sanitizer         // escape.js   — escapeHTML + sanitizeName (all 
 window.ILAP.Settings          // settings-schema.js — settings keys, defaults, normalizers (all 3 worlds)
 window.ILAP.newOwnerId        // escape.js   — collision-resistant lease/slot owner id (all 3 worlds)
 window.ILAP.serialChain       // escape.js   — the per-context write chain every storage module builds on (all 3 worlds)
+window.ILAP.realInput         // escape.js   — the real-input guard for controls in the page's DOM (DQ panel, EQ toast, automation notice)
 window.ILAP.SteamPalette      // steam-palette.js — Steam's review-score bands as ONE table for
                               //               both classifiers (EQ rows + DQ cards); each band a
                               //               SET, current shade first, previous ones behind it

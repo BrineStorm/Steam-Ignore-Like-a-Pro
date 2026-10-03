@@ -26,17 +26,23 @@ const { loadSettingsSchema } = require('../_settings-schema.js');
 function loadController() {
     const src = (...p) => fs.readFileSync(path.join(__dirname, '..', '..', 'src', ...p), 'utf8');
 
-    const calls = { mount: 0, unmount: 0, updateState: [], release: 0, find: 0 };
+    const calls = { mount: 0, unmount: 0, updateState: [], release: 0, find: 0, acquire: 0, refused: [], cleared: 0, checking: [], rewardOpts: [], warned: [] };
 
     // Stateful like the real panel: mount() is a no-op while one is on screen,
     // and isMounted() is what the controller checks before probing the modal.
     class FakeUI {
         constructor() { this._mounted = false; }
         isMounted() { return this._mounted; }
-        mount() { if (this._mounted) return; this._mounted = true; calls.mount += 1; }
+        mount(point, events) {
+            if (this._mounted) return;
+            this._mounted = true; calls.mount += 1; calls.events = events;
+        }
         unmount() { this._mounted = false; calls.unmount += 1; }
         updateState(running, count) { calls.updateState.push([running, count]); }
         showRefused() {}
+        showRewardRefused(pending) { calls.refused.push(pending); }
+        clearRewardLock() { calls.cleared += 1; }
+        setChecking(on) { calls.checking.push(on); }
     }
 
     // The controller only asks whether a modal is on screen and hands it to the
@@ -55,14 +61,15 @@ function loadController() {
     };
     const registry = {
         HEARTBEAT_MS: 3000, CAP: 2,
-        tryAcquire: async () => true,
+        tryAcquire: async () => { calls.acquire += 1; return true; },
         renew: async () => {},
         release: () => { calls.release += 1; },
     };
 
-    // Flipped by the tests: whether the queue modal is on screen, and whether the
-    // panel can be placed into it yet.
-    const state = { modalOpen: true, canInsert: true };
+    // Flipped by the tests: whether the queue modal is on screen, whether the
+    // panel can be placed into it yet, the sale-reward verdict, and the
+    // automation notice's answer (a function, so a test can hold it open).
+    const state = { modalOpen: true, canInsert: true, reward: 'allowed', confirm: async () => true };
     const store = { ilap_master_enabled: true };
     const changeListeners = [];
     let observerCallback = null;
@@ -99,7 +106,7 @@ function loadController() {
             disconnect() {}
         },
         setTimeout, clearTimeout, setInterval, clearInterval,
-        console: { warn: () => {}, log: () => {}, error: () => {} },
+        console: { warn: (...a) => calls.warned.push(a), log: () => {}, error: () => {} },
         Date, Math, Promise, Object, Array, String, JSON,
     };
     vm.createContext(sandbox);
@@ -112,19 +119,25 @@ function loadController() {
     vm.runInContext(src('discovery-queue', 'main.js'), sandbox);
 
     const ILAP = sandbox.window.ILAP;
-    const newController = () => new ILAP.Discovery.Controller({
+    const newController = (over) => new ILAP.Discovery.Controller(Object.assign({
         automator: new ILAP.Discovery.Automator({
             userdata: { fetchIgnored: async () => new Set() },
             stats: { save: () => {} },
             nameExtractor: { get: () => 'Unknown Game' },
             gate: { reserve: async () => ({ ok: true }) },
+            reward: { check: async () => 'allowed', STATUS: { ALLOWED: 'allowed', PENDING: 'pending', UNKNOWN: 'unknown' } },
         }),
         ui: new FakeUI(),
         registry,
         insertionStrategy,
         masterSwitch: ILAP.MasterSwitch,
+        reward: {
+            check: async (opts) => { calls.rewardOpts.push(opts); return state.reward; },
+            STATUS: { ALLOWED: 'allowed', PENDING: 'pending', UNKNOWN: 'unknown' },
+        },
+        notice: { confirmOnce: () => state.confirm() },
         ownerId: 'dq_test',
-    });
+    }, over));
     return {
         newController, calls, state, store, changeListeners,
         fireChange: (changes) => changeListeners.forEach(fn => fn(changes, 'local')),
@@ -247,5 +260,186 @@ test.describe('DiscoveryQueueController — teardown (unit)', () => {
         expect(ctl.automator.isRunning).toBe(false);
         expect(calls.unmount).toBe(0);                      // panel untouched
         expect(ctl.automator.config.skipPositive).toBe(true);
+    });
+});
+
+test.describe('DiscoveryQueueController — what Start asks first (unit)', () => {
+
+    test('a reward or notice dependency that is not the full contract refuses construction', () => {
+        const h = loadController();
+        expect(() => h.newController()).not.toThrow();
+        expect(() => h.newController({ reward: { check: async () => 'allowed' } })).toThrow('needs deps.reward');
+        expect(() => h.newController({ reward: undefined })).toThrow('needs deps.reward');
+        expect(() => h.newController({ notice: {} })).toThrow('needs deps.notice');
+    });
+
+    test('a Start click whose run rejects is caught, not left unhandled', async () => {
+        // Storage behind the notice is gone after an extension update; nothing
+        // awaits the click handler, so the controller must catch it.
+        const h = loadController();
+        h.state.confirm = async () => { throw new Error('Extension context invalidated.'); };
+        const ctl = h.newController();
+        ctl.init();
+        await tick();
+        expect(h.calls.events, 'the panel was never mounted').toBeTruthy();
+
+        let unhandled = null;
+        const onUnhandled = (e) => { unhandled = e; };
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            h.calls.events.onToggle();
+            await tick();
+            await tick();
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+        expect(unhandled).toBeNull();
+        expect(h.calls.warned.length).toBe(1);
+        expect(ctl._starting).toBe(false);
+    });
+
+    for (const verdict of ['pending', 'unknown']) {
+        test(`a '${verdict}' sale reward refuses Start and says why`, async () => {
+            const h = loadController();
+            h.state.reward = verdict;
+            const ctl = h.newController();
+            ctl.init();
+            await tick();
+
+            await ctl._toggle();
+
+            expect(ctl.automator.isRunning).toBe(false);
+            expect(h.calls.refused).toEqual([verdict === 'pending']);   // which reason
+            expect(h.calls.cleared).toBe(0);
+            expect(h.calls.acquire).toBe(0);    // not even a registry slot
+        });
+    }
+
+    test('a check that lets Start through lifts the lock, even when the run then does not start', async () => {
+        // Refused once, earned since, then Cancel on the notice: the button must
+        // not keep asking for a queue the user has already been through.
+        const h = loadController();
+        h.state.reward = 'pending';
+        const ctl = h.newController();
+        ctl.init();
+        await tick();
+        await ctl._toggle();
+        expect(h.calls.refused).toEqual([true]);
+
+        h.state.reward = 'allowed';
+        h.state.confirm = async () => false;
+        await ctl._toggle();
+
+        expect(h.calls.cleared).toBe(1);
+        expect(ctl.automator.isRunning).toBe(false);
+    });
+
+    test('a run the sale-reward check ends mid-way locks Start and says why', async () => {
+        const h = loadController();
+        const ctl = h.newController();
+        ctl.init();
+        await tick();
+
+        ctl.automator.isRunning = true;
+        ctl.automator.refusal = 'pending';
+        ctl.automator.stop();
+
+        expect(h.calls.refused).toEqual([true]);
+    });
+
+    test('a dismissed automation notice starts nothing', async () => {
+        const h = loadController();
+        h.state.confirm = async () => false;
+        const ctl = h.newController();
+        ctl.init();
+        await tick();
+
+        await ctl._toggle();
+
+        expect(ctl.automator.isRunning).toBe(false);
+        expect(h.calls.acquire).toBe(0);
+    });
+
+    test('the master going off while the notice is open starts nothing', async () => {
+        // The loop's Keep-High-Score skips and Continue take no gate slot, so
+        // nothing later in the run would stop it.
+        const h = loadController();
+        let answer;
+        h.state.confirm = () => new Promise(r => { answer = r; });
+        const ctl = h.newController();
+        ctl.init();
+        await tick();
+
+        const pending = ctl._toggle();
+        await tick();
+        h.fireChange({ ilap_master_enabled: { newValue: false } });
+        answer(true);
+        await pending;
+
+        expect(ctl.automator.isRunning).toBe(false);
+        expect(h.calls.acquire).toBe(0);
+    });
+
+    test('the modal closing while the notice is open starts nothing', async () => {
+        const h = loadController();
+        let answer;
+        h.state.confirm = () => new Promise(r => { answer = r; });
+        const ctl = h.newController();
+        ctl.init();
+        await tick();
+
+        const pending = ctl._toggle();
+        await tick();
+        h.state.modalOpen = false;
+        h.fireMutation([{ addedNodes: [], removedNodes: [{}] }]);
+        answer(true);
+        await pending;
+
+        expect(ctl.automator.isRunning).toBe(false);
+        expect(h.calls.acquire).toBe(0);
+    });
+
+    test('an earned reward and an accepted notice start the run', async () => {
+        const h = loadController();
+        const ctl = h.newController();
+        ctl.init();
+        await tick();
+
+        await ctl._toggle();
+
+        expect(h.calls.acquire).toBe(1);
+        expect(ctl.automator.isRunning).toBe(true);
+        ctl.automator.stop();
+    });
+
+    test('Start asks the sale reward fresh, and shows it is waiting meanwhile', async () => {
+        // A click: a queue just finished by hand must count now, not after the
+        // cached 'pending' runs out.
+        const h = loadController();
+        const ctl = h.newController();
+        ctl.init();
+        await tick();
+
+        await ctl._toggle();
+
+        expect(h.calls.rewardOpts).toEqual([{ fresh: true }]);
+        expect(h.calls.checking).toEqual([true, false]);
+        ctl.automator.stop();
+    });
+
+    test("a check that throws lifts the waiting state and reads as unreadable", async () => {
+        const h = loadController();
+        const ctl = h.newController();
+        ctl.reward = Object.assign({}, ctl.reward, { check: async () => { throw new Error('boom'); } });
+        ctl.init();
+        await tick();
+
+        await ctl._toggle();
+
+        expect(h.calls.checking).toEqual([true, false]);
+        // Unreadable, as in the loop and the Classic Discovery Queue: refused, said why.
+        expect(h.calls.refused).toEqual([false]);
+        expect(ctl.automator.isRunning).toBe(false);
+        expect(ctl._starting).toBe(false);
     });
 });

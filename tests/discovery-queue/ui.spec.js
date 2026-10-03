@@ -1,6 +1,7 @@
 const { test, expect } = require('../_fixtures.js');
 const { setExtensionStorage, getExtensionStorage } = require('../_extension.js');
 const { interceptIgnoreApi } = require('../curator/_helpers.js');
+const { routeSaleReward } = require('../_steam-routes.js');
 const { SEL, openQueueModal } = require('./_modal.js');   // shared with palette + keep-high-score specs
 
 test.describe('Discovery Queue UI', () => {
@@ -54,6 +55,10 @@ test.describe('Discovery Queue UI', () => {
     // wedge the loop here (unit-covered in automator.unit.spec.js).
     test('Start runs the loop, ignores 14 games across a queue boundary (Continue), Stop → idle', async ({ page, context }) => {
         test.setTimeout(190_000);   // must clear the 150s counter poll below plus the modal open and the Stop assertions
+        // The automation notice is accepted up front (its own spec:
+        // explore-queue/start-prompt.spec.js). Start also asks the sale reward,
+        // live: the test account has earned it, so the run goes ahead.
+        await setExtensionStorage(context, { ilap_automation_ack: true });
         await openQueueModal(page);
 
         const btn = page.locator(SEL.button);
@@ -107,6 +112,7 @@ test.describe('Discovery Queue UI', () => {
     // ilap_dq_active keeps it a pure UI-path check with zero real ignores.
     test('Start is refused when the concurrent-DQ cap is already filled by other tabs', async ({ page, context }) => {
         const calls = await interceptIgnoreApi(context); // guarantee no real ignore even if it slipped
+        await setExtensionStorage(context, { ilap_automation_ack: true });   // the cap is asked after the notice
         await openQueueModal(page);
 
         const btn = page.locator(SEL.button);
@@ -143,5 +149,101 @@ test.describe('Discovery Queue UI', () => {
         }
 
         await expect(panel).toBeHidden({ timeout: 10000 });
+    });
+
+    // Start while the sale's queue reward is unearned: refused before the notice
+    // and before the cap, the button outlined in gold with the reason above it on hover.
+    // A second click asks Steam again rather than trusting the cached 'pending' (a
+    // queue just finished by hand must count at once), and is refused again. The
+    // reward is route-faked to 0 of 3, so this holds whatever the account has earned.
+    test('Start is refused while the sale reward is unearned, locked with the reason on hover', async ({ page, context }) => {
+        const calls = await interceptIgnoreApi(context);
+        await routeSaleReward(context, { earned: 0 });
+        let rewardRequests = 0;
+        page.on('request', (r) => { if (r.url().includes('ISaleItemRewardsService')) rewardRequests++; });
+        await openQueueModal(page);
+
+        const btn = page.locator(SEL.button);
+        await expect(btn).toBeVisible({ timeout: 10000 });
+        await btn.click();
+
+        await expect(btn).toHaveClass(/locked/, { timeout: 10000 });
+        await btn.hover();
+        // Visible, not merely present: Steam's modal is a top-layer <dialog>, and
+        // only what is drawn inside it shows above it.
+        const tip = page.locator('.ilap-dq-tip');
+        await expect(tip).toBeVisible();
+        await expect(tip).toContainText(/one queue completely by hand/i);
+        // Above the button, not over the card below it.
+        const tipBox = await tip.boundingBox();
+        expect(tipBox.y + tipBox.height).toBeLessThanOrEqual((await btn.boundingBox()).y);
+        // The tip takes no pointer events, which hit-testing skips: lift that for
+        // the probe only.
+        expect(await tip.evaluate((el) => {
+            el.style.pointerEvents = 'auto';
+            const r = el.getBoundingClientRect();
+            const onTop = el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+            el.style.pointerEvents = '';
+            return onTop;
+        })).toBe(true);
+        await expect(page.locator('.ilap-notice')).toHaveCount(0);
+        await expect(btn).not.toHaveClass(/running/);
+
+        const asked = rewardRequests;
+        expect(asked).toBeGreaterThan(0);
+        await btn.click();
+        await expect.poll(() => rewardRequests).toBeGreaterThan(asked);
+        await expect(btn).not.toHaveClass(/checking/);
+        await expect(btn).toHaveClass(/locked/);
+        expect(calls).toHaveLength(0);
+    });
+
+    // The one-time automation notice drawn over Steam's modal: answering it must
+    // not read as a click outside the modal (which would close the queue under
+    // the run), and Start must start the run behind it. Both spellings of the
+    // ignore endpoint are route-faked — Steam's own page posts to the one with no
+    // trailing slash — so nothing reaches the account; the run is stopped at once.
+    test('First Start asks once over the modal: Cancel starts nothing, Start keeps the modal and runs', async ({ page, context }) => {
+        const calls = await interceptIgnoreApi(context);
+        await context.route('**/recommended/ignorerecommendation', (route) => route.fulfill({
+            status: 200, contentType: 'application/json', body: JSON.stringify({ success: 1 }),
+        }));
+        await openQueueModal(page);
+
+        const btn = page.locator(SEL.button);
+        await expect(btn).toBeVisible({ timeout: 10000 });
+        const notice = page.locator('.ilap-notice');
+
+        await btn.click();
+        await expect(notice).toBeVisible({ timeout: 10000 });
+        // Focus on the safe answer, not on the first focusable element (the
+        // agreement link): an Enter right after the click must not open a tab.
+        await expect(page.locator('.ilap-notice-cancel')).toBeFocused();
+        // Centred in the viewport, with our icon in it: it must not read as Steam's.
+        const box = await notice.boundingBox();
+        // The client box, not the window: a page scrollbar is outside what is centred.
+        const vp = await page.evaluate(() => ({
+            width: document.documentElement.clientWidth, height: document.documentElement.clientHeight,
+        }));
+        expect(Math.abs(box.x + box.width / 2 - vp.width / 2)).toBeLessThan(3);
+        expect(Math.abs(box.y + box.height / 2 - vp.height / 2)).toBeLessThan(3);
+        await expect(notice.locator('img[src*="icon48.png"]')).toBeVisible();
+        await page.locator('.ilap-notice-cancel').click();
+        await expect(notice).toHaveCount(0);
+        await expect(page.locator(SEL.modal)).toBeVisible();
+        await expect(btn).not.toHaveClass(/running/);
+        expect((await getExtensionStorage(context, 'ilap_automation_ack')).ilap_automation_ack).toBeUndefined();
+
+        await btn.click();
+        await expect(notice).toBeVisible({ timeout: 10000 });
+        await page.locator('.ilap-notice-go').click();
+        await expect(notice).toHaveCount(0);
+        await expect(page.locator(SEL.modal)).toBeVisible();
+        await expect(btn).toHaveClass(/running/, { timeout: 5000 });
+        expect((await getExtensionStorage(context, 'ilap_automation_ack')).ilap_automation_ack).toBe(true);
+
+        await btn.click();   // Stop
+        await expect(btn).not.toHaveClass(/running/, { timeout: 10000 });
+        expect(calls.filter(c => !c.remove)).toHaveLength(calls.length);   // nothing but fakes
     });
 });

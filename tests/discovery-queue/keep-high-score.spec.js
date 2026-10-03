@@ -16,6 +16,7 @@
 // afterwards (tests/_cleanup.js).
 
 const { test, expect } = require('../_fixtures.js');
+const { setExtensionStorage } = require('../_extension.js');
 const { SEL, openQueueModal, readCard } = require('./_modal.js');
 const { bandOf } = require('../_palette.js');
 
@@ -30,8 +31,12 @@ const field = (body, name) => {
 
 test.describe('Discovery Queue — Keep High Score (live)', () => {
 
-    test('with the box ticked: mixed/negative still get ignored, the well-reviewed are spared', async ({ page }) => {
+    test('with the box ticked: mixed/negative still get ignored, the well-reviewed are spared', async ({ page, context }) => {
         test.setTimeout(360_000);
+        // The automation notice is accepted up front (its own spec:
+        // explore-queue/start-prompt.spec.js). Start also asks the sale reward,
+        // live: the test account has earned it, so the run goes ahead.
+        await setExtensionStorage(context, { ilap_automation_ack: true });
 
         const ignored = [];               // appids the run actually ignored
         const bandByAppid = new Map();    // appid -> rating band, sampled off the cards

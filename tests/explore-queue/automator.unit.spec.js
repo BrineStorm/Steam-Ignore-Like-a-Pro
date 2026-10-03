@@ -13,6 +13,8 @@ const { loadSettingsSchema } = require('../_settings-schema.js');
 // 2. The pending-advance handle and what may re-enter run(). One scheduled Next
 //    click at a time, cancellable by Stop; and the master-change listener revives
 //    this page only on a real queue-toggle transition.
+// 3. What the user decides. Run waits for the one-time automation notice, and
+//    an advance nobody clicked waits for the sale's queue reward to be earned.
 
 function loadAutomatorClass() {
     const code = fs.readFileSync(
@@ -30,9 +32,11 @@ function loadAutomatorClass() {
 
 // Deps wired so _executeLogic always decides SHOULD_IGNORE; the per-test knobs
 // are the gate verdict and the ignore-API result (ignoreRes overrides the
-// plain ok/fail shape when a test needs the rateLimited flavour).
-function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore }) {
-    const calls = { ignores: 0, toastRemoved: 0, visualsCleared: 0, statsSaved: [], rateReports: [] };
+// plain ok/fail shape when a test needs the rateLimited flavour), the sale-reward
+// verdict and the notice's answer.
+function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore, reward, confirm }) {
+    const calls = { ignores: 0, toastRemoved: 0, visualsCleared: 0, statsSaved: [], rateReports: [],
+        locked: 0, lockPending: [], intents: [] };
     const a = new Automator({
         settings: { read: async () => ({}), subscribe: () => {}, disableQueue: async () => {} },
         ui: {
@@ -40,7 +44,8 @@ function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore
             applyVisuals: () => {},
             removeToast: () => { calls.toastRemoved++; },
             clearVisuals: () => { calls.visualsCleared++; },
-            showFastForwardToast: () => {}, showIgnoredToast: () => {},
+            showAdvanceLock: (btn, pending) => { calls.locked++; calls.lockPending.push(pending); },
+            clearAdvanceLock: () => {}, showIgnoredToast: () => {},
             showStartPrompt: () => {}, updateRunButtonMode: () => {},
         },
         api: { ignore: async () => { calls.ignores++; return ignore ? ignore() : (ignoreRes || { ok: ignoreOk }); } },
@@ -51,7 +56,8 @@ function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore
         stats: { save: (name) => { calls.statsSaved.push(name); } },   // (name, appid)
         navGuard: {
             resetState: () => {}, authorizeNextStep: () => {}, consumeAuthorization: () => false,
-            getActiveAppid: () => null, getUserIntent: () => ({}), setActiveAppid: () => {}, setIntent: () => {},
+            getActiveAppid: () => null, getUserIntent: () => ({}), setActiveAppid: () => {},
+            setIntent: (type) => { calls.intents.push(type); },
         },
         nameExtractor: { get: () => 'Test Game' },
         context: {
@@ -60,6 +66,11 @@ function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore
         },
         analyzer: { getState: () => 'NEGATIVE' },
         decisionEngine: { decide: () => 'SHOULD_IGNORE' },
+        reward: {
+            check: reward || (async () => 'allowed'),
+            STATUS: { ALLOWED: 'allowed', PENDING: 'pending', UNKNOWN: 'unknown' },
+        },
+        notice: { confirmOnce: confirm || (async () => true) },
     });
     return { a, calls };
 }
@@ -72,13 +83,16 @@ test.describe('ExploreAutomator (unit)', () => {
         const deps = () => ({
             settings: a.settings, ui: a.ui, api: a.api, gate: a.gate, stats: a.stats,
             navGuard: a.nav, nameExtractor: a.nameExtractor, context: a.context,
-            analyzer: a.analyzer, decisionEngine: a.decisionEngine,
+            analyzer: a.analyzer, decisionEngine: a.decisionEngine, reward: a.reward, notice: a.notice,
         });
         expect(() => new Automator(deps())).not.toThrow();
-        for (const name of ['ui', 'navGuard', 'context', 'analyzer', 'decisionEngine', 'gate']) {
+        for (const name of ['ui', 'navGuard', 'context', 'analyzer', 'decisionEngine', 'gate', 'reward', 'notice']) {
             const broken = Object.assign(deps(), { [name]: {} });
             expect(() => new Automator(broken), name).toThrow(`needs deps.${name}`);
         }
+        // The verdicts are compared against the dependency's own STATUS.
+        const noStatus = Object.assign(deps(), { reward: { check: a.reward.check } });
+        expect(() => new Automator(noStatus)).toThrow('needs deps.reward.STATUS');
     });
 
     test('a gate stop leaves the appid UN-marked (retryable after re-enable)', async () => {
@@ -216,6 +230,121 @@ test.describe('ExploreAutomator (unit)', () => {
 
         expect(runs).toBe(2);
         expect(a.processedSession.has('123')).toBe(false);
+    });
+
+    // ---- what the user decides ------------------------------------------
+
+    // An autoNext page with a Next button, its advance recorded instead of clicked.
+    function makeAdvancing(Automator, opts) {
+        const made = makeAutomator(Automator, Object.assign({ gateOk: true, ignoreOk: true }, opts));
+        made.a.currentSettings = { autoNext: true, globalOn: true, queueOn: true };
+        made.a.context.getNextButton = () => ({ click: () => {} });
+        made.calls.scheduled = 0;
+        made.a._scheduleNextClick = () => { made.calls.scheduled++; };
+        return made;
+    }
+
+    test('auto-advance goes ahead once the sale reward is earned', async () => {
+        const Automator = loadAutomatorClass();
+        const { a, calls } = makeAdvancing(Automator, { reward: async () => 'allowed' });
+        await a._executeLogic('123');
+        expect(calls.ignores).toBe(1);
+        expect(calls.scheduled).toBe(1);
+        expect(calls.locked).toBe(0);
+    });
+
+    for (const verdict of ['pending', 'unknown']) {
+        test(`a '${verdict}' sale reward keeps the ignore but leaves Next to the user`, async () => {
+            const Automator = loadAutomatorClass();
+            const { a, calls } = makeAdvancing(Automator, { reward: async () => verdict });
+            await a._executeLogic('123');
+            expect(calls.ignores).toBe(1);
+            expect(a.processedSession.has('123')).toBe(true);   // the ignore stands
+            expect(calls.scheduled).toBe(0);
+            expect(calls.locked).toBe(1);                        // and the user is told
+            expect(calls.lockPending).toEqual([verdict === 'pending']);   // which reason
+        });
+    }
+
+    test('a throwing sale-reward check reads as unreadable: the ignore stands, Next is the user\'s', async () => {
+        // The POST has landed by then: a throw must not un-mark the game.
+        const Automator = loadAutomatorClass();
+        const { a, calls } = makeAdvancing(Automator, {
+            reward: async () => { throw new Error('Extension context invalidated.'); },
+        });
+        await a._executeLogic('123');
+        expect(calls.ignores).toBe(1);
+        expect(a.processedSession.has('123')).toBe(true);
+        expect(calls.scheduled).toBe(0);
+        expect(calls.lockPending).toEqual([false]);
+    });
+
+    test('without auto-advance the sale reward is never asked', async () => {
+        const Automator = loadAutomatorClass();
+        let asked = 0;
+        const { a, calls } = makeAdvancing(Automator, { reward: async () => { asked++; return 'pending'; } });
+        a.currentSettings.autoNext = false;
+        await a._executeLogic('123');
+        expect(calls.ignores).toBe(1);
+        expect(asked).toBe(0);
+        expect(calls.locked).toBe(0);
+    });
+
+    test('a stop during the sale-reward check schedules no advance', async () => {
+        const Automator = loadAutomatorClass();
+        let release;
+        const { a, calls } = makeAdvancing(Automator, {
+            reward: () => new Promise(r => { release = () => r('allowed'); }),
+        });
+        const pending = a._executeLogic('123');
+        await new Promise(r => setTimeout(r, 0));
+        a._stopAutomation();
+        release();
+        await pending;
+        expect(calls.ignores).toBe(1);
+        expect(calls.scheduled).toBe(0);
+        expect(calls.locked).toBe(0);
+    });
+
+    test('Run starts nothing when the automation notice is dismissed', async () => {
+        const Automator = loadAutomatorClass();
+        const { a, calls } = makeAutomator(Automator, { gateOk: true, ignoreOk: true, confirm: async () => false });
+        await a._startRun();
+        expect(calls.intents).toEqual([]);
+        expect(calls.ignores).toBe(0);
+    });
+
+    test('Run starts nothing when a switch goes off while the notice is open', async () => {
+        const Automator = loadAutomatorClass();
+        let answer;
+        const { a, calls } = makeAutomator(Automator, {
+            gateOk: true, ignoreOk: true,
+            confirm: () => new Promise(r => { answer = r; }),
+        });
+        const pending = a._startRun();
+        a._stopAutomation();       // the queue toggle or the master, meanwhile
+        answer(true);
+        await pending;
+        expect(calls.intents).toEqual([]);
+        expect(calls.ignores).toBe(0);
+    });
+
+    test('a second Run click while the first waits starts one run, not two', async () => {
+        const Automator = loadAutomatorClass();
+        let answer;
+        let asked = 0;
+        const { a, calls } = makeAutomator(Automator, {
+            gateOk: true, ignoreOk: true,
+            confirm: () => { asked++; return new Promise(r => { answer = r; }); },
+        });
+        const first = a._startRun();
+        const second = a._startRun();
+        answer(true);
+        await Promise.all([first, second]);
+        await new Promise(r => setTimeout(r, 0));   // the ignore it set off
+        expect(asked).toBe(1);
+        expect(calls.intents).toEqual(['ACTIVE']);
+        expect(calls.ignores).toBe(1);
     });
 
     // ---- the pending-advance handle -------------------------------------

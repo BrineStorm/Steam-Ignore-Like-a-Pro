@@ -1,7 +1,7 @@
 const { test, expect } = require('../_fixtures.js');
 const {
     waitForContentScript, interceptIgnoreApi, routeUserdata, DRAIN_TIMEOUT,
-    seedTagPage,
+    seedTagPage, scrollTagPage,
 } = require('./_helpers');
 const { clearExtensionStorage, setExtensionStorage } = require('../_extension.js');
 const { tagUrl } = require('../_tags.js'); // random tag page per navigation
@@ -254,6 +254,10 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
         await routeUserdata(context, []);
         await page.goto(tagUrl());
         await waitForContentScript(page);
+        // Steam renders the strips lazily and reflows above them as they load:
+        // without this pass the strips may not exist yet, or scroll away under
+        // scrollIntoViewIfNeeded (seen: every capsule above the fold, no art).
+        await scrollTagPage(page);
 
         const hd = page.locator('div[data-key="hover div"]').first();
         try {

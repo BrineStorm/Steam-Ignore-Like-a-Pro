@@ -14,17 +14,19 @@ const { AUTH_FILE } = require('../_fixtures.js');
 const SEL = {
     toast: '#ilap-toast',
     runBtn: '#ilap-run-btn',
-    ffBtn: '#ilap-ff-btn',
     disableBtn: '#ilap-disable-btn',
     closeX: '#ilap-close-x',
     modeBadge: '#ilap-mode-badge',
     runningStopBtn: '#ilap-stop-btn',
+    // The one-time automation notice (src/automation-notice.js).
+    notice: '.ilap-notice',
+    noticeGo: '.ilap-notice-go',
+    noticeCancel: '.ilap-notice-cancel',
     nextBtn: '#nextInDiscoveryQueue .btn_next_in_queue_trigger',
 };
 
 const KEYS = {
     ACTIVE: 'ilap_queue_active',
-    FF: 'ilap_queue_ff',
     NAV_TOKEN: 'ilap_queue_nav_token',
     ACTIVE_APPID: 'ilap_queue_active_appid',
 };

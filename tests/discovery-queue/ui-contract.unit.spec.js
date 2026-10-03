@@ -17,7 +17,10 @@ const path = require('path');
 // paths the stub happens to reach. The E2E suite cannot prove it at all —
 // Playwright's clicks are trusted, which is the whole point of the guard.
 
+const vm = require('vm');
+
 const UI_SRC = path.join(__dirname, '..', '..', 'src', 'discovery-queue', 'ui.js');
+const ESCAPE_SRC = path.join(__dirname, '..', '..', 'src', 'escape.js');
 
 test.describe('Discovery Queue panel — contract with the page it lives in (unit)', () => {
 
@@ -33,14 +36,16 @@ test.describe('Discovery Queue panel — contract with the page it lives in (uni
     });
 
     test('the guard it uses actually refuses a forged event', () => {
-        // The wrapper is a local in mount(), so it is read here rather than
-        // called: the assertion above only proves the controls go THROUGH it.
+        // The assertion above only proves the controls go THROUGH `real`: here,
+        // that `real` is the shared guard (src/escape.js), and that it refuses.
         const src = fs.readFileSync(UI_SRC, 'utf8');
-        const decl = src.match(/const real = ([^\n]+)/);
-        expect(decl, 'the real-input wrapper is gone').not.toBeNull();
+        expect(src, 'the panel no longer takes the shared real-input guard')
+            .toMatch(/const real = window\.ILAP\.realInput;/);
 
-        // eslint-disable-next-line no-new-func
-        const real = new Function('return ' + decl[1].replace(/;\s*$/, ''))();
+        const sandbox = { window: {}, Promise };
+        vm.createContext(sandbox);
+        vm.runInContext(fs.readFileSync(ESCAPE_SRC, 'utf8'), sandbox, { filename: 'escape.js' });
+        const real = sandbox.window.ILAP.realInput;
         const seen = [];
         const wrapped = real((e) => seen.push(e));
         wrapped({ isTrusted: false });

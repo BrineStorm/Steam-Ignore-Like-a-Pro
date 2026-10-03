@@ -13,8 +13,7 @@
     const BASE = 'https://store.steampowered.com';
     const DEFAULT_COUNT = 500;       // honoured by Steam at least up to 500 rows/call
     const MAX_PAGES = 12;            // safety ceiling (12 × 500 = 6000 games)
-    const JITTER_MIN = 400;          // ms between page reads — polite, human-paced
-    const JITTER_MAX = 800;
+    const PAGE_GAP_MS = 600;         // between page reads, as courtesy to Steam's servers
 
     const TYPES = ['not_recommended', 'recommended', 'informational'];
 
@@ -71,10 +70,6 @@
         return nr.slice(); // 'not_recommended' (default)
     }
 
-    function jitter(rand) {
-        return JITTER_MIN + Math.floor((rand || Math.random)() * (JITTER_MAX - JITTER_MIN));
-    }
-
     // Pages through the recommendations until total_count. { total, apps, fetchedAt }.
     // A review posted between two page reads can shift a row out of this pass;
     // the next enumeration picks it up, which is cheaper than snapshot passes.
@@ -123,7 +118,7 @@
             // Steam did not. Checked before the pause, which would otherwise be
             // spent on a loop that is about to exit anyway.
             if (page === maxPages - 1) { partial = true; break; }
-            await sleep(jitter(opts.rand));
+            await sleep(PAGE_GAP_MS);
         }
 
         // Not one row parsed while the server says this curator HAS rows: that is

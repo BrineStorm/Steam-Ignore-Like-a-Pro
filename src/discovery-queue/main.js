@@ -50,6 +50,8 @@
         //   registry           Discovery.Registry — cross-tab DQ-automator cap (lease)
         //   insertionStrategy  { find(modal) → { parent, referenceNode } | null }
         //   masterSwitch       { watch({ onInit, onChange }) } (src/master-switch.js)
+        //   reward             { check({ fresh }) → a STATUS value, STATUS } (src/sale-reward.js)
+        //   notice             { confirmOnce() → Promise<boolean> } (src/automation-notice.js)
         //   ownerId            this tab's identity in the registry
         constructor(deps) {
             this.automator = deps.automator;
@@ -57,6 +59,18 @@
             this.registry = deps.registry;
             this.insertion = deps.insertionStrategy;
             this.masterSwitch = deps.masterSwitch;
+            // The two that guard Start are checked up front, as the Classic
+            // Discovery Queue automator checks them: a fake without STATUS
+            // would otherwise fail only at the first click.
+            if (!deps.reward || typeof deps.reward.check !== 'function'
+                || !deps.reward.STATUS || !deps.reward.STATUS.ALLOWED || !deps.reward.STATUS.PENDING) {
+                throw new TypeError('[ILAP] DiscoveryQueueController needs deps.reward');
+            }
+            if (!deps.notice || typeof deps.notice.confirmOnce !== 'function') {
+                throw new TypeError('[ILAP] DiscoveryQueueController needs deps.notice');
+            }
+            this.reward = deps.reward;
+            this.notice = deps.notice;
             this.ownerId = deps.ownerId;
             this.observer = null;
             // Default to enabled to match popup's default and avoid a flicker
@@ -75,6 +89,11 @@
             this.automator.setUiObserver((isRunning, count) => {
                 this.ui.updateState(isRunning, count);
                 if (!isRunning) this._releaseSlot();
+                // A run the sale-reward check ended mid-way says why, as a
+                // refused Start does.
+                if (!isRunning && this.automator.refusal) {
+                    this.ui.showRewardRefused(this.automator.refusal === this.reward.STATUS.PENDING);
+                }
             });
 
             // 2. Resolve the master flag before observing so the very first
@@ -88,11 +107,13 @@
             });
         }
 
-        // Start/stop the loop, gated by the cross-tab DQ-automator cap. Stopping
-        // needs no registry check; starting claims a slot first and refuses (with
-        // a transient button message) when other tabs already fill the cap. The
-        // _starting latch swallows clicks landing while the acquire is in flight
-        // (isRunning is still false then, so they'd read as a second Start).
+        // Start/stop the loop. Stopping needs no check. Starting asks, in order:
+        // the sale reward (the loop advances the queue, and an unearned sale
+        // reward is the user's to earn by hand), the one-time automation notice,
+        // and the cross-tab DQ-automator cap, which refuses with a transient
+        // button message when other tabs already fill it. The _starting latch
+        // swallows clicks landing meanwhile (isRunning is still false then, so
+        // they'd read as a second Start).
         async _toggle() {
             if (this._starting) return;
             if (this.automator.isRunning) {
@@ -101,6 +122,22 @@
             }
             this._starting = true;
             try {
+                // A click: a queue the user has just finished by hand counts now.
+                this.ui.setChecking(true);
+                const STATUS = this.reward.STATUS;
+                // A check that throws reads as unreadable, as it does in the loop
+                // and in the Classic Discovery Queue: refused, and the panel says so.
+                const reward = await this.reward.check({ fresh: true })
+                    .catch(() => STATUS.UNKNOWN)
+                    .finally(() => this.ui.setChecking(false));
+                if (reward !== STATUS.ALLOWED) { this.ui.showRewardRefused(reward === STATUS.PENDING); return; }
+                // Let through: whatever stops this Start below, the lock is over.
+                this.ui.clearRewardLock();
+                if (!(await this.notice.confirmOnce())) return;
+                // Both waits can be long (a request, a dialog): the master switch
+                // or the modal may have gone meanwhile, and the loop's
+                // Keep-High-Score skips take no gate slot that would stop it.
+                if (!this.masterEnabled || !this.ui.isMounted()) return;
                 const ok = await this.registry.tryAcquire(this.ownerId);
                 if (!ok) { this.ui.showRefused(this.registry.CAP); return; }
                 this._startHeartbeat();
@@ -181,7 +218,9 @@
                 if (insertion) {
                     // Bind User Events (UI -> Logic)
                     this.ui.mount(insertion, {
-                        onToggle: () => this._toggle(),
+                        // Nothing awaits a click handler: a rejection (storage
+                        // gone after an extension update) stops here.
+                        onToggle: () => { this._toggle().catch((e) => console.warn('[ILAP] DQ start failed:', e)); },
                         onCheckboxChange: (val) => this.automator.setSkipPositive(val)
                     });
                 }
@@ -223,11 +262,14 @@
                 stats: statsAdapter,
                 nameExtractor: nameExtractorAdapter,
                 gate: gateAdapter,
+                reward: I.SaleReward,
             }),
-            ui: new I.Discovery.UI(),
+            ui: new I.Discovery.UI(new I.ResourceService()),
             registry: I.Discovery.Registry,
             insertionStrategy: InsertionStrategy,
             masterSwitch: I.MasterSwitch,
+            reward: I.SaleReward,
+            notice: I.AutomationNotice,
             ownerId: I.newOwnerId('dq_'),
         }).init();
     };

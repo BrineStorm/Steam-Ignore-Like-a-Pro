@@ -20,15 +20,17 @@
     // while it is fresh.
     const FOREGROUND_KEY = 'ilap_ignore_foreground_at';
 
-    // Gap between two ignores across all sources: ~500 ms + up to 300 ms jitter,
-    // ≤ ~2/s, the rate the account already tolerated. GAP_FLOOR is a guardrail
+    // Gap between two ignores across all sources: a fixed 650 ms, ~1.5/s, a pace
+    // the account has tolerated. Fixed on purpose: the pace is courtesy to
+    // Steam's servers, not an imitation of anything. GAP_FLOOR is a guardrail
     // against a careless edit to MIN_GAP, not a security control.
-    const MIN_GAP = 500;
-    const JITTER = 300;
+    const MIN_GAP = 650;
     const GAP_FLOOR = 350;
+    const GAP = Math.max(GAP_FLOOR, MIN_GAP);
 
-    // How long the background drainer yields after a visible ignore: a little
-    // over one gap, so a stream of them pauses it and a lone one barely does.
+    // How long the background drainer yields after a visible ignore: about four
+    // gaps, so a stream of them keeps it paused and a lone one holds it only
+    // briefly.
     const YIELD_MS = 2500;
 
     // 429 backoff, shared by every source: doubles from PENALTY_BASE up to
@@ -59,9 +61,6 @@
         const at = Number.isFinite(lastAt) ? lastAt : 0;
         const last = at > now + MAX_AHEAD ? now : at;
         return Math.max(now, last + gap);
-    }
-    function nextGap() {
-        return Math.max(GAP_FLOOR, MIN_GAP) + Math.floor(Math.random() * JITTER);
     }
 
     // Escalates while the previous penalty is warm, resets after a quiet spell;
@@ -145,7 +144,7 @@
                 }
                 // An active penalty folds into the slot.
                 const slot = Math.max(
-                    nextSlot(data[GATE_KEY], now, nextGap()),
+                    nextSlot(data[GATE_KEY], now, GAP),
                     penaltyUntil(data[PENALTY_KEY], now)
                 );
                 const write = { [GATE_KEY]: slot };

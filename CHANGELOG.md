@@ -7,6 +7,18 @@ which are the only place the version number lives.
 No release dates here on purpose: the store listings carry them, and a date in a
 tracked file is one more thing that can quietly stop being true.
 
+## 1.3.1
+
+- **Sale rewards stay yours to earn.** During a Steam sale that rewards going
+  through the Discovery Queue, the Discovery Queue helper runs, and the Classic
+  Discovery Queue moves on by itself, only once you have earned that reward by
+  going through one queue yourself. Until then the Classic Discovery Queue still
+  ignores, and you press Next.
+- **Removed Fast Forward** from the Classic Discovery Queue.
+- **A one-time notice** about Steam's Subscriber Agreement the first time you
+  start a queue helper.
+- Ignore requests are now sent at a fixed pace instead of a slightly varied one.
+
 ## 1.3.0
 
 - **The *Explore Queue* is now the *Classic Discovery Queue*,** and so is its

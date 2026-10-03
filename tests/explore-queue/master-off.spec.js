@@ -24,6 +24,9 @@ test.describe('Explore Queue — global master toggle', () => {
     test('Master OFF tears the page down; ON does not resume here, only a fresh entry does', async ({ page, context }) => {
         test.setTimeout(180000);
         await interceptIgnoreApi(context);
+        // The automation notice is accepted up front (its own spec:
+        // start-prompt.spec.js); step 4 below clicks Run.
+        await setExtensionStorage(context, { ilap_automation_ack: true });
 
         await openExploreQueue(page);
         const toast = page.locator(SEL.toast);

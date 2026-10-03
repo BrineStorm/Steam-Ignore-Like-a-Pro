@@ -3,7 +3,8 @@
     'use strict';
 
     // Pure helpers for all three worlds (loaded first everywhere): escaping, name
-    // sanitizing, the lease owner id, and the per-context write chain.
+    // sanitizing, the lease owner id, the per-context write chain, and the
+    // real-input guard.
     function escapeHTML(str) {
         // Only null/undefined become '': a count of 0 must still render.
         if (str == null) return '';
@@ -52,11 +53,16 @@
         };
     }
 
+    // Wraps a handler for controls that sit in the page's DOM, where a page
+    // script can .click() them: only real user input gets through.
+    const realInput = (fn) => (e) => { if (e && e.isTrusted) fn(e); };
+
     window.ILAP = window.ILAP || {};
     window.ILAP.Sanitizer = window.ILAP.Sanitizer || {};
     window.ILAP.Sanitizer.escapeHTML = escapeHTML;
     window.ILAP.Sanitizer.sanitizeName = sanitizeName;
     window.ILAP.newOwnerId = newOwnerId;
     window.ILAP.serialChain = serialChain;
+    window.ILAP.realInput = realInput;
 
 })();

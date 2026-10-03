@@ -12,7 +12,9 @@ test.describe('Explore Queue — intent persistence and navigation', () => {
         // autoNext OFF so Run never auto-advances the page — keeps the
         // intent/reload assertions deterministic (spared → visuals+stop;
         // ignore → API+stop; neither navigates).
-        await setExtensionStorage(context, { ilap_q_master: true, ilap_q_next: false });
+        // The automation notice is accepted up front (its own spec:
+        // start-prompt.spec.js).
+        await setExtensionStorage(context, { ilap_q_master: true, ilap_q_next: false, ilap_automation_ack: true });
     });
 
     test('Run sets ACTIVE intent and ACTIVE_APPID (served appid) in sessionStorage', async ({ page }) => {

@@ -57,7 +57,9 @@
             nameExtractor: nameExtractorAdapter,
             context: Explore.Context,
             analyzer: { getState: () => Explore.Analyzer.getState(Explore.COLORS) }, 
-            decisionEngine: Explore.DecisionEngine
+            decisionEngine: Explore.DecisionEngine,
+            reward: window.ILAP.SaleReward,
+            notice: window.ILAP.AutomationNotice
         });
 
         // 7. Run

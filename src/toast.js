@@ -8,7 +8,7 @@
     // then fades out on its own — no buttons, no state.
     //
     // EQ/DQ deliberately keep their own toasts: those are interactive surfaces
-    // (Run/Fast-Forward/Disable buttons, live mode badge, mount/unmount against
+    // (Run/Disable buttons, live mode badge, mount/unmount against
     // Steam's DOM) that happen to look like cards. Sharing this one would mean
     // rewriting them, not de-duplicating them. The widget's sign-in push
     // (`.ilap-push`, src/widget/main.js) is the same call: it looks like this

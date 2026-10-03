@@ -28,7 +28,7 @@ const BTN = '#ilap-curator-enqueue';
 //  - synthetic (9_000_001+, no such app), so the drain-time userdata dedupe
 //    reads the real account's ignores and can never skip these — a skipped
 //    appid advances the cursor with no POST, i.e. with no pacing at all;
-//  - long enough that the gate's ~0.5 s pace (src/gate.js MIN_GAP) cannot walk
+//  - long enough that the gate's 0.65 s pace (src/gate.js MIN_GAP) cannot walk
 //    it to the end inside the 75 s per-test limit, whatever a spec does.
 // Every POST is route-faked by interceptIgnoreApi, so none of it reaches Steam.
 const FAKE_APPIDS = Array.from({ length: 150 }, (_, i) => String(9000001 + i));

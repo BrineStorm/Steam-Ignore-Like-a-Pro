@@ -76,4 +76,29 @@ async function routeLoginProbe(context, signedIn) {
     return (v) => { live = !!v; };
 }
 
-module.exports = { interceptIgnoreApi, routeUserdata, routeLoginProbe };
+// Stub Steam's Discovery Queue sale reward (src/sale-reward.js): a definition
+// running around now, and an account that has earned `earned` of its `perDef`
+// items. Lets a spec drive the locked path whatever the real account holds and
+// whether or not a sale is on. The request is a cross-origin fetch from the
+// content script, so the CORS header is answered the way the real API answers
+// it: only to the store's own origin. A browser that sends anything else (an
+// extension origin) is refused here as it would be live.
+async function routeSaleReward(context, { earned, perDef = 3 }) {
+    const now = Math.floor(Date.now() / 1000);
+    const def = {
+        sale_reward_def_id: 1, rtime_start_time: now - 3600, rtime_end_time: now + 86400,
+        num_items_per_def: perDef, reward_def_type: 2,
+    };
+    const STORE = 'https://store.steampowered.com';
+    const reply = (route, response) => route.fulfill({
+        status: 200, contentType: 'application/json',
+        headers: route.request().headers().origin === STORE ? { 'Access-Control-Allow-Origin': STORE } : {},
+        body: JSON.stringify({ response }),
+    });
+    await context.route('**/ISaleItemRewardsService/GetCurrentDefinition/**',
+        (route) => reply(route, { definition: def }));
+    await context.route('**/ISaleItemRewardsService/GetClaimedSaleRewards/**',
+        (route) => reply(route, { num_items_earned: earned, num_items_granted: earned, current_def: def }));
+}
+
+module.exports = { interceptIgnoreApi, routeUserdata, routeLoginProbe, routeSaleReward };

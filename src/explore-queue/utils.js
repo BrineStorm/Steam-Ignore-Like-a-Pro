@@ -24,7 +24,6 @@
 
     const KEYS = {
         ACTIVE: 'ilap_queue_active',
-        FF: 'ilap_queue_ff',
         NAV_TOKEN: 'ilap_queue_nav_token',
         ACTIVE_APPID: 'ilap_queue_active_appid'
     };
@@ -145,25 +144,22 @@
 
         resetState() {
             this.session.remove(KEYS.ACTIVE);
-            this.session.remove(KEYS.FF);
             this.session.remove(KEYS.NAV_TOKEN);
             this.session.remove(KEYS.ACTIVE_APPID);
         }
 
         getUserIntent() {
             return {
-                wantsActive: this.session.get(KEYS.ACTIVE) === 'true',
-                wantsFF: this.session.get(KEYS.FF) === 'true'
+                wantsActive: this.session.get(KEYS.ACTIVE) === 'true'
             };
         }
 
         setIntent(type, appid) {
             if (type === 'ACTIVE') this.session.set(KEYS.ACTIVE, 'true');
-            if (type === 'FF') this.session.set(KEYS.FF, 'true');
             if (appid) this.session.set(KEYS.ACTIVE_APPID, String(appid));
         }
 
-        // Tracks the appid that the current ACTIVE/FF intent belongs to.
+        // Tracks the appid that the current ACTIVE intent belongs to.
         // Used to distinguish a same-page reload (legitimate) from a
         // sideways navigation to a different queue page (must re-prompt).
         setActiveAppid(appid) {

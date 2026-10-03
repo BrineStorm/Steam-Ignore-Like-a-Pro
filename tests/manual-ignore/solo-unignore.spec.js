@@ -406,8 +406,8 @@ test.describe('Manual Ignore — solo un-ignore gesture', () => {
         // Bounded deliberately tight rather than at DRAIN_TIMEOUT: the whole
         // point is to gesture while the brake is still down, so a drain slow
         // enough to spend it must fail loudly instead of quietly turning this
-        // into an assertion about nothing. The gate paces at MIN_GAP+jitter
-        // (~0.5–0.8 s) and the queue write kicks the drainer at once, so the
+        // into an assertion about nothing. The gate paces at MIN_GAP
+        // (0.65 s) and the queue write kicks the drainer at once, so the
         // margin against the 2 s brake is comfortable.
         await expect.poll(() => calls.filter(c => !c.remove).length,
             { timeout: 1500 }).toBe(1);

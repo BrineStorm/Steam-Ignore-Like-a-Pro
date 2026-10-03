@@ -4,6 +4,48 @@
 
     const Sanitizer = window.ILAP.Sanitizer;
     const t = window.ILAP.t;
+    // Real user input only, for every toast control. They sit in the page's DOM,
+    // so a page script can call .click() on them; every other surface in the
+    // extension already refuses a synthetic event (curator menu, MI gestures, the
+    // popup panel), and Run / Disable are the heaviest of the lot — Run starts a
+    // paced but unattended ignore run, Disable writes a setting.
+    const realInput = window.ILAP.realInput;
+
+    // The colours of a lock the user can lift: the sale's queue reward, theirs
+    // to earn. An orange-to-gold outline, since Steam's Next button is itself gold.
+    const LOCK = '#ff7a1a';
+    const LOCK_TO = '#ffd23f';
+
+    // Steam's Next button is a flag (a box plus an arrow drawn by ::after), and a
+    // border or box-shadow would trace its box, not the flag. So the outline is
+    // an SVG filter: the painted shape's alpha dilated by 2px (even on every
+    // side), filled with the gradient, a soft glow under it, the button on top.
+    // Defined once per page, in a hidden <svg> CSS can reach by id.
+    const LOCK_FILTER_ID = 'ilap-lock-outline';
+    const LOCK_GRADIENT = 'data:image/svg+xml,' + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="10" preserveAspectRatio="none">'
+        + `<defs><linearGradient id="g"><stop offset="0" stop-color="${LOCK}"/>`
+        + `<stop offset="1" stop-color="${LOCK_TO}"/></linearGradient></defs>`
+        + '<rect width="100" height="10" fill="url(#g)"/></svg>');
+    let lockFilter = null;
+    function ensureLockFilter() {
+        if (lockFilter && lockFilter.isConnected) return;
+        const NS = 'http://www.w3.org/2000/svg';
+        lockFilter = document.createElementNS(NS, 'svg');
+        lockFilter.setAttribute('width', '0');
+        lockFilter.setAttribute('height', '0');
+        lockFilter.setAttribute('aria-hidden', 'true');
+        lockFilter.style.position = 'absolute';
+        lockFilter.innerHTML = `
+            <filter id="${LOCK_FILTER_ID}" x="-10%" y="-30%" width="120%" height="160%" color-interpolation-filters="sRGB">
+                <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="thick"/>
+                <feImage href="${LOCK_GRADIENT}" preserveAspectRatio="none" result="grad"/>
+                <feComposite in="grad" in2="thick" operator="in" result="ring"/>
+                <feGaussianBlur in="ring" stdDeviation="3" result="glow"/>
+                <feMerge><feMergeNode in="glow"/><feMergeNode in="ring"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>`;
+        document.body.appendChild(lockFilter);
+    }
 
     function getModeLabel(mode) {
         return mode === 'all' ? t('mode_every_game') : t('mode_bad_reviews');
@@ -65,15 +107,8 @@
             // our handler while the real button stayed dead. The ids are kept —
             // the E2E suite locates the toast by #ilap-toast.
             this._toast = null;
-        }
-
-        // Real user input only. These controls sit in the page's DOM, so a page
-        // script can call .click() on them; every other surface in the extension
-        // already refuses a synthetic event (curator menu, MI gestures, the popup
-        // panel), and Run / Fast-forward / Disable are the heaviest of the lot —
-        // Run starts a paced but unattended ignore run, Disable writes a setting.
-        static _real(fn) {
-            return (e) => { if (e && e.isTrusted) fn(e); };
+            // The locked Next button (showAdvanceLock) and what it had before.
+            this._lock = null;
         }
 
         clearStartPrompt() {
@@ -84,7 +119,7 @@
             }
         }
 
-        // Remove any Queue-Helper toast (start prompt OR running/FF toast). Used when
+        // Remove any Queue-Helper toast (start prompt OR running toast). Used when
         // the master switch is turned off live and automation is being torn down.
         removeToast() {
             if (this._toast) this._toast.remove();
@@ -144,26 +179,15 @@
                         [${safeModeLabel}]
                     </span>
                 </button>
-
-                <button id="ilap-ff-btn" style="background: #3d4a5d; color: white; border: none; padding: 8px; border-radius: 2px; cursor: pointer; font-size: 11px;">
-                    ${Sanitizer.escapeHTML(t('fast_forward_no_ignore'))}
-                </button>
             `;
 
             document.body.appendChild(toast);
             this._toast = toast;
 
-            const ffBtn = toast.querySelector('#ilap-ff-btn');
-            toast.querySelector('#ilap-run-btn').onclick = ActionUI._real(handlers.onRun);
-
-            ffBtn.onclick = ActionUI._real(() => {
-                ffBtn.textContent = t('skipping');
-                ffBtn.style.opacity = "0.7";
-                handlers.onFastForward();
-            });
+            toast.querySelector('#ilap-run-btn').onclick = realInput(handlers.onRun);
 
             const disableBtn = toast.querySelector('#ilap-disable-btn');
-            disableBtn.onclick = ActionUI._real(() => { this.removeToast(); handlers.onDisable(); });
+            disableBtn.onclick = realInput(() => { this.removeToast(); handlers.onDisable(); });
             
             disableBtn.onmouseenter = () => { 
                 disableBtn.style.backgroundColor = '#d32f2f';
@@ -177,7 +201,7 @@
             };
 
             const closeX = toast.querySelector('#ilap-close-x');
-            closeX.onclick = ActionUI._real(() => this.removeToast());
+            closeX.onclick = realInput(() => this.removeToast());
             closeX.onmouseenter = () => closeX.style.color = '#fff';
             closeX.onmouseleave = () => closeX.style.color = '#8f98a0';
         }
@@ -214,7 +238,7 @@
             `;
 
             const btn = toast.querySelector('#ilap-stop-btn');
-            btn.onclick = ActionUI._real(() => {
+            btn.onclick = realInput(() => {
                 btn.textContent = t('toast_stopped');
                 btn.style.opacity = "0.7";
                 btn.style.cursor = "default";
@@ -222,12 +246,70 @@
             });
         }
 
-        showFastForwardToast(onStop) {
-            this.showRunningToast({ text: t('fast_forwarding') }, onStop);
-        }
-
         showIgnoredToast(name, onStop) {
             this.showRunningToast({ bold: name, text: t('ignored_moving_next') }, onStop);
+        }
+
+        // Ignored, but the advance is the user's: the sale's queue reward is not
+        // earned yet (`pending`), or its status could not be read. Steam's
+        // Next button gets an orange-to-gold outline and, on hover, says why below
+        // it — in place of Steam's own tooltip, which would show on top of it.
+        showAdvanceLock(nextBtn, pending) {
+            this.clearAdvanceLock();
+            const area = nextBtn.parentElement;   // #nextInDiscoveryQueue, position: relative
+            if (!area) return;
+            const before = {
+                filter: nextBtn.style.filter,
+                steamTip: nextBtn.getAttribute('data-tooltip-text'),
+            };
+            ensureLockFilter();
+            nextBtn.style.filter = `url(#${LOCK_FILTER_ID})`;
+            nextBtn.removeAttribute('data-tooltip-text');
+
+            const tip = document.createElement('div');
+            tip.className = 'ilap-advance-tip';
+            // Below the button itself: it is taller than the area it sits in.
+            const below = nextBtn.offsetTop + nextBtn.offsetHeight + 10;
+            tip.style.cssText = `position: absolute; top: ${below}px; right: 0; width: 280px; background: #171a21; color: #c7d5e0; padding: 8px 12px; border-radius: 4px; border: 1px solid ${LOCK}; font-size: 12px; line-height: 1.4; z-index: 1000; pointer-events: none; visibility: hidden; opacity: 0; transition: 0.15s; text-align: left;`;
+            const safeIconUrl = Sanitizer.escapeHTML(this.resources.getIconUrl('icon16.png'));
+            const key = pending ? 'advance_locked_tip' : 'reward_unknown';
+            tip.innerHTML = `
+                <div style="display: flex; align-items: flex-start; gap: 6px;">
+                    <img src="${safeIconUrl}" style="width: 14px; height: 14px; flex-shrink: 0; margin-top: 2px;">
+                    <span>${Sanitizer.escapeHTML(t(key))}</span>
+                </div>`;
+            area.appendChild(tip);
+
+            const show = () => { tip.style.visibility = 'visible'; tip.style.opacity = '1'; };
+            const hide = () => { tip.style.visibility = 'hidden'; tip.style.opacity = '0'; };
+            // Hover, and keyboard focus: the reason must reach both.
+            nextBtn.addEventListener('mouseenter', show);
+            nextBtn.addEventListener('mouseleave', hide);
+            nextBtn.addEventListener('focus', show);
+            nextBtn.addEventListener('blur', hide);
+            // Taking the attribute off is not enough once Next has been hovered:
+            // Steam's tooltip code keeps the text it read then, and its
+            // div.store_tooltip would show over ours (seen live). Its hover
+            // handler rides `mouseover`, so that event stops on its way down to
+            // the button; ours above is `mouseenter`, which this does not touch.
+            const muteSteamTip = (e) => { if (nextBtn.contains(e.target)) e.stopPropagation(); };
+            document.addEventListener('mouseover', muteSteamTip, true);
+            this._lock = { nextBtn, tip, before, show, hide, muteSteamTip };
+        }
+
+        // Put Steam's Next button back the way it was.
+        clearAdvanceLock() {
+            const lock = this._lock;
+            if (!lock) return;
+            this._lock = null;
+            lock.nextBtn.style.filter = lock.before.filter;
+            if (lock.before.steamTip !== null) lock.nextBtn.setAttribute('data-tooltip-text', lock.before.steamTip);
+            lock.nextBtn.removeEventListener('mouseenter', lock.show);
+            lock.nextBtn.removeEventListener('mouseleave', lock.hide);
+            lock.nextBtn.removeEventListener('focus', lock.show);
+            lock.nextBtn.removeEventListener('blur', lock.hide);
+            document.removeEventListener('mouseover', lock.muteSteamTip, true);
+            lock.tip.remove();
         }
 
         applyVisuals(type, reasonMode) {

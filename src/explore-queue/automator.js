@@ -3,7 +3,6 @@
     'use strict';
 
     const TIMING = {
-        FAST_FORWARD_DELAY_MS: 800,   // delay before auto-clicking Next while fast-forwarding
         IGNORE_ADVANCE_DELAY_MS: 2000 // delay before auto-clicking Next after an ignore
     };
 
@@ -20,12 +19,18 @@
             need(deps.gate, ['reserve', 'reportRateLimited'], 'gate');
             need(deps.settings, ['read', 'subscribe', 'disableQueue'], 'settings');
             need(deps.ui, ['applyVisuals', 'clearStartPrompt', 'clearVisuals', 'removeToast',
-                'showFastForwardToast', 'showIgnoredToast', 'showStartPrompt', 'updateRunButtonMode'], 'ui');
+                'showAdvanceLock', 'clearAdvanceLock', 'showIgnoredToast', 'showStartPrompt',
+                'updateRunButtonMode'], 'ui');
             need(deps.navGuard, ['authorizeNextStep', 'consumeAuthorization', 'getActiveAppid',
                 'getUserIntent', 'resetState', 'setActiveAppid', 'setIntent'], 'navGuard');
             need(deps.context, ['getAppID', 'getGameContainer', 'getNextButton', 'isQueuePage'], 'context');
             need(deps.analyzer, ['getState'], 'analyzer');
             need(deps.decisionEngine, ['decide'], 'decisionEngine');
+            need(deps.reward, ['check'], 'reward');               // src/sale-reward.js
+            if (!deps.reward.STATUS || !deps.reward.STATUS.ALLOWED || !deps.reward.STATUS.PENDING) {
+                throw new TypeError('[ILAP] ExploreAutomator needs deps.reward.STATUS');
+            }
+            need(deps.notice, ['confirmOnce'], 'notice');         // src/automation-notice.js
 
             this.settings = deps.settings;   // explore-queue/utils.js QueueSettings
             this.ui = deps.ui;
@@ -37,6 +42,8 @@
             this.context = deps.context;
             this.analyzer = deps.analyzer;
             this.decisionEngine = deps.decisionEngine;
+            this.reward = deps.reward;
+            this.notice = deps.notice;
             
             this.processedSession = new Set();
             this.nextTimeoutId = null;
@@ -45,6 +52,7 @@
             this._stops = 0;
             this._inFlight = null;
             this._runAfterFlight = false;
+            this._startingRun = false;
             // Sticky: set once the GLOBAL master is seen off on this page, which
             // counts as leaving it — from then on nothing revives the page in place.
             // Never cleared: an EQ advance is a full reload, so the next queue page
@@ -90,7 +98,7 @@
             const wasAuthorized = this.nav.consumeAuthorization();
             const intent = this.nav.getUserIntent();
 
-            if (intent.wantsActive || intent.wantsFF) {
+            if (intent.wantsActive) {
                 // A reload of the same queue page is legitimate even without a nav token.
                 const isSamePageReload = appid === this.nav.getActiveAppid();
 
@@ -102,12 +110,7 @@
                 }
 
                 this.nav.setActiveAppid(appid);
-
-                if (intent.wantsActive) {
-                    this._executeLogic(appid);
-                } else {
-                    this._executeFastForward();
-                }
+                this._executeLogic(appid);
             } else {
                 this._showStartPrompt();
             }
@@ -118,8 +121,7 @@
             nextBtn.dataset.ilapBound = 'true';
             
             nextBtn.addEventListener('click', () => {
-                const intent = this.nav.getUserIntent();
-                if (intent.wantsActive || intent.wantsFF) {
+                if (this.nav.getUserIntent().wantsActive) {
                     this.nav.authorizeNextStep();
                 }
             });
@@ -157,6 +159,7 @@
             if (globalOff || !this.currentSettings.queueOn) {
                 this._stopAutomation();
                 this.ui.removeToast();
+                this.ui.clearAdvanceLock();
                 if (globalOff) this.ui.clearVisuals();
                 return;
             }
@@ -179,17 +182,10 @@
             this.ui.showStartPrompt(
                 currentMode,
                 {
+                    // Nothing awaits a click handler, so the run's own rejection
+                    // stops here (an extension update, as with kick()).
                     onRun: () => {
-                        const currentAppid = this.context.getAppID();
-                        this.nav.setIntent('ACTIVE', currentAppid);
-                        this.ui.clearStartPrompt();
-                        this._executeLogic(currentAppid);
-                    },
-                    onFastForward: () => {
-                        const currentAppid = this.context.getAppID();
-                        this.nav.setIntent('FF', currentAppid);
-                        this.ui.clearStartPrompt();
-                        this._executeFastForward();
+                        this._startRun().catch((e) => console.warn('[ILAP] EQ run failed:', e));
                     },
                     onDisable: () => {
                         this.settings.disableQueue();
@@ -198,11 +194,23 @@
             );
         }
 
-        _executeFastForward() {
-            const nextBtn = this.context.getNextButton();
-            if (nextBtn) {
-                this.ui.showFastForwardToast(() => this._stopAutomation());
-                this._scheduleNextClick(nextBtn, TIMING.FAST_FORWARD_DELAY_MS);
+        // Run: the one-time automation notice first; dismissing it leaves the
+        // prompt up. A switch going off while it was open is a stop, and the run
+        // does not start. The prompt stays up during the wait, so a second Run
+        // click lands meanwhile; the latch keeps it from starting a second run.
+        async _startRun() {
+            if (this._startingRun) return;
+            this._startingRun = true;
+            try {
+                const stops = this._stops;
+                if (!(await this.notice.confirmOnce())) return;
+                if (stops !== this._stops) return;
+                const currentAppid = this.context.getAppID();
+                this.nav.setIntent('ACTIVE', currentAppid);
+                this.ui.clearStartPrompt();
+                this._executeLogic(currentAppid);
+            } finally {
+                this._startingRun = false;
             }
         }
 
@@ -284,8 +292,21 @@
             const nextBtn = this.context.getNextButton();
 
             if (shouldNext && nextBtn) {
-                this.ui.showIgnoredToast(name, () => { this._stopAutomation(); });
-                this._scheduleNextClick(nextBtn, TIMING.IGNORE_ADVANCE_DELAY_MS);
+                // An advance the user did not click is queue progress, and while
+                // the sale's queue reward is unearned that progress is theirs to
+                // make: the ignore stands, the run stays on, and Next is theirs —
+                // outlined, saying why.
+                // The ignore has landed by now, so a throw here must not read
+                // as one that did not: it is an unreadable status.
+                const STATUS = this.reward.STATUS;
+                const reward = await this.reward.check().catch(() => STATUS.UNKNOWN);
+                if (stops !== this._stops) return true;
+                if (reward === STATUS.ALLOWED) {
+                    this.ui.showIgnoredToast(name, () => { this._stopAutomation(); });
+                    this._scheduleNextClick(nextBtn, TIMING.IGNORE_ADVANCE_DELAY_MS);
+                } else {
+                    this.ui.showAdvanceLock(nextBtn, reward === STATUS.PENDING);
+                }
             }
             return true;
         }

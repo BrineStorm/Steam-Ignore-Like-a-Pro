@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Steam Ignore Like A Pro — Fast & Auto Ignore",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Helper tool for ignoring games in the Steam Store.",
   "icons": {
     "16": "assets/icons/icon16.png",
@@ -42,6 +42,8 @@
         "src/surface.js",
         "src/i18n.js",
         "src/toast.js",
+        "src/sale-reward.js",
+        "src/automation-notice.js",
         "src/curator/lease.js",
         "src/curator/store.js",
         "src/sw-handoff.js",

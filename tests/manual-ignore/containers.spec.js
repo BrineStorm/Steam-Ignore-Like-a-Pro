@@ -93,6 +93,7 @@ async function dumpSwipeFailure(page, context, { appid, calls, appdetails, ancho
 // link DIRECTLY (on the homepage the capsule usually IS the anchor), and each
 // exercises a distinct ContainerStrategyProvider branch:
 //   - Wrapper      → a.store_main_capsule        (Featured carousel, hero badge)
+//   - Wrapper      → .hero_capsule               (seasonal-sale takeover, hero badge)
 //   - Direct Image → .home_area_spotlight (.spotlight_img parent, hero badge)
 //   - Fallback     → a.tab_row_item              (New & Trending tabs, grid badge)
 //   - Fallback     → a.sale_capsule              (sale/discount capsules, grid badge)
@@ -100,6 +101,14 @@ const SURFACES = [
     {
         name: 'featured carousel capsule — Wrapper strategy (hero)',
         anchor: 'a.store_main_capsule[href*="/app/"]:visible',
+        expectVariant: SEL.heroBadge,
+    },
+    {
+        // A seasonal sale takes the homepage over (body.seasonal_sale): the
+        // featured carousel and the spotlights are gone, and this row of hero
+        // capsules stands in for them. Each surface skips while the other is up.
+        name: 'seasonal-sale hero capsule — Wrapper strategy (hero)',
+        anchor: '.hero_capsule a.hero_click_overlay[href*="/app/"]:visible',
         expectVariant: SEL.heroBadge,
     },
     {

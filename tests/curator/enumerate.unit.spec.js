@@ -4,7 +4,7 @@ const path = require('path');
 const vm = require('vm');
 
 // Curator enumeration logic (src/curator/enumerate.js) is pure (parsing / URL /
-// filtering) plus an async fetch loop with fully injectable fetch/sleep/rand.
+// filtering) plus an async fetch loop with fully injectable fetch/sleep.
 // Load it directly in Node (vm + a window stub) and assert the contract — no
 // browser, no Steam, no real network. Mirrors the decision-matrix unit pattern.
 function loadEnumerator() {
@@ -107,7 +107,6 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         const result = await E.enumerate('999', {
             fetch: fetchImpl,
             sleep: () => Promise.resolve(),
-            rand: () => 0,
             count: 500,
         });
 
@@ -127,7 +126,6 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: true, json: async () => queue[i++] }),
             sleep: () => Promise.resolve(),
-            rand: () => 0,
             count: 2,
         });
         expect(result.total).toBe(4);
@@ -140,7 +138,6 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: false }),
             sleep: () => Promise.resolve(),
-            rand: () => 0,
         });
         expect(result.apps.not_recommended).toEqual([]);
         expect(result.partial, 'a failed first read is a partial run').toBe(true);
@@ -156,7 +153,6 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: true, json: async () => page }),
             sleep: () => Promise.resolve(),
-            rand: () => 0,
             count: 1,
         });
         expect(result.apps.not_recommended).toEqual(['1']);
@@ -173,7 +169,6 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
                 throw new Error('network');
             },
             sleep: () => Promise.resolve(),
-            rand: () => 0,
             count: 2,
         });
         // The rows already read are kept — the job still runs on them...
@@ -192,7 +187,6 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: true, json: async () => queue[i++] }),
             sleep: () => Promise.resolve(),
-            rand: () => 0,
             count: 1,
         });
         expect(result.apps.not_recommended).toEqual(['1']);
@@ -208,7 +202,6 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: true, json: async () => page }),
             sleep: () => Promise.resolve(),
-            rand: () => 0,
             count: 1,
         });
         expect(result.apps.not_recommended).toEqual([]);
@@ -221,7 +214,6 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: true, json: async () => page }),
             sleep: () => Promise.resolve(),
-            rand: () => 0,
             count: 1,
         });
         expect(result.partial).toBe(false);
@@ -232,7 +224,6 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: true, json: async () => page }),
             sleep: () => Promise.resolve(),
-            rand: () => 0,
             count: 1,
             maxPages: 2,
         });

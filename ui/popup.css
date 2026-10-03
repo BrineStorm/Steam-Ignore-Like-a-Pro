@@ -427,10 +427,12 @@ details[open] > summary::after { transform: rotate(90deg); }
     font-size: 11px; font-weight: 600; line-height: 1.35; pointer-events: none;
     transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
 }
-/* Two dwells in this panel. 0.4 s, as here, for a hint on a control you aim at.
-   2.5 s for the two tips on controls the cursor CROSSES on its way somewhere else
-   (.undo-tip, .lang-tip): a short dwell there fires on every passing cursor. */
-.dq-next-row:hover .dq-next-tip { visibility: visible; opacity: 1; transition-delay: 0.4s; }
+/* Three dwells in this panel. 0.4 s for a hint on a control you aim at. 2.5 s for
+   the two tips on controls the cursor CROSSES on its way somewhere else
+   (.undo-tip, .lang-tip): a short dwell there fires on every passing cursor. And
+   2 s here: this tip hangs over the Ignore Mode block, where the cursor is
+   usually headed when it crosses this row. */
+.dq-next-row:hover .dq-next-tip { visibility: visible; opacity: 1; transition-delay: 2s; }
 
 /* The DQ master switch's own tooltip — aimed at, so the 0.4 s dwell. Anchored to the whole summary row
    (the switch is ~42px and flush right, so a tip anchored to IT would run off the

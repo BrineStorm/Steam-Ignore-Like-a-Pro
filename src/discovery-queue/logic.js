@@ -217,6 +217,7 @@
         //   stats          { save(name, appid) }
         //   nameExtractor  { get(appid, el) → string }
         //   gate           { reserve() → Promise<{ ok }> }, the shared rate governor
+        //   reward         { check() → a STATUS value, STATUS } (src/sale-reward.js)
         constructor(deps) {
             const need = (adapter, fn, what) => {
                 if (!adapter || typeof adapter[fn] !== 'function') {
@@ -227,6 +228,10 @@
             need(deps.stats, 'save', 'stats');
             need(deps.nameExtractor, 'get', 'nameExtractor');
             need(deps.gate, 'reserve', 'gate');
+            need(deps.reward, 'check', 'reward');
+            if (!deps.reward.STATUS || !deps.reward.STATUS.ALLOWED || !deps.reward.STATUS.PENDING) {
+                throw new TypeError('[ILAP] DiscoveryQueueAutomator needs deps.reward.STATUS');
+            }
             // Without the palette no review reads as bad: Keep High Score would
             // silently ignore nothing, the 1.2.2 failure.
             if (!PALETTE || typeof PALETTE.isBad !== 'function') {
@@ -237,6 +242,9 @@
             this.stats = deps.stats;
             this.nameExtractor = deps.nameExtractor;
             this.gate = deps.gate;
+            this.reward = deps.reward;
+            // The sale-reward verdict that ended the last run, or null.
+            this.refusal = null;
             
             this.isRunning = false;
             this.processedCount = 0;
@@ -276,6 +284,7 @@
             this.isRunning = true;
             this.processedCount = 0;
             this._continueStreak = 0;
+            this.refusal = null;
             this._notifyUI();
             await this._loop();
         }
@@ -324,8 +333,7 @@
             // Keep High Score advances past POSITIVE games without ignoring.
             // Mixed/negative are NOT skipped — they fall through to the ignore path.
             if (this.config.skipPositive && gameInfo.isPositive) {
-                await this._clickWithDelay(nextBtn, TIMING.NEXT_CLICK_MS);
-                return true;
+                return this._advance(nextBtn, TIMING.NEXT_CLICK_MS);
             }
 
             const ignoreBtn = SlideScanner.getIgnoreButton(slide);
@@ -337,8 +345,7 @@
 
             // Already ignored (cheap button check, no request) → just advance.
             if (this._isButtonActive(ignoreBtn)) {
-                await this._clickWithDelay(nextBtn, TIMING.NEXT_CLICK_MS);
-                return true;
+                return this._advance(nextBtn, TIMING.NEXT_CLICK_MS);
             }
 
             const appid = SlideScanner.getAppId(slide);
@@ -369,7 +376,27 @@
             // is refused.)
             if (!this.isRunning) return false;
 
-            await this._clickWithDelay(nextBtn, TIMING.NEXT_CLICK_MS);
+            return this._advance(nextBtn, TIMING.NEXT_CLICK_MS);
+        }
+
+        // Every advance the loop makes is queue progress, and while the sale's
+        // queue reward is unearned that progress is the user's: asked before each
+        // one, not only at Start, since a sale can begin mid-run. Answered from
+        // the cache while it holds, so a run costs next to nothing per game. A
+        // refusal ends the run and is kept in `refusal` for the panel to show.
+        async _mayAdvance() {
+            const STATUS = this.reward.STATUS;
+            const verdict = await this.reward.check().catch(() => STATUS.UNKNOWN);
+            if (verdict === STATUS.ALLOWED) return true;
+            // A Stop that landed meanwhile ended the run, not the reward.
+            if (this.isRunning) this.refusal = verdict;
+            return false;
+        }
+
+        async _advance(btn, delay) {
+            if (!this.isRunning) return false;
+            if (!(await this._mayAdvance()) || !this.isRunning) return false;
+            await this._clickWithDelay(btn, delay);
             return true;
         }
 
@@ -380,8 +407,7 @@
             const continueBtn = SlideScanner.getContinueButton(dialog);
             if (!continueBtn) return false;
             if (++this._continueStreak > MAX_CONTINUE_STREAK) return false;
-            await this._clickWithDelay(continueBtn, TIMING.CONTINUE_CLICK_MS);
-            return true;
+            return this._advance(continueBtn, TIMING.CONTINUE_CLICK_MS);
         }
 
         // Two-tier confirmation, in order of cheapness:

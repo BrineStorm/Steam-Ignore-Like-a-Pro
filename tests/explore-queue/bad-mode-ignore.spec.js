@@ -1,5 +1,6 @@
 const { test, expect } = require('../_fixtures.js');
 const { AUTH_FILE, SEL, openExploreQueue } = require('./_helpers');
+const { setExtensionStorage } = require('../_extension.js');
 
 test.use({ storageState: AUTH_FILE });
 
@@ -68,9 +69,12 @@ async function refreshQueue(page) {
 
 test.describe('Explore Queue — bad mode actually ignores a Mixed/Negative game', () => {
 
-    test('Run in bad mode finds and ignores at least one Mixed/Negative game', async ({ page }) => {
+    test('Run in bad mode finds and ignores at least one Mixed/Negative game', async ({ page, context }) => {
         // The loop can chew through many games; default 30s timeout is too tight.
         test.setTimeout(10 * 60 * 1000);
+        // The one-time automation notice is accepted up front: it has its own
+        // spec (start-prompt.spec.js), and this one is about the run behind it.
+        await setExtensionStorage(context, { ilap_automation_ack: true });
 
         await openExploreQueue(page);
 

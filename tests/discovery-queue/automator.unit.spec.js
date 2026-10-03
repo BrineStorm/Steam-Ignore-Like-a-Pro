@@ -37,6 +37,7 @@ const noopAdapters = () => ({
     stats: { save: () => {} },
     nameExtractor: { get: () => 'Unknown Game' },
     gate: { reserve: async () => ({ ok: true }) },
+    reward: { check: async () => 'allowed', STATUS: { ALLOWED: 'allowed', PENDING: 'pending', UNKNOWN: 'unknown' } },
 });
 
 test.describe('DiscoveryQueueAutomator (unit)', () => {
@@ -291,6 +292,99 @@ test.describe('DQ end-of-queue / exhausted pool (unit)', () => {
     // end, not an interstitial: there is no Continue to press, and the rightmost
     // leaf button on that surface belongs to the game ("Install Demo" — clicking
     // it would start a download). Stop, and touch nothing.
+    // Every advance is queue progress, and a sale can begin mid-run: the loop
+    // asks the sale reward before each one, not only at Start (which the
+    // controller asks). Refused, it stops where it is and says why.
+    for (const verdict of ['pending', 'unknown']) {
+        test(`a '${verdict}' sale reward before an advance stops the loop without clicking`, async () => {
+            const { Automator } = loadAutomator([], instant);
+            const a = new Automator(Object.assign(noopAdapters(), {
+                reward: { check: async () => verdict, STATUS: { ALLOWED: 'allowed', PENDING: 'pending', UNKNOWN: 'unknown' } },
+            }));
+            const { dialog, cont } = fakeDialog('interstitial');
+            const clicks = [];
+            a._clickWithDelay = (el) => { clicks.push(el); return Promise.resolve(); };
+
+            a.isRunning = true;
+            expect(await a._processCurrentSlide(dialog)).toBe(false);
+            expect(clicks).toEqual([]);
+            expect(cont.clicked).toBeUndefined();
+            expect(a.refusal).toBe(verdict);
+        });
+    }
+
+    test('a sale-reward check that throws reads as unreadable: no advance', async () => {
+        const { Automator } = loadAutomator([], instant);
+        const a = new Automator(Object.assign(noopAdapters(), {
+            reward: { check: async () => { throw new Error('Extension context invalidated.'); }, STATUS: { ALLOWED: 'allowed', PENDING: 'pending', UNKNOWN: 'unknown' } },
+        }));
+        const { dialog } = fakeDialog('interstitial');
+        const clicks = [];
+        a._clickWithDelay = (el) => { clicks.push(el); return Promise.resolve(); };
+
+        a.isRunning = true;
+        expect(await a._processCurrentSlide(dialog)).toBe(false);
+        expect(clicks).toEqual([]);
+        expect(a.refusal).toBe('unknown');
+    });
+
+    test('a Stop landing during the sale-reward check is not followed by an advance', async () => {
+        const { Automator } = loadAutomator([], instant);
+        let release;
+        const a = new Automator(Object.assign(noopAdapters(), {
+            reward: { check: () => new Promise(r => { release = () => r('allowed'); }), STATUS: { ALLOWED: 'allowed', PENDING: 'pending', UNKNOWN: 'unknown' } },
+        }));
+        const { dialog } = fakeDialog('interstitial');
+        const clicks = [];
+        a._clickWithDelay = (el) => { clicks.push(el); return Promise.resolve(); };
+
+        a.isRunning = true;
+        const pending = a._processCurrentSlide(dialog);
+        await new Promise(r => setTimeout(r, 0));
+        a.stop();
+        release();
+        expect(await pending).toBe(false);
+        expect(clicks).toEqual([]);
+    });
+
+    test("a Stop during the check is the user's, not a refusal: no lock recorded", async () => {
+        const { Automator } = loadAutomator([], instant);
+        let release;
+        const a = new Automator(Object.assign(noopAdapters(), {
+            reward: { check: () => new Promise(r => { release = () => r('pending'); }),
+                STATUS: { ALLOWED: 'allowed', PENDING: 'pending', UNKNOWN: 'unknown' } },
+        }));
+        const { dialog } = fakeDialog('interstitial');
+        a._clickWithDelay = () => Promise.resolve();
+
+        a.isRunning = true;
+        const pending = a._processCurrentSlide(dialog);
+        await new Promise(r => setTimeout(r, 0));
+        a.stop();
+        release();
+        expect(await pending).toBe(false);
+        expect(a.refusal).toBeNull();
+    });
+
+    test('a stopped loop asks nothing before an advance', async () => {
+        const { Automator } = loadAutomator([], instant);
+        let asked = 0;
+        const a = new Automator(Object.assign(noopAdapters(), {
+            reward: { check: async () => { asked++; return 'allowed'; },
+                STATUS: { ALLOWED: 'allowed', PENDING: 'pending', UNKNOWN: 'unknown' } },
+        }));
+        a.isRunning = false;
+        expect(await a._advance({}, 0)).toBe(false);
+        expect(asked).toBe(0);
+    });
+
+    test('a reward dependency that is not the full contract refuses construction', async () => {
+        const { Automator } = loadAutomator([], instant);
+        expect(() => new Automator(Object.assign(noopAdapters(), { reward: undefined }))).toThrow('needs deps.reward');
+        expect(() => new Automator(Object.assign(noopAdapters(), { reward: { check: async () => 'allowed' } })))
+            .toThrow('needs deps.reward.STATUS');
+    });
+
     test('a final slide with no Next arrow stops the loop without clicking anything', async () => {
         const { Automator } = loadAutomator([], instant);
         const a = new Automator(noopAdapters());

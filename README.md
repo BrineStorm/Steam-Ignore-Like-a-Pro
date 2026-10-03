@@ -61,7 +61,7 @@ Configurable to automatically ignore games that meet your criteria (e.g., Mixed/
   <img src="assets/demo-queue2.gif" alt="Demo Classic Discovery Queue" width="600">
 </p>
 
-- **Game Genre/Category Discovery Queue Auto-Ignore** - Bypass the standard Steam 10-tag ignore limit. 
+- **Game Genre/Category Discovery Queue Auto-Ignore** - Not limited to the 10 tags Steam lets you exclude. 
 By navigating to a specific tag, genre, or category page (such as Racing or VR) and opening its Discovery Queue, you can run the automator to quickly ignore **all** games from that list, or only those with bad reviews.
 <p align="left">
   <img src="assets/demo-queue.gif" alt="Demo Discovery Queue" width="600">
@@ -69,6 +69,8 @@ By navigating to a specific tag, genre, or category page (such as Racing or VR) 
 
 - **Curator Ignore Queue** - Stage a whole curator's list into an ignore queue from the curator page, optionally filtered, and let the extension work through it at a measured pace. Jobs can be paused, resumed, or dropped while they run, and progress is visible in the interface.
 On Chrome/Edge the queue keeps draining in the background with no Steam tab open; on Firefox it advances while a Steam Store page is open.
+
+**Sale rewards stay yours to earn.** During a Steam sale that hands out rewards (such as stickers) for going through the Discovery Queue, the queue helpers do not move through a queue on their own until you have earned that reward by going through one queue yourself — they still ignore, and you press Next. The first time you start a queue helper, the extension also points you to Steam's Subscriber Agreement once.
 
 ## Privacy
 
@@ -116,10 +118,10 @@ For development, or to run a build ahead of the store release:
 The extension marks it at once (IGNORED badge, blurred cover), but Steam only drops ignored games from its lists when it rebuilds them, and its caching can lag behind.
 
 - **Why don't my ignores fire instantly?**  
-Ignores are placed in a queue and sent at a deliberate pace, so a large batch never looks like a flood of requests to Steam. The badge appears immediately; the request follows shortly after.
+Ignores are placed in a queue and sent one at a time at a fixed pace, to keep the load on Steam's servers low. The badge appears immediately; the request follows shortly after.
 
 - **Is this compliant with Steam's policies?**  
-It only does what you could do by hand: the extension sends the same ignore requests Steam's own buttons send, through your existing signed-in session, and uses no exploits or backdoors. Every request passes through a shared rate limiter, so it never floods Steam's servers. It is not made or endorsed by Valve, though, and only Valve can say how its terms apply — so use it at your own discretion.
+Section 4.C of the [Steam Subscriber Agreement](https://store.steampowered.com/subscriber_agreement/) prohibits scripts, bots and other non-human-controlled systems for interacting with Steam, including earning rewards or progress without genuine user input. The gestures and hotkeys act once per action you take. The queue helpers, the curator queue and bulk undo do act on your behalf: the queue helpers ignore games for you and can move through a queue, and one confirmation in the curator queue or bulk undo sends many requests. The extension never earns sale rewards for you — during a sale it leaves the queue to you until you have earned them yourself. Every request uses your existing signed-in session and the same endpoints Steam's own buttons use, and passes through one shared rate limiter. The extension is not made or endorsed by Valve, and only Valve can say how its terms apply to your account, so use it at your own discretion.
 
 - **Can I undo an ignore?**  
 Yes. Use the **Undo** button in the extension's panel to un-ignore the last N games or everything from a recent stretch of time. Since Steam Ignore Like A Pro applies a standard Steam ignore, you can also remove it anytime from the game's own store page.
@@ -162,4 +164,4 @@ Releases up to and including v1.1 were distributed under the Mozilla Public Lice
 
 ## Disclaimer
 
-This extension is provided "as is", without warranty of any kind. Use it at your own risk. Automated and bulk actions (for example the curator ignore queue) interact with Steam on your behalf — you are responsible for your own account and for respecting Steam's Terms of Service. The authors are not liable for any consequences arising from its use.
+This extension is provided "as is", without warranty of any kind. Use it at your own risk. Automated and bulk actions (the queue helpers, the curator ignore queue, bulk undo) interact with Steam on your behalf — you are responsible for your own account and for respecting the [Steam Subscriber Agreement](https://store.steampowered.com/subscriber_agreement/). The authors are not liable for any consequences arising from its use.

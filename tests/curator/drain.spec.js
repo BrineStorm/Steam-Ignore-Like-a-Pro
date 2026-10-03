@@ -91,7 +91,7 @@ test.describe('Curator — queue drainer', () => {
         await expect.poll(async () => calls.length, { timeout: 20000 }).toBe(4);
 
         // Every consecutive pair is spaced by at least the gate's defensive floor
-        // (the governor sleeps ~MIN_GAP+jitter before each POST; assert the floor
+        // (the governor sleeps MIN_GAP before each POST; assert the floor
         // to stay robust against scheduler noise). This is the aggregate-rate
         // guarantee the whole governor exists to provide.
         const FLOOR = 350; // src/gate.js GAP_FLOOR
