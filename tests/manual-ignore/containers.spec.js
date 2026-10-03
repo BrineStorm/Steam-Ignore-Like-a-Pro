@@ -211,8 +211,10 @@ test.describe('Manual Ignore — container strategies across Steam surfaces', ()
             expect(calls[0].reason).toBe(0);
 
             // The badge must carry the variant class of the strategy this
-            // surface resolves through AND be tied to the swiped appid.
-            const badge = page.locator(`${surface.expectVariant}[data-ilap-appid="${appid}"]`).first();
+            // surface resolves through AND be tied to the swiped appid. `:visible`
+            // because one game can sit in several New & Trending tabs: every row
+            // gets a badge, and the first in DOM order may be in a hidden tab.
+            const badge = page.locator(`${surface.expectVariant}[data-ilap-appid="${appid}"]:visible`).first();
             await expect(badge).toBeVisible({ timeout: DRAIN_TIMEOUT });
         });
     }

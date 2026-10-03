@@ -18,6 +18,7 @@ tracked file is one more thing that can quietly stop being true.
 - **A one-time notice** about Steam's Subscriber Agreement the first time you
   start a queue helper.
 - Ignore requests are now sent at a fixed pace instead of a slightly varied one.
+- Refactoring, optimizations and security improvements.
 
 ## 1.3.0
 
