@@ -61,6 +61,10 @@ Configurable to automatically ignore games that meet your criteria (e.g., Mixed/
   <img src="assets/demo-queue2.gif" alt="Demo Classic Discovery Queue" width="600">
 </p>
 
+> ⚠️ **Sale rewards stay yours to earn.** During a Steam sale with Discovery Queue rewards, the queue helpers still ignore but leave Next to you until you've gone through one queue yourself.
+>
+> We don't recommend using versions below 1.3.1.
+
 - **Game Genre/Category Discovery Queue Auto-Ignore** - Not limited to the 10 tags Steam lets you exclude. 
 By navigating to a specific tag, genre, or category page (such as Racing or VR) and opening its Discovery Queue, you can run the automator to quickly ignore **all** games from that list, or only those with bad reviews.
 <p align="left">
@@ -69,8 +73,9 @@ By navigating to a specific tag, genre, or category page (such as Racing or VR) 
 
 - **Curator Ignore Queue** - Stage a whole curator's list into an ignore queue from the curator page, optionally filtered, and let the extension work through it at a measured pace. Jobs can be paused, resumed, or dropped while they run, and progress is visible in the interface.
 On Chrome/Edge the queue keeps draining in the background with no Steam tab open; on Firefox it advances while a Steam Store page is open.
-
-**Sale rewards stay yours to earn.** During a Steam sale that hands out rewards (such as stickers) for going through the Discovery Queue, the queue helpers do not move through a queue on their own until you have earned that reward by going through one queue yourself — they still ignore, and you press Next. The first time you start a queue helper, the extension also points you to Steam's Subscriber Agreement once.
+<p align="left">
+  <img src="assets/demo-curator.gif" alt="Demo Curator Ignore Queue" width="600">
+</p>
 
 ## Privacy
 
