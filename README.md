@@ -15,6 +15,8 @@
 A browser extension that lets you ignore Steam games straight from the storefront - no menus, no opening individual game pages.
 **Steam Ignore Like A Pro** turns it into a single gesture or hotkey, available on every Steam Store page.
 
+Website: [steamignorelikeapro.com](https://steamignorelikeapro.com)
+
 <p align="left">
   <img src="assets/demo.gif" alt="Extension Demo" width="600">
 </p>
