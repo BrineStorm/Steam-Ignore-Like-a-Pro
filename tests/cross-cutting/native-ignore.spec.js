@@ -15,6 +15,10 @@
 const { test, expect } = require('../_fixtures.js');
 const { getExtensionStorage, clearExtensionStorage } = require('../_extension.js');
 
+// `npm run test:units` takes all of tests/cross-cutting, and CI runs it on a
+// runner with no display and no Steam session.
+test.skip(!!process.env.CI, 'Live spec: needs a headed browser and a signed-in session');
+
 // Paid games the test account does not own, so the Ignore button is rendered.
 // The free entries of the shared app pool are often in the library.
 const APPS = ['1172470', '413150', '105600', '252950'];
