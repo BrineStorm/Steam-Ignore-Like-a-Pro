@@ -1,0 +1,11 @@
+{
+  "extName": {
+    "message": "Steam Ignore Like A Pro — Ignorišite igre brzo"
+  },
+  "extNameChrome": {
+    "message": "Steam Ignore Like A Pro — Ignorišite igre brzo i automatski"
+  },
+  "extDescription": {
+    "message": "Dodajte igre na listu ignorisanih u Steam prodavnici jednim pokretom miša ili odjednom cele liste po vašem izboru ili od kuratora."
+  }
+}

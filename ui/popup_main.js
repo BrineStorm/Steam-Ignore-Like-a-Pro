@@ -9,21 +9,10 @@
 
     const t = window.ILAP.t;
 
-    // See the same pair in ui/popup_settings.js: the language droplist drives
-    // the real <select> with its own synthetic `change`, and only the widget
-    // surface (an OPEN shadow root on the Steam page) is reachable by page
-    // script — the toolbar popup is a chrome-extension:// page nothing can
-    // touch, which is also where selectOption() drives this select in tests.
-    // The droplist's own event is recognised by identity and value, not by a
-    // flag a page listener could fire inside of (see there).
-    let selfPick = null;   // { ev, value }: the one dispatch in progress
-    const isSelfPick = (e) => !!selfPick && e === selfPick.ev && e.target.value === selfPick.value;
-    function dispatchPick(select, value) {
-        const ev = new Event('change', { bubbles: true });
-        selfPick = { ev, value };
-        try { select.dispatchEvent(ev); } finally { selfPick = null; }
-    }
-    const isPageReachable = (root) => !!(root && root.host);
+    // The language droplist drives the real <select> with its own synthetic
+    // `change`, like the settings droplists: one guard for both, in
+    // ui/popup_settings.js (the reasoning is there).
+    const { dispatchPick, isSelfPick, isPageReachable } = window.ILAP_Settings;
 
     // Master toggle off, for every direct child of `parent` the markup does not
     // mark `data-master-exempt`. What survives a disabled extension:
@@ -106,6 +95,32 @@
         return `<span class="kbd-key" style="margin-left:0;">${safeKeyName}</span> <span style="margin: 0 4px;">+</span> <span class="kbd-key">${safeLeftClick}</span> ${mouseSvg(false, 'mouse-icon', 16, 18)}`;
     }
 
+    // When Steam's list was last read: the time alone today, with the date before.
+    function formatReadTime(ts) {
+        const d = new Date(ts);
+        const lang = window.ILAP.i18n.getLang();
+        return d.toDateString() === new Date().toDateString()
+            ? d.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' })
+            : d.toLocaleString(lang, { dateStyle: 'short', timeStyle: 'short' });
+    }
+
+    // The headline is the extension's own counter; the hover tip shows Steam's
+    // whole list (StatsLogic.displayTotal), its number in bold, and when it was
+    // read — or says it has not been read yet. Value and tip only, so the markup
+    // survives.
+    function renderTotal(root, data) {
+        const Stats = window.ILAP.StatsLogic;
+        const count = data[Stats.COUNT_KEY] || 0;
+        const snapshot = data[Stats.TOTAL_KEY];
+        const total = Stats.displayTotal(snapshot, count);
+        root.getElementById('count-link').textContent = count;
+        const tip = root.getElementById('count-tip');
+        if (total === null) { tip.textContent = t('total_not_read'); return; }
+        // Escaped with a stand-in for the number, which then becomes the <b>.
+        const onSteam = Sanitizer.escapeHTML(t('total_on_steam', { n: '\u0001' })).replace('\u0001', `<b>${total}</b>`);
+        tip.innerHTML = `${onSteam}<br>${Sanitizer.escapeHTML(t('total_read_at', { time: formatReadTime(snapshot.ts) }))}`;
+    }
+
     function updateBasicUI(root, data) {
         const isEnabled = Settings.isOn(data[K.MASTER]);
 
@@ -124,7 +139,7 @@
         }
 
         const Stats = window.ILAP.StatsLogic;
-        root.getElementById('count-link').textContent = data[Stats.COUNT_KEY] || 0;
+        renderTotal(root, data);
         root.getElementById('last-game').textContent = data[Stats.LAST_KEY] || t('none');
 
         const defKey = Settings.normalizeShortcut(data[K.SHORTCUT]) || Settings.DEFAULTS.SHORTCUT;
@@ -251,7 +266,8 @@
 
     // What the popup renders besides the queue: settings, surface, stats.
     const uiKeys = () => Object.values(K).concat(window.ILAP.Surface.KEY,
-        [window.ILAP.StatsLogic.COUNT_KEY, window.ILAP.StatsLogic.HISTORY_KEY, window.ILAP.StatsLogic.LAST_KEY]);
+        [window.ILAP.StatsLogic.COUNT_KEY, window.ILAP.StatsLogic.TOTAL_KEY,
+            window.ILAP.StatsLogic.HISTORY_KEY, window.ILAP.StatsLogic.LAST_KEY]);
 
     // The queue, the per-job cursor, skip-count and lease keys its jobs name,
     // the SW halt flag, plus `extraKeys`.
@@ -298,13 +314,13 @@
         // landed POST) and `soon` for drain PROGRESS, which arrives far faster
         // than it reads — see the listener below.
         const renderQueue = () => {
-            readQueueSnapshot([K.MASTER, Stats.COUNT_KEY], (current) => {
+            readQueueSnapshot([K.MASTER, Stats.COUNT_KEY, Stats.TOTAL_KEY], (current) => {
                 queue.render(current);
                 // The one piece of the basic UI a drain does move: the total.
                 // Value-only, so the markup and its CSS transitions survive —
                 // and last in the callback, so a missing element can't cost the
                 // queue applet its render.
-                root.getElementById('count-link').textContent = current[Stats.COUNT_KEY] || 0;
+                renderTotal(root, current);
             });
         };
         let queueTimer = null;
@@ -419,11 +435,12 @@
             //    moving number is pure waste;
             //  - the ignore log: the undo applet, throttled.
             const keys = Object.keys(changes || {});
-            const fullKeys = uiKeys().filter(k => k !== Stats.COUNT_KEY);
+            const fullKeys = uiKeys().filter(k => k !== Stats.COUNT_KEY && k !== Stats.TOTAL_KEY);
             const isQueueKey = (k) => k === Store.QUEUE_KEY
                 || k === Store.PULSE_KEY
                 || k === Store.SW_HALT_KEY
                 || k === Stats.COUNT_KEY
+                || k === Stats.TOTAL_KEY
                 || k.indexOf(Store.CURSOR_PREFIX) === 0
                 || k.indexOf(Store.SKIPPED_PREFIX) === 0
                 || k.indexOf(Lease.LOCK_PREFIX) === 0;
@@ -452,6 +469,10 @@
             ready,
             // The widget panel opened: render whatever changed while it was closed.
             show() {
+                // A page click hides the panel without reaching the dropdowns'
+                // closer (it listens on this root), so one left open would
+                // greet the next open. Accordions keep their state; menus don't.
+                root.querySelectorAll('.select-menu.open').forEach(m => m.classList.remove('open'));
                 if (!stale) return;
                 const langChanged = staleLang;
                 stale = staleLang = false;

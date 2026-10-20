@@ -82,10 +82,47 @@
         return { [COUNT_KEY]: decrement((current || {})[COUNT_KEY]) };
     }
 
+    // The shown-but-not-counted half: a swipe that changed the reason of a game
+    // already on Steam's list. It is in Last Ignored like any swipe, but the
+    // list did not grow, so the total stays.
+    function historyState(current, name, source) {
+        return {
+            [HISTORY_KEY]: pushHistory((current || {})[HISTORY_KEY], name, source),
+            [LAST_KEY]: name
+        };
+    }
+
+    // Steam's own size of the account's ignore list, as last read from
+    // dynamicstore/userdata, with the counter above as it stood at that write.
+    // The popup headlines the counter and shows this on hover: the counter only
+    // knows what this extension did, Steam's list also contains ignores made before
+    // install, elsewhere or on the site itself.
+    const TOTAL_KEY = 'ilap_ignored_total';
+
+    // The snapshot write for one userdata read of `size` ignored apps. Goes
+    // through the same per-world chain as the counter writes, so `tallyAt` is
+    // the counter at this write. An ignore counted between the read and the
+    // write (another source in this tab, or the other world) is then off by one
+    // in the hover tip until the next read replaces the snapshot.
+    function totalState(current, size, now) {
+        return { [TOTAL_KEY]: { total: size, tallyAt: (current || {})[COUNT_KEY] || 0, ts: now } };
+    }
+
+    // What the popup shows: Steam's total plus whatever the counter moved since
+    // it was read, so a swipe shows at once instead of waiting for the next
+    // read, and every read resets the estimate to Steam's number. null when
+    // there has been no read yet: the counter is a different number, never a
+    // stand-in for this one.
+    function displayTotal(snapshot, count) {
+        if (!snapshot || typeof snapshot.total !== 'number') return null;
+        return Math.max(0, snapshot.total + ((count || 0) - (snapshot.tallyAt || 0)));
+    }
+
     window.ILAP = window.ILAP || {};
     window.ILAP.StatsLogic = {
-        increment, decrement, pushHistory, nextState, countState, uncountState,
-        miSourceLabel, COUNT_KEY, HISTORY_KEY, LAST_KEY, HISTORY_LIMIT, SOURCE
+        increment, decrement, pushHistory, nextState, countState, uncountState, historyState,
+        totalState, displayTotal,
+        miSourceLabel, COUNT_KEY, HISTORY_KEY, LAST_KEY, TOTAL_KEY, HISTORY_LIMIT, SOURCE
     };
 
 })();

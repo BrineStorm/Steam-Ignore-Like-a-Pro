@@ -5,7 +5,7 @@ const path = require('path');
 const vm = require('vm');
 const { loadSettingsSchema } = require('../_settings-schema.js');
 
-// Binding resolution (src/manual-ignore/utils.js): which of the THREE actions —
+// Binding resolution (src/manual-ignore/gestures.js): which of the THREE actions —
 // ignore, already-played, un-ignore — a click or a swipe resolves to.
 //
 // The un-ignore binding now draws from the same vocabulary as the two ignore
@@ -15,12 +15,13 @@ const { loadSettingsSchema } = require('../_settings-schema.js');
 // precedence a contract of its own: the ignore bindings are read FIRST, so a
 // value bound twice costs the rollback, never the ignore.
 //
-// utils.js is an IIFE that evals with no chrome/document, so it runs in Node —
-// same harness as zigzag.unit.spec.js.
-function loadMI() {
+// gestures.js is an IIFE that evals with no document, so it runs in Node — same
+// harness as zigzag.unit.spec.js. `chrome` carries only what the menu-at-press
+// cancel reads: a live extension id, or none for a tab orphaned by an update.
+function loadMI(chrome = { runtime: { id: 'ilap-test' } }) {
     const code = fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'utils.js'), 'utf8');
-    const sandbox = { window: {}, Math, Set, Array, Object, String };
+        path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'gestures.js'), 'utf8');
+    const sandbox = { window: {}, chrome, Math, Set, Array, Object, String };
     vm.createContext(sandbox);
     loadSettingsSchema(sandbox);
     vm.runInContext(code, sandbox);
@@ -150,28 +151,34 @@ test.describe('swipe resolution', () => {
     });
 });
 
+// Anything on the page that is not a capsule.
+const plainEl = () => ({ closest: () => null });
+
 // A detector that survives several gestures, so the menu-suppression latch can
 // be watched ACROSS them. `menu()` reports whether that contextmenu was
 // swallowed; the two orderings below are the two platforms.
-function detectorHarness(config) {
-    const MI = loadMI();
+function detectorHarness(config, chrome) {
+    const MI = loadMI(chrome);
     const detector = new MI.SwipeGestureDetector(configOf(config));
     let fired = null;
-    detector.attach({ addEventListener: () => {} }, (data) => { fired = data; });
+    let hints = 0;
+    detector.attach({ addEventListener: () => {} }, (data) => { fired = data; }, () => { hints += 1; });
 
     const el = linkEl();
     return {
         fired: () => fired,
-        down: (x) => detector.onMouseDown(
-            { isTrusted: true, button: 2, clientX: x, clientY: 0, target: el }),
+        hints: () => hints,
+        down: (x, target = el) => detector.onMouseDown(
+            { isTrusted: true, button: 2, clientX: x, clientY: 0, target }),
         move: (x) => detector.onMouseMove({ isTrusted: true, clientX: x }),
         up: (x) => {
             fired = null;
             detector.onMouseUp({ isTrusted: true, button: 2, clientX: x, clientY: 0 });
         },
-        menu: () => {
+        menu: (isTrusted = true) => {
             let prevented = false;
             detector.onContextMenu({
+                isTrusted,
                 preventDefault: () => { prevented = true; },
                 stopPropagation: () => {},
             });
@@ -192,23 +199,25 @@ test.describe('context-menu suppression latch', () => {
         expect(d.menu()).toBe(false);   // spent
     });
 
-    test('Firefox ordering: a stale latch never reaches an unrelated right-click', () => {
-        // Regression. Firefox dispatches contextmenu at mouse-DOWN, before
-        // onMouseUp arms the latch — so a recognised gesture there leaves it
-        // armed with no menu of its own left to spend it, and the NEXT,
-        // unrelated right-click had its menu swallowed by a gesture that ended
-        // long ago. onMouseDown clearing the latch is what closes that.
+    test('menu-at-press ordering: a stale latch never reaches an unrelated right-click', () => {
+        // Regression. Off Windows (and for Playwright's input on Firefox)
+        // contextmenu arrives at mouse-DOWN, before onMouseUp arms the latch —
+        // so a recognised gesture there leaves it armed with no menu of its own
+        // left to spend it, and the NEXT, unrelated right-click had its menu
+        // swallowed by a gesture that ended long ago. onMouseDown clearing the
+        // latch is what closes that.
         const d = detectorHarness({});
 
-        // Gesture 1, Firefox order: menu at mousedown (nothing armed yet), then
-        // the gesture is recognised on mouseup and arms the latch.
+        // Gesture 1, menu-at-press order: the menu on the capsule is cancelled
+        // at press (see the describe below), then the gesture is recognised on
+        // mouseup and arms the latch.
         d.down(0);
-        expect(d.menu()).toBe(false);
+        expect(d.menu()).toBe(true);
         d.move(30); d.up(60);
         expect(d.fired()).toMatchObject({ reason: 0 });
 
-        // A plain right-click somewhere else: its menu must open.
-        d.down(500);
+        // A plain right-click somewhere else, off any capsule: its menu must open.
+        d.down(500, plainEl());
         expect(d.menu()).toBe(false);
         d.up(500);
         expect(d.fired()).toBeNull();
@@ -231,6 +240,70 @@ test.describe('context-menu suppression latch', () => {
         d.up(100);
         expect(d.fired()).toMatchObject({ action: 'unignore' });
         expect(d.menu()).toBe(true);
+    });
+});
+
+test.describe('a context menu that opens at press (macOS, Linux)', () => {
+    // There the menu arrives while the right button is still down, grabs the
+    // pointer, and the page never sees the moves or the release: no gesture
+    // can finish. On a capsule, with a gesture bound, it is cancelled.
+
+    test('on a capsule with a gesture bound: cancelled, the gesture completes, the hint is told', () => {
+        const d = detectorHarness({});
+        d.down(0);
+        expect(d.menu()).toBe(true);
+        expect(d.hints()).toBe(1);
+        d.move(30); d.up(60);
+        expect(d.fired()).toMatchObject({ reason: 0 });
+    });
+
+    test('off a capsule it stays', () => {
+        const d = detectorHarness({});
+        d.down(0, plainEl());
+        expect(d.menu()).toBe(false);
+        expect(d.hints()).toBe(0);
+    });
+
+    test('with every action on a click or off it stays: nothing needs the button held', () => {
+        const d = detectorHarness({ defaultKey: 'shiftKey', platformKey: 'altKey', unignoreKey: 'off' });
+        d.down(0);
+        expect(d.menu()).toBe(false);
+    });
+
+    test('one gesture bound is enough, whichever action holds it', () => {
+        const d = detectorHarness({ defaultKey: 'shiftKey', platformKey: 'altKey', unignoreKey: 'zigzag' });
+        d.down(0);
+        expect(d.menu()).toBe(true);
+    });
+
+    test('with the master switch off it stays', () => {
+        const d = detectorHarness({ enabled: false });
+        d.down(0);
+        expect(d.menu()).toBe(false);
+    });
+
+    test('a synthetic contextmenu is left alone', () => {
+        const d = detectorHarness({});
+        d.down(0);
+        expect(d.menu(false)).toBe(false);
+    });
+
+    test('a tab orphaned by an extension update leaves the menu alone', () => {
+        // Its gesture could not be queued: cancelling the menu would cost the
+        // user both. chrome.runtime.id is what such a script loses.
+        const d = detectorHarness({}, { runtime: {} });
+        d.down(0);
+        expect(d.menu()).toBe(false);
+        expect(d.hints()).toBe(0);
+    });
+
+    test('Windows ordering: a plain right-click on a capsule keeps its menu', () => {
+        // The menu comes after mouse-up there: the press is over, so only the
+        // latch of a recognised gesture can cancel it — and a click arms none.
+        const d = detectorHarness({});
+        d.down(0); d.up(0);
+        expect(d.menu()).toBe(false);
+        expect(d.hints()).toBe(0);
     });
 });
 
@@ -269,7 +342,7 @@ test.describe('ManualIgnore — ConfigService (unit)', () => {
     function loadConfig(stored, opts) {
         opts = opts || {};
         const code = fs.readFileSync(
-            path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'utils.js'), 'utf8');
+            path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'config.js'), 'utf8');
         const listeners = [];
         const warned = [];
         let reads = 0;

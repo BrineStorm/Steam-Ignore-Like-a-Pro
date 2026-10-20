@@ -4,8 +4,29 @@ What changed in each released version, newest first. Versions follow the two
 manifests (`platform/chromium/manifest.json`, `platform/firefox/manifest.json`),
 which are the only place the version number lives.
 
-No release dates here on purpose: the store listings carry them, and a date in a
+No release dates here on purpose. The store listings show them, and a date in a
 tracked file is one more thing that can quietly stop being true.
+
+## 1.3.2
+
+- **The extension's tagline and description are translated** into all 19 interface
+  languages, in the browser and in the store.
+- Change the reason on a game Steam already shows as ignored. A gesture on the
+  cover Steam greys out switches it between Default Ignore and Already Played and
+  tints Steam's IGNORED flag red or blue. Hover the flag to see what changed. Such
+  a change is not counted, and Undo does not bring the old reason back.
+- **Hover Total Ignored to see how many games your whole Steam ignore list contains,**
+  as read from Steam, and when the list was last read.
+- **Fixed the right-click swipe on macOS and Linux,** where the context menu opened
+  on press and swallowed the gesture. While a gesture is bound, it now replaces
+  the menu on game covers. A one-time card explains how to keep the menu.
+- Reading a curator's list now shares the request pace with the ignores, so staging
+  one curator while another is being ignored adds no extra burst of requests.
+- While you browse Steam yourself, ignores from curator lists and Undo go out at a
+  slower pace. When Steam asks to slow down after you press its own Ignore button,
+  the queue backs off too.
+- Improved translations.
+- Minor bug fixes, UI/UX improvements, refactoring and optimizations.
 
 ## 1.3.1
 
@@ -62,19 +83,15 @@ tracked file is one more thing that can quietly stop being true.
 - A toast when Steam refuses to roll an ignore back.
 - Hotkey and shift-click on the widget chevron.
 - Total Ignored counts both the ignore and the un-ignore queues.
-- The login check no longer trusts the `sessionid` cookie (Steam hands one to
-  anonymous visitors too) — it reads the signed-in header and falls back to a
-  cached probe, so "signed out" stays distinguishable from "couldn't ask".
+- A more reliable check of whether you are signed in to Steam.
 - Popup UI fits the 600px window; own tooltips for undo and the language chip.
-- The Discovery Queue automator acts strictly on the centred slot, and both
-  content modules boot off a `readyState` guard instead of a bare `load`
-  listener — on Firefox they could otherwise miss the event entirely.
-- `LICENSE.MPL` no longer ships inside the package; it stays in the repository,
-  where it documents what releases up to 1.1 went out under.
+- The Discovery Queue automator acts only on the game in the centre.
+- Manual Ignore and the Discovery Queue automator now always start on Firefox.
+- `LICENSE.MPL` no longer ships inside the package.
 - Privacy policy: disclosed the local curator staging cache.
 - A cancelled Manual Ignore job no longer un-badges games it never sent.
-- The Firefox context-menu latch, the widget tooltip placement, and Explore Queue
-  URL tracking (now polled).
+- Fixed the Firefox context menu, the widget tooltip placement and Explore Queue
+  page tracking.
 
 ## 1.2
 
@@ -107,11 +124,11 @@ tracked file is one more thing that can quietly stop being true.
 
 ## 1.0.0
 
-First release: ignore games from the store by gesture, through the Explore Queue,
-or automatically through Your Discovery Queue, with a settings popup, an AI
-disclosure, a privacy policy and a readme.
+- First release: ignore games from the store by gesture, through the Explore Queue,
+  or automatically through Your Discovery Queue, with a settings popup, an AI
+  disclosure, a privacy policy and a readme.
 
 ---
 
-Commits before 1.0.0 carry a `1.3.0` version string in the manifest. It was never
-released and never meant anything; the numbering restarts at 1.0.0.
+Commits before 1.0.0 have a `1.3.0` version string in the manifest. It was never
+released and never meant anything. The numbering restarts at 1.0.0.

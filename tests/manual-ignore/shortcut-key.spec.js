@@ -4,8 +4,8 @@ const {
     DRAIN_TIMEOUT,
     rightClickSwipe,
     pickFirstRow,
+    pickRows,
     searchRow,
-    SEARCH_ROW,
     gotoWithStubs,
     miJob,
 } = require('./_helpers');
@@ -76,14 +76,9 @@ test.describe('Manual Ignore — alternative shortcut (Ctrl+Click)', () => {
 
         // Each search row IS an /app/ link; take two distinct rows so dedup
         // doesn't suppress the second call.
-        const rows = page.locator(SEARCH_ROW);
-        await rows.first().waitFor({ state: 'attached', timeout: 10000 });
-        const firstLink = rows.nth(0);
-        const secondLink = rows.nth(1);
-
-        const firstId = (await firstLink.getAttribute('href')).match(/\/app\/(\d+)/)[1];
-        const secondId = (await secondLink.getAttribute('href')).match(/\/app\/(\d+)/)[1];
-        expect(firstId).not.toBe(secondId);
+        const [first, second] = await pickRows(page, 2);
+        const { link: firstLink, appid: firstId } = first;
+        const { link: secondLink, appid: secondId } = second;
 
         await firstLink.scrollIntoViewIfNeeded();
         await firstLink.click({ modifiers: ['Control'], force: true });

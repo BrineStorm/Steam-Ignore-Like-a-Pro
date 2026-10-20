@@ -1,7 +1,7 @@
 {
   "name": "steam-ignore-like-a-pro",
   "private": true,
-  "description": "Helper tool for ignoring games in the Steam Store.",
+  "description": "Ignore Steam Store games with a mouse swipe, or in bulk from curator lists, tag Discovery Queues and your daily queue.",
   "author": "",
   "license": "GPL-3.0-or-later",
   "scripts": {

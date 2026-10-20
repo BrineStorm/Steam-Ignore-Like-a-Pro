@@ -6,6 +6,7 @@ const {
     rightClickSwipe,
     rightClickZigzag,
     pickFirstRow,
+    pickRows,
     searchRow,
     gotoWithStubs,
     miUndoJob,
@@ -76,16 +77,6 @@ async function ignoreFirstRow(page, calls, dx = 60) {
     const { link, appid } = await pickFirstRow(page);
     await ignoreRow(page, calls, link, appid, dx);
     return { link, appid };
-}
-
-// The Nth search row (each row IS the /app/ link — see _helpers.SEARCH_ROW).
-async function pickRow(page, n) {
-    const link = page.locator('a.search_result_row[href*="/app/"]').nth(n);
-    await link.waitFor({ state: 'attached', timeout: 15000 });
-    const href = await link.getAttribute('href');
-    const m = href && href.match(/\/app\/(\d+)/);
-    if (!m) throw new Error(`pickRow(${n}): no /app/<id> in href "${href}"`);
-    return { link, appid: m[1] };
 }
 
 // Roll a badged game back and wait for the remove POST to land.
@@ -370,10 +361,9 @@ test.describe('Manual Ignore — solo un-ignore gesture', () => {
 
         expect(await miUndoJob(context)).toBeNull();
         expect(calls.filter(c => c.remove)).toHaveLength(0);
-        // The other half of the regression: the binding's listener sits in
-        // CAPTURE phase and calls stopPropagation, so a handled right-click never
-        // reaches this document-level spy at all. Seeing the event — unprevented
-        // — is the proof that a disabled extension left the page's own menu alone.
+        // The other half of the regression: a disabled extension must leave the
+        // page's own menu alone. The spy sees every contextmenu (it captures on
+        // window, ahead of the extension), so fired-and-not-cancelled is the proof.
         const spy = await readContextMenuSpy(page);
         expect(spy.fired).toBeGreaterThan(0);
         expect(spy.prevented).toBe(0);
@@ -523,8 +513,9 @@ test.describe('Manual Ignore — solo un-ignore gesture', () => {
         test.setTimeout(90000);
         const calls = await gotoWithStubs(page, context, searchUrl());
 
+        const rows = await pickRows(page, 2);
         for (const [first, second] of [[60, -60], [-60, 60]]) {
-            const { link, appid } = await pickRow(page, first > 0 ? 0 : 1);
+            const { link, appid } = rows[first > 0 ? 0 : 1];
             await ignoreRow(page, calls, link, appid, first);
             await unignoreRow(page, calls, link, appid);
             // Re-ignore with the opposite reason — nothing may stand in the way.

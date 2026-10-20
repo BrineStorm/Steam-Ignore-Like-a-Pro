@@ -6,12 +6,13 @@
     window.ILAP.Explore = window.ILAP.Explore || {};
 
     // Steam's own review-summary shades come from the shared table
-    // (src/steam-palette.js), which the Discovery Queue reads too — the two used
+    // (src/queue-common/steam-palette.js), which the Discovery Queue reads too — the two used
     // to keep private copies and the copies drifted. Each band is a SET: the
     // current shade first, older ones behind it. Classification fails SAFE: a
     // game is only IGNORE-worthy when a row colour matches one of the bad sets;
-    // any unrecognised colour is treated as SPARE.
-    const PALETTE = (window.ILAP && window.ILAP.SteamPalette) || { BLUE: [], MIXED: [], NEGATIVE: [] };
+    // any unrecognised colour is treated as SPARE. Required: with no bad bands,
+    // "Bad Reviews" mode would spare every game and say nothing.
+    const PALETTE = window.ILAP.SteamPalette;
     const COLORS = {
         BLUE: PALETTE.BLUE,
         MIXED: PALETTE.MIXED,
@@ -25,7 +26,8 @@
     const KEYS = {
         ACTIVE: 'ilap_queue_active',
         NAV_TOKEN: 'ilap_queue_nav_token',
-        ACTIVE_APPID: 'ilap_queue_active_appid'
+        ACTIVE_APPID: 'ilap_queue_active_appid',
+        RUN: 'ilap_queue_run'
     };
 
     // --- Domain Entities ---
@@ -146,17 +148,21 @@
             this.session.remove(KEYS.ACTIVE);
             this.session.remove(KEYS.NAV_TOKEN);
             this.session.remove(KEYS.ACTIVE_APPID);
+            this.session.remove(KEYS.RUN);
         }
 
+        // `run`: the id RunLedger gave the run this intent belongs to.
         getUserIntent() {
             return {
-                wantsActive: this.session.get(KEYS.ACTIVE) === 'true'
+                wantsActive: this.session.get(KEYS.ACTIVE) === 'true',
+                run: this.session.get(KEYS.RUN)
             };
         }
 
-        setIntent(type, appid) {
+        setIntent(type, appid, run) {
             if (type === 'ACTIVE') this.session.set(KEYS.ACTIVE, 'true');
             if (appid) this.session.set(KEYS.ACTIVE_APPID, String(appid));
+            if (run) this.session.set(KEYS.RUN, run);
         }
 
         // Tracks the appid that the current ACTIVE intent belongs to.
@@ -230,6 +236,57 @@
         }
     }
 
+    // The Queue Helper runs the user started with a real click on Run. A run's id
+    // rides from one queue page to the next in the tab's sessionStorage, which the
+    // Steam page can write too, so the id counts only while it is listed here, in
+    // extension storage. Every stop closes it; an id left by a closed tab is
+    // dropped after RUN_TTL_MS.
+    const RUNS_KEY = 'ilap_queue_runs';   // { [runId]: openedAt }
+    const RUN_TTL_MS = 24 * 60 * 60 * 1000;
+    const readRuns = () => new Promise(resolve => chrome.storage.local.get({ [RUNS_KEY]: {} }, (d) => {
+        const runs = d && d[RUNS_KEY];
+        resolve(runs && typeof runs === 'object' ? runs : {});
+    }));
+    const isOpen = (at, now) => Number.isFinite(at) && at <= now && now - at < RUN_TTL_MS;
+
+    class RunLedger {
+        constructor() {
+            this._serial = window.ILAP.serialChain();
+        }
+
+        // Read, keep the open entries, apply `fn`, write back. Serialized per
+        // context; across tabs a lost update closes a run early, which only
+        // brings its Run prompt back.
+        _mutate(fn) {
+            return this._serial(async () => {
+                const now = Date.now();
+                const runs = {};
+                for (const [id, at] of Object.entries(await readRuns())) {
+                    if (isOpen(at, now)) runs[id] = at;
+                }
+                fn(runs, now);
+                await new Promise(resolve => chrome.storage.local.set({ [RUNS_KEY]: runs }, resolve));
+            });
+        }
+
+        async open() {
+            const id = window.ILAP.newOwnerId('eq_');
+            await this._mutate((runs, now) => { runs[id] = now; });
+            return id;
+        }
+
+        async isLive(id) {
+            if (!id) return false;
+            const runs = await readRuns();
+            return Object.prototype.hasOwnProperty.call(runs, id) && isOpen(runs[id], Date.now());
+        }
+
+        close(id) {
+            if (!id) return Promise.resolve();
+            return this._mutate((runs) => { delete runs[id]; });
+        }
+    }
+
     // Export
     window.ILAP.Explore.COLORS = COLORS;
     window.ILAP.Explore.KEYS = KEYS;
@@ -238,4 +295,5 @@
     window.ILAP.Explore.DecisionEngine = DecisionEngine;
     window.ILAP.Explore.NavigationGuard = NavigationGuard;
     window.ILAP.Explore.QueueSettings = QueueSettings;
+    window.ILAP.Explore.RunLedger = RunLedger;
 })();

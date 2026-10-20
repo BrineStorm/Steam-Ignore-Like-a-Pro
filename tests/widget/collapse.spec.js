@@ -155,6 +155,32 @@ test.describe('on-page widget — collapse to chevron', () => {
         expect(box.y + box.height).toBeLessThanOrEqual(500);
     });
 
+    test('a dropdown left open when a page click closes the panel is shut on the next open', async ({ page }) => {
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session — run: npm run test:auth'); // panel is login-gated
+
+        await page.goto(searchUrl());
+        await page.locator('.ilap-chevron').click();
+        await page.locator('.ilap-launcher').click();
+        const panel = page.locator('.ilap-panel');
+        await expect(panel).toHaveClass(/open/);
+
+        // SETTINGS → Manual Ignore → the Default Ignore binding menu.
+        await panel.locator('#settings-accordion > summary').click();
+        await panel.locator('#mi-section > summary').click();
+        await panel.locator('#default-key-display').click();
+        const menu = panel.locator('#default-key-display ~ .select-menu');
+        await expect(menu).toHaveClass(/open/);
+
+        // A click on the page closes the panel; the shadow root never sees it.
+        await page.mouse.click(10, 400);
+        await expect(panel).not.toHaveClass(/open/);
+
+        await page.locator('.ilap-launcher').click();
+        await expect(panel).toHaveClass(/open/);
+        await expect(panel.locator('#mi-section')).toHaveJSProperty('open', true); // accordions keep their state
+        await expect(menu).not.toHaveClass(/open/);
+    });
+
     test('an open panel counts as activity — idle timer bumps instead of collapsing', async ({ context, page }) => {
         test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session — run: npm run test:auth'); // panel is login-gated
 

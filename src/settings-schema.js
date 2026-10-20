@@ -31,9 +31,11 @@
         Q_MODE: Q_MODES.BAD,
     });
 
+    // The bindings fired by a right-button gesture; the rest are modifier-clicks.
+    const GESTURES = Object.freeze(['swipeRight', 'swipeLeft', 'zigzag']);
     // Every binding the three gesture selects offer, in menu order; OFF is the
     // shared "no binding".
-    const BINDINGS = Object.freeze(['swipeRight', 'swipeLeft', 'zigzag', 'ctrlKey', 'shiftKey', 'altKey']);
+    const BINDINGS = Object.freeze(GESTURES.concat(['ctrlKey', 'shiftKey', 'altKey']));
     const OFF = 'off';
     const UNIGNORE_KEYS = Object.freeze(BINDINGS.concat(OFF));
 
@@ -58,7 +60,7 @@
 
     window.ILAP = window.ILAP || {};
     window.ILAP.Settings = Object.freeze({
-        KEYS, DEFAULTS, Q_MODES, BINDINGS, OFF, UNIGNORE_KEYS,
+        KEYS, DEFAULTS, Q_MODES, GESTURES, BINDINGS, OFF, UNIGNORE_KEYS,
         isOn, normalizeShortcut, normalizeUnignore,
     });
 })();

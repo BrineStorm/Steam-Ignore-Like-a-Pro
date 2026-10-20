@@ -89,6 +89,18 @@ test.describe('fetchWithTimeout (unit)', () => {
         await expect(res.json()).rejects.toThrow(/abort/i);
     });
 
+    test('the strict read keeps each game\'s ignore reason; the lenient one only the appids', async () => {
+        // The MI dedupe compares reasons: a swipe with the other one is a change
+        // of reason Steam accepts, not a duplicate.
+        const body = { rgIgnoredApps: { 10: 0, 20: 2 } };
+        const ILAP = loadIlap(() => Promise.resolve({ ok: true, json: async () => body }));
+        const strict = await ILAP.fetchIgnoredAppsStrict();
+        expect([...strict.entries()]).toEqual([['10', 0], ['20', 2]]);
+        const lenient = await ILAP.fetchIgnoredApps();
+        expect(lenient instanceof Set).toBe(true);
+        expect([...lenient]).toEqual(['10', '20']);
+    });
+
     test('fetchIgnoredApps resolves to an empty Set when the body stalls', async () => {
         // fetchIgnoredApps uses the default 10 s deadline — clamp the sandbox
         // setTimeout so the unit stays instant without touching the contract.
@@ -121,7 +133,7 @@ test.describe('ignore POST fields (unit)', () => {
     function loadWithCookie(posts) {
         const code = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'utils.js'), 'utf8');
         const sandbox = {
-            window: {}, console, AbortController, URLSearchParams,
+            window: {}, console, AbortController, URLSearchParams, performance,
             document: { cookie: 'foo=1; sessionid=abc123' },
             fetch: async (url, opts) => { posts.push({ url, body: opts.body }); return { ok: true, status: 200 }; },
             setTimeout, clearTimeout, Date, Math, Object, Promise, Set, String, RegExp,

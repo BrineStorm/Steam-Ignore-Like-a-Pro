@@ -331,6 +331,38 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         expect(data().ilap_curator_queue[0].appids).toHaveLength(MI_MAX); // unchanged
     });
 
+    test('MI_MAX counts the PENDING tail: drained entries do not fill the job', async () => {
+        // Drained entries stay in `appids` until the job empties. A job that
+        // never empties (its drain yielding to a foreground queue run, say)
+        // must not read as full while most of it has already landed.
+        const MI_MAX = loadStore().MI_MAX;
+        const appids = Array.from({ length: MI_MAX }, (_, i) => String(i));
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: 'job_mi', type: 'mi', curatorId: 'mi',
+                appids, meta: {}, total: appids.length, status: 'pending',
+            }],
+            ilap_curator_cursor_job_mi: 150,   // 50 still wait
+        });
+        expect(await Store.enqueueMi({ appid: 99999, name: 'Z', reason: 0 }))
+            .toEqual({ kind: 'added', total: MI_MAX + 1 });
+        expect(data().ilap_curator_queue[0].appids).toHaveLength(MI_MAX + 1);
+    });
+
+    test('a job that never empties stops growing at GESTURE_JOB_CEILING', async () => {
+        const S = loadStore();
+        const appids = Array.from({ length: S.GESTURE_JOB_CEILING }, (_, i) => String(i));
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: 'job_mi', type: 'mi', curatorId: 'mi',
+                appids, meta: {}, total: appids.length, status: 'pending',
+            }],
+            ilap_curator_cursor_job_mi: S.GESTURE_JOB_CEILING - 1,   // one waits
+        });
+        expect(await Store.enqueueMi({ appid: 99999, name: 'Z', reason: 0 })).toEqual({ kind: 'full' });
+        expect(data().ilap_curator_queue[0].appids).toHaveLength(S.GESTURE_JOB_CEILING);
+    });
+
     test('at MI_MAX, a game ALREADY queued still dedupes instead of reading as full', async () => {
         // The cap may only refuse a gesture that would GROW the job. A swipe on a
         // game already in the undrained tail changes nothing, so answering it
@@ -607,6 +639,42 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         expect(mi.appids).toEqual(['10']);
         expect(mi.meta['10'].cancelled).toBeUndefined();
         expect(mi.meta['10'].reason).toBe(2);
+    });
+
+    test('cancelMiEntry reports true only for a swipe the entry holds', async () => {
+        // A pending entry another tab queued AFTER this tab's swipe (here at
+        // 222, this tab's swipe at 111, long drained) does not hold that swipe:
+        // false, so the caller queues a real rollback.
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.enqueueMi({ appid: 10, name: 'A', reason: 2, ts: 222 });
+        expect(data().ilap_curator_queue[0].meta['10'].ts).toBe(222);
+        expect(await Store.cancelMiEntry(10, 111)).toBe(false);
+        expect(await Store.cancelMiEntry(10, undefined)).toBe(false);
+        expect(await Store.cancelMiEntry(10, 222)).toBe(true);
+    });
+
+    test('a foreign entry is still marked: it predates the rollback that refused it', async () => {
+        // Left pending, the other tab's older swipe would land after this tab's
+        // rollback and re-ignore the game.
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.enqueueMi({ appid: 10, name: 'A', reason: 2, ts: 222 });
+        expect(await Store.cancelMiEntry(10, 111)).toBe(false);
+        expect(data().ilap_curator_queue[0].meta['10']).toMatchObject({ ts: 222, cancelled: true });
+    });
+
+    test('a swipe deduped into a pending entry keeps its first ts: either tab may cancel', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.enqueueMi({ appid: 10, name: 'A', reason: 0, ts: 100 });
+        await Store.enqueueMi({ appid: 10, name: 'A', reason: 2, ts: 300 });   // the other tab
+        const meta = data().ilap_curator_queue[0].meta['10'];
+        expect(meta).toMatchObject({ reason: 2, ts: 100 });
+        expect(await Store.cancelMiEntry(10, 300)).toBe(true);
+        // Revived after the cancel: the swipes it held were taken back, so it
+        // is the reviving swipe's entry now.
+        await Store.enqueueMi({ appid: 10, name: 'A', reason: 2, ts: 400 });
+        expect(data().ilap_curator_queue[0].meta['10'].ts).toBe(400);
+        expect(await Store.cancelMiEntry(10, 300)).toBe(false);
+        expect(await Store.cancelMiEntry(10, 400)).toBe(true);
     });
 
     test('cancelMiEntry never touches the un-ignore job', async () => {

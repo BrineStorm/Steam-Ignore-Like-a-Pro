@@ -1,6 +1,7 @@
 const { test, expect } = require('../_fixtures.js');
 const { setExtensionStorage, clearExtensionStorage } = require('../_extension.js');
 const { tagUrl } = require('../_tags.js'); // random tag page per navigation
+const { skipUnlessQueueRewardSafe } = require('../_sale-reward.js');
 
 const SEL = {
     queueSection: '.SaleSectionCtn.discoveryqueue',
@@ -15,6 +16,8 @@ const SEL = {
 // from the "Explore Your Discovery Queue" widget below the fold on a tag page.
 // The section is lazy-rendered, so scroll until it attaches before waiting.
 async function openQueueModal(page) {
+    // Opening the modal already skips a card: see tests/_sale-reward.js.
+    skipUnlessQueueRewardSafe();
     await page.goto(tagUrl(), { waitUntil: 'domcontentloaded' });
     const section = page.locator(SEL.queueSection).first();
     for (let i = 0; i < 10 && !(await section.count()); i++) {

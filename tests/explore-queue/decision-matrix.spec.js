@@ -9,13 +9,12 @@ const vm = require('vm');
 // has zero DOM/browser dependency, load it directly in Node (vm + a window stub)
 // and assert the contract. No browser, no Steam login, fast.
 function loadDecisionEngine() {
-    const code = fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'explore-queue', 'utils.js'),
-        'utf8'
-    );
+    const src = (...p) => fs.readFileSync(path.join(__dirname, '..', '..', 'src', ...p), 'utf8');
     const sandbox = { window: {} };
     vm.createContext(sandbox);
-    vm.runInContext(code, sandbox);
+    // utils.js requires the review palette, as the content scripts load it.
+    vm.runInContext(src('queue-common', 'steam-palette.js'), sandbox);
+    vm.runInContext(src('explore-queue', 'utils.js'), sandbox);
     return sandbox.window.ILAP.Explore.DecisionEngine;
 }
 

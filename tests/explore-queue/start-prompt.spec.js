@@ -39,7 +39,7 @@ test.describe('Explore Queue — start prompt', () => {
         expect(session.active).toBeNull();
     });
 
-    // The one-time automation notice (src/automation-notice.js): the first Run
+    // The one-time automation notice (src/queue-common/automation-notice.js): the first Run
     // asks, a Cancel starts nothing and asks again next time, Start runs and is
     // remembered. Every ignore is route-faked.
     test('First Run asks once: Cancel starts nothing, Start runs and is remembered', async ({ page, context }) => {

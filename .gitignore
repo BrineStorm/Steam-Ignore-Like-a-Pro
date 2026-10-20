@@ -1,4 +1,5 @@
 .vscode/
+.claude/
 docs/internal/
 test-results/
 playwright-report/
@@ -11,6 +12,4 @@ coverage/
 playwright/.auth/
 tests/auth.json
 user_data/
-playwright-report/
-test-results/
-blob-report/
+*.mov

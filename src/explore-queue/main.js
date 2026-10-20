@@ -6,10 +6,14 @@
         const Explore = window.ILAP.Explore;
         const sessionState = new window.ILAP.SessionStateService();
         const navGuard = new Explore.NavigationGuard(sessionState);
+        const runs = new Explore.RunLedger();
 
-        // 1. GLOBAL WATCHDOG: off a queue page, no automation intent survives.
+        // 1. GLOBAL WATCHDOG: off a queue page, no automation intent survives,
+        //    and the run it belonged to is closed.
         if (!Explore.Context.isQueuePage()) {
+            const run = navGuard.getUserIntent().run;
             navGuard.resetState();
+            if (run) runs.close(run).catch((e) => console.warn('[ILAP] EQ run close failed:', e));
             return;
         }
 
@@ -59,7 +63,8 @@
             analyzer: { getState: () => Explore.Analyzer.getState(Explore.COLORS) }, 
             decisionEngine: Explore.DecisionEngine,
             reward: window.ILAP.SaleReward,
-            notice: window.ILAP.AutomationNotice
+            notice: window.ILAP.AutomationNotice,
+            runs: runs
         });
 
         // 7. Run

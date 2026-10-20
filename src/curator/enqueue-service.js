@@ -18,7 +18,7 @@
         // { kind:'added'|'switched'|'full', jobId?, name?, paused? }, or null when
         // the job already has this filter. `paused` (switched only): the job was
         // paused, and resolve() is to keep it so.
-        async stage(id, name, url, filter) {
+        async stage(id, name, filter) {
             let outcome = null;
             let retired = null;
             await this.store.mutateQueue((queue) => {
@@ -52,7 +52,6 @@
                     type: this.store.JOB_TYPE.CURATOR,
                     curatorId: id,
                     curatorName: name,
-                    curatorUrl: url,
                     filter,
                     appids: [],   // resolved by resolve()
                     total: 0,     // drain progress lives in the per-job cursor key

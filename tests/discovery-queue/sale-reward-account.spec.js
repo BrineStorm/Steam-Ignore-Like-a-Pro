@@ -5,7 +5,7 @@ const { interceptIgnoreApi } = require('../curator/_helpers.js');
 const { routeSaleReward } = require('../_steam-routes.js');
 const { SEL, openQueueModal } = require('./_modal.js');
 
-// The sale-reward answer is bound to an account (src/sale-reward.js): the
+// The sale-reward answer is bound to an account (src/queue-common/sale-reward.js): the
 // account is read from the page's own webapi token, as the `sub` claim of its
 // JWT. The unit spec can only feed it a token made up to that shape; this one
 // takes the real token off a signed-in store page and checks the account the

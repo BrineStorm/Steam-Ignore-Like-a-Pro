@@ -218,6 +218,25 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
 /* While the droplist is open — the tooltip stays out of the way. */
 #popup-root:has(.undo-menu.open) .undo-tip { display: none; }
 
+/* The count's own tip: Steam's whole list, the number in bold. Same box as
+   .undo-tip, pinned under the count at the row's right edge and as wide as its
+   text; it wraps only at the row's width — the "not read yet" sentence is
+   longer than the panel in some locales. */
+.count-tip {
+    visibility: hidden; opacity: 0;
+    position: absolute; top: 100%; right: 0; margin-top: 6px;
+    width: max-content; max-width: 100%; box-sizing: border-box;
+    padding: 5px 8px; z-index: 1001;
+    background: var(--inset); color: var(--text);
+    border: 1px solid var(--accent); border-radius: 6px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+    font-size: 11px; font-weight: 400; line-height: 1.35; pointer-events: none;
+    transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
+}
+.count-tip b { font-weight: 700; }
+#count-link:hover + .count-tip { visibility: visible; opacity: 1; transition-delay: 1.5s; }
+#popup-root:has(.undo-menu.open) .count-tip { display: none; }
+
 /* Droplist under the "Total Ignored" row (anchor #total-row). Overlays the
    Last-Ignored section; the history hover-tooltip is suppressed while the menu is open. */
 .undo-menu {

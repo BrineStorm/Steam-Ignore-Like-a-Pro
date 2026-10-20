@@ -1,0 +1,11 @@
+{
+  "extName": {
+    "message": "Steam Ignore Like A Pro — Ignoră jocuri rapid"
+  },
+  "extNameChrome": {
+    "message": "Steam Ignore Like A Pro — Ignoră jocuri rapid și automat"
+  },
+  "extDescription": {
+    "message": "Adaugă jocuri în lista de ignorate Steam cu un gest al mouse-ului sau liste întregi deodată, alese de tine ori de curatori."
+  }
+}

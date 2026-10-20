@@ -177,8 +177,10 @@
         const id = curatorId();
         if (!id) return;
         const name = curatorName(id);
-        const url = location.origin + location.pathname;
-        service.stage(id, name, url, value).then((outcome) => {
+        // Nothing awaits a pick: a rejected storage call (an extension update,
+        // as in jobAction below) ends here as one warn line.
+        const swallow = (e) => console.warn('[ILAP] curator pick failed:', e);
+        service.stage(id, name, value).then((outcome) => {
             if (!outcome) return;
             if (outcome.kind === 'full') { showToast('curator_toast_full', null, 4500); return; }
             if (outcome.kind === 'switched') {
@@ -187,7 +189,7 @@
                 flash(btn, t('curator_added'));
                 showToast('curator_toast_added', value);
             }
-            service.resolve(id, outcome.jobId, outcome.name, value, outcome.paused).then((res) => {
+            return service.resolve(id, outcome.jobId, outcome.name, value, outcome.paused).then((res) => {
                 // Enumeration produced no drainable list (fetch/parse failure, or
                 // nothing under this filter) — the job was dropped, so tell the user
                 // instead of leaving them with a silently vanished button state.
@@ -198,7 +200,7 @@
                 // catalogue — and re-adding is what finishes the job.
                 else if (res && res.partial) showToast('curator_toast_partial', null, 5000);
             });
-        });
+        }).catch(swallow);
     }
 
     // Pause/Resume or Remove this curator's job, like the applet's row buttons. A

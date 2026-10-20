@@ -92,17 +92,36 @@ test.describe('Popup — main view', () => {
         expect(frozen.chevron).toBe('0s');
     });
 
-    test('Total Ignored counter and Last Ignored name reflect storage', async ({ page, context }) => {
+    test("Total Ignored headlines the extension's counter; Steam's list size rides our own tip, in bold", async ({ page, context }) => {
+        // Read when the counter stood at 40; two ignores have landed since, so
+        // the tip's Steam total runs two ahead of the last read.
         await setExtensionStorage(context, {
             ilap_ignored_count: 42,
+            ilap_ignored_total: { total: 1000, tallyAt: 40, ts: Date.now() },
             ilap_last_ignored_name: 'Some Game',
         });
 
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
 
-        await expect(page.locator('#count-link')).toHaveText('42');
+        const total = page.locator('#count-link');
+        await expect(total).toHaveText('42');
+        expect(await total.getAttribute('title')).toBeNull(); // ours, not the browser's
+        const tip = page.locator('#count-tip');
+        await expect(tip).toHaveText(/^On your Steam ignore list: 1002Last read: .+$/);
+        await expect(tip.locator('b')).toHaveText('1002');
         await expect(page.locator('#last-game')).toHaveText('Some Game');
+    });
+
+    test("before Steam's list is read, the headline is still the counter and the tip says so in words", async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_ignored_count: 42 });
+
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+
+        await expect(page.locator('#count-link')).toHaveText('42');
+        await expect(page.locator('#count-tip')).toHaveText("Your Steam ignore list hasn't been read yet — open any Steam Store page.");
+        await expect(page.locator('#count-tip b')).toHaveCount(0);
     });
 
     test('Defaults render correctly when storage is empty', async ({ page, context }) => {
@@ -156,10 +175,15 @@ test.describe('Popup — main view', () => {
         await expect(page.locator('#count-link')).toHaveText('0');
 
         // Mutate storage from outside the popup; popup_main.js subscribes to onChanged.
-        await setExtensionStorage(context, { ilap_ignored_count: 7, ilap_last_ignored_name: 'Live Game' });
+        await setExtensionStorage(context, {
+            ilap_ignored_count: 7,
+            ilap_ignored_total: { total: 300, tallyAt: 7, ts: Date.now() },
+            ilap_last_ignored_name: 'Live Game',
+        });
         await page.waitForTimeout(400);
 
         await expect(page.locator('#count-link')).toHaveText('7');
+        await expect(page.locator('#count-tip b')).toHaveText('300');
         await expect(page.locator('#last-game')).toHaveText('Live Game');
     });
 
@@ -223,7 +247,7 @@ test.describe('Popup — main view', () => {
         await page.goto(popupUrl(extId));
 
         // Wait out the BOOT render before planting anything: #count-link ships
-        // with a literal 0 in the markup, so asserting on it proves nothing here,
+        // with a literal dash in the markup, so asserting on it proves nothing here,
         // and initPopup's storage callback (which drops .no-transition 100 ms
         // after it paints) would otherwise wipe the sentinel below itself.
         await expect(page.locator('#popup-root')).not.toHaveClass(/no-transition/);
@@ -237,15 +261,18 @@ test.describe('Popup — main view', () => {
         });
 
         // Exactly what one drained curator ignore leaves behind: the gate slot it
-        // burned, the job cursor it advanced, and the bumped total.
+        // burned, the job cursor it advanced, the bumped count, and Steam's list
+        // size from the pass's userdata read.
         await setExtensionStorage(context, {
             ilap_ignore_gate: Date.now(),
             ilap_curator_cursor_j1: 3,
             ilap_ignored_count: 5,
+            ilap_ignored_total: { total: 50, tallyAt: 4, ts: Date.now() },
         });
         await page.waitForTimeout(400);
 
         await expect(page.locator('#count-link')).toHaveText('5');
+        await expect(page.locator('#count-tip b')).toHaveText('51');
         await expect(page.locator('#heavy-sentinel')).toHaveCount(1);
     });
 });

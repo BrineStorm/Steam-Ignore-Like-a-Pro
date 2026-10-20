@@ -22,7 +22,7 @@
     const CURSOR_PREFIX = 'ilap_curator_cursor_';
     const SKIPPED_PREFIX = 'ilap_curator_skipped_';
     const PULSE_KEY = 'ilap_curator_pulse';
-    // Games that stopped being ignored, for every Manual-Ignore tab to un-badge.
+    // Games whose marks every Manual-Ignore tab drops (see signalUnignored).
     const UNIGNORE_PULSE_KEY = 'ilap_unignored';
     // A rollback that will never land. No appid: nothing on the page is wrong.
     const UNDO_FAILED_KEY = 'ilap_undo_failed';
@@ -61,10 +61,14 @@
 
     // The Manual-Ignore job: a swipe enqueues here and the drainer POSTs through
     // the rate gate. One at a time, auto-created and auto-removed; may exceed
-    // MAX_JOBS. Past MI_MAX a swipe is refused.
+    // MAX_JOBS. A swipe is refused while MI_MAX entries wait undrained.
     const MI_ID = 'mi';
     const MI_JOB_ID = 'job_mi';
     const MI_MAX = 200;
+    // Drained entries stay in a gesture job until it empties (`appids` indices
+    // are the cursor's coordinates), and every gesture rewrites the whole queue
+    // record. This bounds a job that never empties, whatever has drained.
+    const GESTURE_JOB_CEILING = 1000;
 
     // The solo un-ignore job: the same machinery, a separate job, because the
     // direction is a property of the whole pass (see JOB_TRAITS.undo), not of
@@ -98,7 +102,7 @@
     // finds one that is not here has found a drift, not a discovery:
     //   gate.js, curator/lease.js, this file, discovery-queue/registry.js,
     //   ignore-log.js, background.js, and explore-queue/utils.js (inline, in
-    //   QueueSettings.read).
+    //   QueueSettings and RunLedger).
     // popup.html does not load utils.js, and a shared shim would be a new
     // cross-world file for a few stable lines. Pure helpers go to escape.js and
     // Steam reads to steam-net.js instead of being copied.
@@ -243,12 +247,17 @@
             // nothing (in another tab, which has no badge of its own to stop it
             // earlier). Only a gesture that would GROW the job can be refused.
             const already = current.indexOf(appid, drained) !== -1;
-            if (!already && current.length >= spec.max) return null;  // full → no-op
+            // The cap counts what still waits, not what already landed. A stale
+            // `drained` is low, so it errs toward full.
+            const full = current.length - drained >= spec.max || current.length >= GESTURE_JOB_CEILING;
+            if (!already && full) return null;  // full → no-op
             const appids = already ? current : current.concat([appid]);
             // Meta is refreshed on a deduped gesture too: another tab may have
             // swiped the same game with the other reason, and the POST must match
-            // the badge the user last saw.
-            const nextMeta = Object.assign({}, base.meta, { [appid]: meta });
+            // the badge the user last saw. `meta(pending)` builds it from the
+            // pending entry's meta, null when there is none.
+            const entry = meta(already && base.meta ? base.meta[appid] : null);
+            const nextMeta = Object.assign({}, base.meta, { [appid]: entry });
             const nextJob = Object.assign({}, base, { appids, meta: nextMeta, total: appids.length });
             outcome = { kind: 'added', total: appids.length };
             return idx === -1 ? queue.concat([nextJob]) : queue.map((j, i) => i === idx ? nextJob : j);
@@ -262,41 +271,60 @@
     };
 
     // A swipe: name and reason travel with the entry for the drainer to use.
+    // `ts` is when the pending entry was FIRST queued, kept when another
+    // gesture dedupes into it: every swipe made since is in it (cancelMiEntry).
+    // A cancelled entry starts over: the swipes it held were all taken back.
     async function enqueueMi(entry) {
-        return appendToAutoJob(MI_SPEC, entry.appid,
-            { name: entry.name || '', reason: entry.reason || 0 });
+        return appendToAutoJob(MI_SPEC, entry.appid, (pending) => {
+            const meta = { name: entry.name || '', reason: entry.reason || 0 };
+            const ts = pending && !pending.cancelled && Number.isFinite(pending.ts) ? pending.ts : entry.ts;
+            if (Number.isFinite(ts)) meta.ts = ts;
+            return meta;
+        });
     }
 
     // A solo un-ignore. The entry carries the gesture time: this job lives on
     // and grows, so a job-level snapshot time would be the first gesture's.
     async function enqueueMiUndo(entry) {
-        return appendToAutoJob(MIUNDO_SPEC, entry.appid, { ts: Date.now() });
+        const ts = Date.now();
+        return appendToAutoJob(MIUNDO_SPEC, entry.appid, () => ({ ts }));
     }
 
     // A rollback gestured for a swipe whose ignore has not been sent: cancel the
     // ignore instead. The entry is marked, not spliced out, because `appids`
     // indices are the cursor's coordinates. A re-swipe rewrites the meta entry,
     // which clears the mark.
-    // True only if the entry was still pending; the cursor is re-read after the
-    // mutation, so a lost race reports false and the caller rolls back for real.
-    async function cancelMiEntry(appid) {
+    // `ts`: when the caller's own swipe was made. Only an entry that was already
+    // queued then contains that swipe. One another tab queued later, for a game
+    // this tab's swipe has since ignored, is still marked — it, too, predates
+    // this rollback, and left pending it would land after it and re-ignore the
+    // game — but reports false: this tab's own ignore was sent, so its
+    // rollback must be real. An entry with no `ts` (older build) is anyone's.
+    // True only if the entry contained the caller's swipe and was still pending; the
+    // cursor is re-read after the mutation, so a lost race reports false and the
+    // caller rolls back for real.
+    async function cancelMiEntry(appid, ts) {
         appid = String(appid);
         const drained = (await getCursor(MI_JOB_ID)) || 0;
         let markedAt = -1;
+        let containsSwipe = false;
         await mutateQueue((queue) => {
             const idx = queue.findIndex(j => jobType(j) === JOB_TYPE.MI);
             if (idx === -1) return null;
             const job = queue[idx];
             const at = (job.appids || []).indexOf(appid, drained);
             if (at === -1) return null;
+            const current = (job.meta || {})[appid];
+            containsSwipe = !(current && Number.isFinite(current.ts))
+                || (Number.isFinite(ts) && current.ts <= ts);
             markedAt = at;
-            const entry = Object.assign({}, (job.meta || {})[appid], { cancelled: true });
+            const entry = Object.assign({}, current, { cancelled: true });
             const nextJob = Object.assign({}, job, {
                 meta: Object.assign({}, job.meta, { [appid]: entry })
             });
             return queue.map((j, i) => i === idx ? nextJob : j);
         });
-        if (markedAt === -1) return false;
+        if (markedAt === -1 || !containsSwipe) return false;
         return markedAt >= ((await getCursor(MI_JOB_ID)) || 0);
     }
 
@@ -341,9 +369,10 @@
         await set({ [PULSE_KEY]: Date.now() });
     }
 
-    // Games that stopped being ignored, for Manual-Ignore tabs to un-badge.
-    // `reason`: 'undo' (rolled back), 'removed' (the user dropped the MI job) or
-    // 'failed' (the deferred POST never landed — the only one the user is told).
+    // Games whose Manual-Ignore marks are wrong now, for the tabs to drop them.
+    // `reason`: 'undo' (rolled back: off the list), 'removed' (the user dropped
+    // the MI job) or 'failed' (the deferred POST never landed — the only one the
+    // user is told).
     async function signalUnignored(appids, reason) {
         const list = (Array.isArray(appids) ? appids : [appids]).map(String);
         if (!list.length) return;
@@ -375,6 +404,6 @@
         JOB_TYPE, CACHE_KEY, QUEUE_KEY, CURSOR_PREFIX, SKIPPED_PREFIX, PULSE_KEY,
         UNIGNORE_PULSE_KEY, UNDO_FAILED_KEY, SW_SID_KEY, SW_HALT_KEY,
         CACHE_TTL, CACHE_MAX, MAX_JOBS, MI_ID, MI_JOB_ID, MI_MAX,
-        MIUNDO_ID, MIUNDO_JOB_ID, MIUNDO_MAX
+        MIUNDO_ID, MIUNDO_JOB_ID, MIUNDO_MAX, GESTURE_JOB_CEILING
     };
 })();

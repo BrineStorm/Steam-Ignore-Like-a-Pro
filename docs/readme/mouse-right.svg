@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 44" width="22" height="24" role="img" aria-label="right mouse button">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6f8fa"/><stop offset="1" stop-color="#b8c2cc"/>
+    </linearGradient>
+    <linearGradient id="btn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#66c0f4"/><stop offset="1" stop-color="#1a7fd6"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="24" height="34" rx="12" fill="url(#body)" stroke="#4a5562" stroke-width="1.6"/>
+  <path d="M20 8 A12 12 0 0 1 32 20 V22 H20 Z" fill="url(#btn)" stroke="#4a5562" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M20 8 V22 M8 22 H32" stroke="#4a5562" stroke-width="1.6"/>
+  <rect x="18.5" y="11.5" width="3" height="7" rx="1.5" fill="#4a5562"/>
+  <ellipse cx="13" cy="31" rx="2" ry="5" fill="#fff" opacity=".55"/>
+  <g stroke="#1a9fff" stroke-width="2.2" stroke-linecap="round">
+    <path d="M34 6 L37 3 M35 11 H39 M30 5 L31 1"/>
+    <animate attributeName="opacity" values="1;.2;1" dur="1.4s" repeatCount="indefinite"/>
+  </g>
+</svg>

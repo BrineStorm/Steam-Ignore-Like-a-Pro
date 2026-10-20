@@ -229,22 +229,20 @@ test.describe('Manual Ignore — container strategies across Steam surfaces', ()
         const appdetails = watchAppdetails(page);
         const calls = await gotoWithStubs(page, context, '/tag/browse/?tags=19');
 
-        // Tag browse hydrates capsules asynchronously. Pick the first /app/ link
-        // and wait for its image container to attach before swiping.
-        const link = page.locator('a[href*="/app/"]').first();
+        // Tag browse hydrates capsules asynchronously. Wait for the first /app/
+        // link, then take the first one the account does not ignore yet.
         try {
-            await link.waitFor({ state: 'attached', timeout: 15000 });
+            await page.locator('a[href*="/app/"]').first().waitFor({ state: 'attached', timeout: 15000 });
         } catch {
             test.skip(true, 'Tag browse rendered no /app/ links; Steam surface changed.');
             return;
         }
-        const href = await link.getAttribute('href');
-        const m = href && href.match(/\/app\/(\d+)/);
-        if (!m) {
-            test.skip(true, `Unexpected href on tag browse: ${href}`);
+        const picked = await pickSwipeable(page, 'a[href*="/app/"]', 12);
+        if (!picked) {
+            test.skip(true, 'Tag browse: no pressable /app/ link the account does not already ignore.');
             return;
         }
-        const appid = m[1];
+        const { link, appid } = picked;
 
         await rightClickSwipe(page, link, 60);
 

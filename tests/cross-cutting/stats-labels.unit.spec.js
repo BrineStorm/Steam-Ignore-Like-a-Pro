@@ -25,6 +25,15 @@ test.describe('StatsLogic history labels (unit)', () => {
         expect(S.miSourceLabel(undefined)).toBe('Default Ignore');
     });
 
+    test('historyState records a change of reason in Last Ignored without counting it', () => {
+        const S = loadStats();
+        const next = S.historyState({ [S.COUNT_KEY]: 5, [S.HISTORY_KEY]: [{ name: 'Old', source: 'Queue' }] },
+            'Foo', 'Played Elsewhere');
+        expect(S.COUNT_KEY in next).toBe(false);
+        expect(next[S.LAST_KEY]).toBe('Foo');
+        expect(next[S.HISTORY_KEY].map(h => h.name)).toEqual(['Foo', 'Old']);
+    });
+
     test('the stored labels keep their exact spelling', () => {
         // They sit in users' history already: a rename would split it in two.
         expect({ ...loadStats().SOURCE }).toEqual({

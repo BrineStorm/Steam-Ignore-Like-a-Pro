@@ -63,6 +63,36 @@
     .ilap-undo-pending { animation: none; }
 }
 
+/* A gesture on a capsule Steam already greys out sets that ignore's reason, and
+   Steam's own IGNORED flag takes the gesture's colour: the badge's red for an
+   ignore, its blue for Already Played. !important: Steam's flag rules carry
+   their own background. */
+.ilap-steam-tint-ignore .ds_ignored_flag {
+    background-color: #D32F2F !important;
+    color: #fff !important;
+}
+
+.ilap-steam-tint-played .ds_ignored_flag {
+    background-color: #4072CB !important;
+    color: #fff !important;
+}
+
+/* Hovering the tinted flag surfaces it from Steam's grey. Steam dims the whole
+   capsule (opacity 0.3 on the capsule itself), and no child can be brighter than
+   its parent, so while the flag is hovered the dimming moves from the capsule
+   onto every other child. As a filter: it multiplies with a child's own opacity
+   (Steam dims the search cover a second time), so the rest looks exactly as
+   before. The flag's tooltip is .ilap-tooltip-floating below. */
+.ilap-steam-tint-ignore:has(> .ds_ignored_flag:hover),
+.ilap-steam-tint-played:has(> .ds_ignored_flag:hover) {
+    opacity: 1 !important;
+}
+
+.ilap-steam-tint-ignore:has(> .ds_ignored_flag:hover) > :not(.ds_ignored_flag),
+.ilap-steam-tint-played:has(> .ds_ignored_flag:hover) > :not(.ds_ignored_flag) {
+    filter: opacity(0.3);
+}
+
 .ilap-ignored-blur {
     /* !important: some capsules (e.g. the top carousel's _8JfsVa2qql image) carry
        Steam's own filter: brightness(1) at equal specificity but later source order,
@@ -131,9 +161,42 @@
     border-color: #67c1f5 transparent transparent transparent;
 }
 
-.ilap-ignored-overlay:hover .ilap-tooltip { 
-    visibility: visible; 
-    opacity: 1; 
+/* Shown after a 1.5 s dwell, so a pass over the badge on the way to a click
+   doesn't flash it; hidden at once on leave (the base rule has no delay). */
+.ilap-ignored-overlay:hover .ilap-tooltip {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity 0.2s ease-in-out 1.5s, visibility 0s linear 1.5s;
+}
+
+/* The tinted Steam flag's tooltip (TintTip in manual-ignore/ui.js): one element
+   on <body>, since inside Steam's greyed capsule it would be dimmed and clipped.
+   `top`/`left` are the flag's top-left corner; it sits above that, arrow at its
+   left. Same dwell as the badge's. */
+.ilap-tooltip.ilap-tooltip-floating {
+    position: fixed;
+    bottom: auto;
+    right: auto;
+    margin: 0;
+    max-width: 260px;
+    transform: translateY(calc(-100% - 8px));
+}
+
+.ilap-tooltip-floating::after {
+    right: auto;
+    left: 10px;
+}
+
+.ilap-tooltip-floating img {
+    width: 16px;
+    height: 16px;
+    vertical-align: middle;
+}
+
+.ilap-tooltip-floating.show {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity 0.2s ease-in-out 1.5s, visibility 0s linear 1.5s;
 }
 
 /* =========================================

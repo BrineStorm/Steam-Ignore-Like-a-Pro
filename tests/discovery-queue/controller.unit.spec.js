@@ -63,7 +63,7 @@ function loadController() {
         HEARTBEAT_MS: 3000, CAP: 2,
         tryAcquire: async () => { calls.acquire += 1; return true; },
         renew: async () => {},
-        release: () => { calls.release += 1; },
+        release: async () => { calls.release += 1; },
     };
 
     // Flipped by the tests: whether the queue modal is on screen, whether the
@@ -112,7 +112,7 @@ function loadController() {
     vm.createContext(sandbox);
     // logic.js reads the shared review palette at load time; same ordering note
     // as automator.unit.spec.js.
-    vm.runInContext(src('steam-palette.js'), sandbox);
+    vm.runInContext(src('queue-common', 'steam-palette.js'), sandbox);
     loadSettingsSchema(sandbox);
     vm.runInContext(src('master-switch.js'), sandbox);   // the real get + onChanged pair
     vm.runInContext(src('discovery-queue', 'logic.js'), sandbox);

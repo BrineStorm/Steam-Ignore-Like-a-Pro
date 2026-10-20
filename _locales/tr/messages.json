@@ -1,0 +1,11 @@
+{
+  "extName": {
+    "message": "Steam Ignore Like A Pro — Oyunları hızla yok sayın"
+  },
+  "extNameChrome": {
+    "message": "Steam Ignore Like A Pro — Oyunları hızla ve otomatik olarak yok sayın"
+  },
+  "extDescription": {
+    "message": "Oyunları tek bir fare hareketiyle ya da seçtiğiniz veya küratörlerin listelerini topluca Steam yok sayma listenize ekleyin."
+  }
+}

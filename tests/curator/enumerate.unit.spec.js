@@ -4,7 +4,7 @@ const path = require('path');
 const vm = require('vm');
 
 // Curator enumeration logic (src/curator/enumerate.js) is pure (parsing / URL /
-// filtering) plus an async fetch loop with fully injectable fetch/sleep.
+// filtering) plus an async fetch loop with fully injectable fetch/pace.
 // Load it directly in Node (vm + a window stub) and assert the contract — no
 // browser, no Steam, no real network. Mirrors the decision-matrix unit pattern.
 function loadEnumerator() {
@@ -106,7 +106,7 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         };
         const result = await E.enumerate('999', {
             fetch: fetchImpl,
-            sleep: () => Promise.resolve(),
+            pace: () => Promise.resolve(),
             count: 500,
         });
 
@@ -125,7 +125,7 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         let i = 0;
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: true, json: async () => queue[i++] }),
-            sleep: () => Promise.resolve(),
+            pace: () => Promise.resolve(),
             count: 2,
         });
         expect(result.total).toBe(4);
@@ -134,10 +134,49 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         expect(result.apps.recommended).toEqual(['4']);
     });
 
+    test('every page read, the first included, waits for its slot from the gate first', async () => {
+        // The read shares the ignore stream (IgnoreGate.paceRead): an unpaced
+        // page would be a second stream on top of a drain.
+        const pageA = { success: 1, total_count: 4, results_html: row('1', 'not_recommended') + row('2', 'not_recommended') };
+        const pageB = { success: 1, total_count: 4, results_html: row('3', 'informational') + row('4', 'recommended') };
+        const queue = [pageA, pageB];
+        const events = [];
+        let i = 0;
+        await E.enumerate('999', {
+            fetch: async () => { events.push('fetch'); return { ok: true, json: async () => queue[i++] }; },
+            pace: async () => { events.push('pace'); },
+            count: 2,
+        });
+        expect(events).toEqual(['pace', 'fetch', 'pace', 'fetch']);
+    });
+
+    test('a 429 on a read is reported to the gate and stops the run as partial', async () => {
+        const reported = [];
+        const res429 = { ok: false, status: 429, headers: { get: () => '30' } };
+        const result = await E.enumerate('999', {
+            fetch: async () => res429,
+            pace: () => Promise.resolve(),
+            rateLimited: async (res) => { reported.push(res); },
+        });
+        expect(reported).toEqual([res429]);
+        expect(result.partial).toBe(true);
+    });
+
+    test('any other failed read is not a rate limit', async () => {
+        const reported = [];
+        const result = await E.enumerate('999', {
+            fetch: async () => ({ ok: false, status: 500 }),
+            pace: () => Promise.resolve(),
+            rateLimited: async (res) => { reported.push(res); },
+        });
+        expect(reported).toEqual([]);
+        expect(result.partial).toBe(true);
+    });
+
     test('enumerate stops cleanly on a failed response', async () => {
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: false }),
-            sleep: () => Promise.resolve(),
+            pace: () => Promise.resolve(),
         });
         expect(result.apps.not_recommended).toEqual([]);
         expect(result.partial, 'a failed first read is a partial run').toBe(true);
@@ -152,7 +191,7 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         const page = { success: 1, total_count: 1, results_html: row('1', 'not_recommended') };
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: true, json: async () => page }),
-            sleep: () => Promise.resolve(),
+            pace: () => Promise.resolve(),
             count: 1,
         });
         expect(result.apps.not_recommended).toEqual(['1']);
@@ -168,7 +207,7 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
                 if (i++ === 0) return { ok: true, json: async () => pageA };
                 throw new Error('network');
             },
-            sleep: () => Promise.resolve(),
+            pace: () => Promise.resolve(),
             count: 2,
         });
         // The rows already read are kept — the job still runs on them...
@@ -186,7 +225,7 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         let i = 0;
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: true, json: async () => queue[i++] }),
-            sleep: () => Promise.resolve(),
+            pace: () => Promise.resolve(),
             count: 1,
         });
         expect(result.apps.not_recommended).toEqual(['1']);
@@ -201,7 +240,7 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         const page = { success: 1, total_count: 99, results_html: '<div class="rec_v2">x</div>' };
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: true, json: async () => page }),
-            sleep: () => Promise.resolve(),
+            pace: () => Promise.resolve(),
             count: 1,
         });
         expect(result.apps.not_recommended).toEqual([]);
@@ -213,7 +252,7 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         const page = { success: 1, total_count: 0, results_html: '' };
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: true, json: async () => page }),
-            sleep: () => Promise.resolve(),
+            pace: () => Promise.resolve(),
             count: 1,
         });
         expect(result.partial).toBe(false);
@@ -223,7 +262,7 @@ test.describe('Curator enumeration — pure logic (unit)', () => {
         const page = { success: 1, total_count: 99, results_html: row('1', 'not_recommended') };
         const result = await E.enumerate('999', {
             fetch: async () => ({ ok: true, json: async () => page }),
-            sleep: () => Promise.resolve(),
+            pace: () => Promise.resolve(),
             count: 1,
             maxPages: 2,
         });

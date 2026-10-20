@@ -10,7 +10,12 @@
         IGNORE_ICON: "M600,96c"
     };
 
-    // Steam's review palette (src/steam-palette.js).
+    // Steam's hashed class on the carousel container (SlideScanner._getCenterSlot).
+    const HASHED = {
+        CAROUSEL: "._3q6eNRFBrPSFSGEn8uRFZ3"
+    };
+
+    // Steam's review palette (src/queue-common/steam-palette.js).
     const PALETTE = window.ILAP && window.ILAP.SteamPalette;
 
     const TIMING = {
@@ -70,7 +75,7 @@
             // slot. Once rendered it is authoritative, even when the slot holds no
             // card: the fallback would find a stale, already-passed card from a
             // leftover Ignore icon, and the loop would click Next forever.
-            const hashed = dialog.querySelector('._3q6eNRFBrPSFSGEn8uRFZ3');
+            const hashed = dialog.querySelector(HASHED.CAROUSEL);
             if (hashed && hashed.children.length > 2) return hashed.children[2];
 
             // FALLBACK — only when that container is absent (class rename) or has
@@ -217,7 +222,7 @@
         //   stats          { save(name, appid) }
         //   nameExtractor  { get(appid, el) → string }
         //   gate           { reserve() → Promise<{ ok }> }, the shared rate governor
-        //   reward         { check() → a STATUS value, STATUS } (src/sale-reward.js)
+        //   reward         { check() → a STATUS value, STATUS } (src/queue-common/sale-reward.js)
         constructor(deps) {
             const need = (adapter, fn, what) => {
                 if (!adapter || typeof adapter[fn] !== 'function') {
@@ -268,7 +273,7 @@
 
         stop() {
             // Idempotent: the DOM observer calls stop() on every removed-node batch
-            // (Steam's React pages mutate constantly), and each _notifyUI() now also
+            // (Steam's React pages mutate constantly), and each _notifyUI() also
             // triggers the controller's _releaseSlot() → a storage RMW. Skip the
             // no-op notify when we're already stopped so idle churn stays free.
             if (!this.isRunning) return;
@@ -277,7 +282,7 @@
         }
 
         async start() {
-            // Re-entrancy guard: _toggle() is now async (it awaits the registry
+            // Re-entrancy guard: _toggle() is async (it awaits the registry
             // acquire), so a fast double-click could otherwise pass the isRunning
             // check twice and spin up two concurrent _loop()s in one tab.
             if (this.isRunning) return;

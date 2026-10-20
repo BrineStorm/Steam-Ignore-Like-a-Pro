@@ -3,10 +3,9 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { loadSettingsSchema } = require('../_settings-schema.js');
 
-// ContainerStrategyProvider Fallback strategy (src/manual-ignore/utils.js) —
-// where the IGNORED badge anchors on a sale/discount capsule. utils.js is an
+// ContainerStrategyProvider Fallback strategy (src/manual-ignore/containers.js) —
+// where the IGNORED badge anchors on a sale/discount capsule. containers.js is an
 // IIFE that evals with no chrome/document at load time, so it runs in Node
 // (vm + a window stub). The badge is CSS-anchored bottom:0 of its target; on a
 // tall multi-row card (a.sale_capsule: cover art, then tag rows, then a price
@@ -14,12 +13,11 @@ const { loadSettingsSchema } = require('../_settings-schema.js');
 // prefer the cover-art container so the badge sits on the image.
 function loadProvider() {
     const code = fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'utils.js'),
+        path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'containers.js'),
         'utf8'
     );
     const sandbox = { window: {} };
     vm.createContext(sandbox);
-    loadSettingsSchema(sandbox);
     vm.runInContext(code, sandbox);
     return sandbox.window.ILAP.ManualIgnore.ContainerStrategyProvider;
 }

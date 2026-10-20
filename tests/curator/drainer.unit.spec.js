@@ -11,6 +11,11 @@ const { loadEnumerator } = require('../_curator.js');
 // vs a dedupe-skip run, a lease steal during the gate wait) that E2E can't
 // drive deterministically. Audit findings #3/#4.
 
+// drainer.js takes userdata's lag from steam-net.js, which both hosts load
+// ahead of it.
+const STEAM_NET = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'src', 'steam-net.js'), 'utf8');
+
 function loadDrainerClass(DateImpl, timers) {
     const code = fs.readFileSync(
         path.join(__dirname, '..', '..', 'src', 'curator', 'drainer.js'), 'utf8');
@@ -25,6 +30,7 @@ function loadDrainerClass(DateImpl, timers) {
         clearTimeout: (timers && timers.clearTimeout) || clearTimeout,
     };
     vm.createContext(sandbox);
+    vm.runInContext(STEAM_NET, sandbox);
     vm.runInContext(code, sandbox);
     // Every drainer dependency is required. A unit fills in what it is not about
     // with inert stand-ins: a confirmed login probe, no-op stats and log hooks, a
@@ -52,20 +58,23 @@ function loadDrainerClass(DateImpl, timers) {
                     releaseLock: viaStore('releaseLock', noop),
                     LOCK_PREFIX: 'ilap_curator_lock_',
                 },
-                fetchUserdata: async () => new Set(),
-                saveStats: noop, bumpCount: noop, dropCount: noop,
+                fetchUserdata: async () => new Map(),
             }, deps, {
+                stats: Object.assign({
+                    save: noop, saveHistory: noop, bumpCount: noop, dropCount: noop, recordTotal: noop,
+                }, deps.stats),
                 api: Object.assign({
                     ignore: async () => { throw new Error('unexpected ignore POST'); },
                     unignore: async () => { throw new Error('unexpected unignore POST'); },
                 }, deps.api),
                 log: Object.assign({
                     append: noop, markUndone: noop,
-                    lastIgnoredAt: async () => -Infinity, wasReIgnoredAfter: async () => false,
+                    lastIgnoredAt: async () => -Infinity, lastUndoneAt: async () => 0,
+                    wasReIgnoredAfter: async () => false,
                 }, deps.log),
                 gate: Object.assign({
                     reserve: async () => { throw new Error('unexpected gate reservation'); },
-                    reportRateLimited: noop, stopped: async () => null,
+                    reportRateLimited: noop, stopped: async () => null, lastSlotAt: async () => 0,
                 }, deps.gate),
             }));
         }
@@ -98,15 +107,21 @@ function loadTabHost() {
             IgnoreGate: { reserve: fn, reportRateLimited: fn, stopVerdict: fn },
             fetchIgnoredAppsStrict: fn,
             SteamAuth: { probeLogin: fn },
-            saveStats: fn, bumpIgnoredCount: fn, dropIgnoredCount: fn,
+            saveStats: fn, saveHistory: fn, bumpIgnoredCount: fn, dropIgnoredCount: fn,
             StatsLogic: { miSourceLabel: () => '' },
-            IgnoreLog: { drainerHooks: () => ({ append: fn, markUndone: fn, lastIgnoredAt: fn, wasReIgnoredAfter: fn }) },
+            IgnoreLog: { drainerHooks: () => ({ append: fn, markUndone: fn, lastIgnoredAt: fn, lastUndoneAt: fn,
+                wasReIgnoredAfter: fn }) },
         } },
     };
     vm.createContext(sandbox);
+    vm.runInContext(STEAM_NET, sandbox);
     vm.runInContext(code, sandbox);
     return { drainer: sandbox.window.ILAP.Curator.drainer, listeners };
 }
+
+// Steam's userdata as the strict reader returns it: appid -> ignore reason,
+// here all ignored with the default reason (0).
+const ignoredOf = (appids, reason = 0) => new Map(appids.map(a => [String(a), reason]));
 
 // A complete set of real-shaped deps, for the construction contract.
 function fullDeps() {
@@ -115,12 +130,12 @@ function fullDeps() {
         store: withVocab({}),
         lease: { acquireLock: fn, renewLock: fn, holdsLock: fn, releaseLock: fn },
         api: { ignore: fn, unignore: fn },
-        gate: { reserve: fn, reportRateLimited: fn, stopped: fn },
+        gate: { reserve: fn, reportRateLimited: fn, stopped: fn, lastSlotAt: fn },
         fetchUserdata: fn,
         probeLogin: fn,
         ownerId: 't',
-        log: { append: fn, markUndone: fn, lastIgnoredAt: fn, wasReIgnoredAfter: fn },
-        saveStats: fn, bumpCount: fn, dropCount: fn,
+        log: { append: fn, markUndone: fn, lastIgnoredAt: fn, lastUndoneAt: fn, wasReIgnoredAfter: fn },
+        stats: { save: fn, saveHistory: fn, bumpCount: fn, dropCount: fn, recordTotal: fn },
     };
 }
 
@@ -136,6 +151,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             Math, Date, Promise, Object, Array, String, Set, TypeError,
             setInterval, clearInterval, setTimeout, clearTimeout };
         vm.createContext(sandbox);
+        vm.runInContext(STEAM_NET, sandbox);
         vm.runInContext(code, sandbox);
         const Raw = sandbox.window.ILAP.Curator.CuratorQueueDrainer;
         expect(() => new Raw(fullDeps())).not.toThrow();
@@ -184,7 +200,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 setCursor: async (id, c, snapshot) => { cursor = c; writes.push({ c, snapshot }); },
                 removeIfDrained: async () => true,
             },
-            fetchUserdata: async () => new Set(['10']),     // '10' is a dedupe skip
+            fetchUserdata: async () => ignoredOf(['10']),     // '10' is a dedupe skip
             api: { ignore: async () => ({ ok: true }) },    // '20' is POSTed
             gate: { reserve: async () => ({ ok: true }) },
             ownerId: 't1',
@@ -225,7 +241,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(appids), // everything already ignored
+            fetchUserdata: async () => ignoredOf(appids), // everything already ignored
             ownerId: 't1',
         });
         await d._drainJob(job);
@@ -257,7 +273,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
             gate: { reserve: async () => { lockHeld = false; return { ok: true }; } },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             ownerId: 't1',
         });
         await d._drainJob(job);
@@ -292,7 +308,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             api: { ignore: () => new Promise(r => { release = () => r({ ok: true }); }) },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             ownerId: 't1',
         });
         const pending = d._drainJob(job);
@@ -309,6 +325,66 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         await pending;
         expect(intervals.size).toBe(0);  // no beat outlives the POST
         expect(cursor).toBe(1);
+    });
+
+    test('the gate hears which reservations are the user\'s own swipes', async () => {
+        // While the user browses Steam, the gate stretches the gap of background
+        // ignores. A swipe is the user's own ignore, so it keeps the normal gap.
+        const Drainer = loadDrainerClass();
+        const cases = [
+            [{ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10'] }, false],
+            [{ id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+                appids: ['10'], meta: { 10: { name: 'Foo', reason: 0 } } }, true],
+        ];
+        for (const [job, gesture] of cases) {
+            let cursor = 0;
+            const seen = [];
+            const d = new Drainer({
+                store: {
+                    getQueue: async () => [{ ...job }],
+                    holdsLock: async () => true,
+                    getCursor: async () => cursor,
+                    setCursor: async (id, c) => { cursor = c; },
+                    removeIfDrained: async () => true,
+                },
+                api: { ignore: async () => ({ ok: true }) },
+                gate: { reserve: async (opts) => { seen.push(opts); return { ok: true }; } },
+                fetchUserdata: async () => new Map(),
+                ownerId: 't1',
+            });
+            await d._drainJob(job);
+            expect(seen).toEqual([{ gesture }]);
+        }
+    });
+
+    test('a log read that throws before the POST leaves no renewal behind', async () => {
+        // The reason before the POST comes from the log; a pass that dies there
+        // (an orphaned tab, a failed storage read) must not keep the lease alive.
+        const intervals = new Map();
+        let nextId = 1;
+        const Drainer = loadDrainerClass(undefined, {
+            setInterval: (fn, ms) => { const id = nextId++; intervals.set(id, { fn, ms }); return id; },
+            clearInterval: (id) => { intervals.delete(id); },
+        });
+        const job = { id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+            appids: ['10'], meta: { 10: { name: 'Foo', reason: 2 } } };
+        const posts = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => [{ ...job }],
+                holdsLock: async () => true,
+                getCursor: async () => 0,
+                setCursor: async () => {},
+            },
+            api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => ignoredOf(['10'], 0),   // the other reason: not a dedupe
+            log: { lastUndoneAt: async () => { throw new Error('storage gone'); } },
+            ownerId: 't1',
+        });
+        await expect(d._drainJob(job)).rejects.toThrow('storage gone');
+        expect(posts).toEqual([]);
+        expect(intervals.size).toBe(0);
     });
 
     test('a renewal still in flight when the POST returns is awaited before the entry moves on', async () => {
@@ -337,7 +413,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             api: { ignore: () => new Promise(r => { release = () => r({ ok: true }); }) },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             ownerId: 't1',
         });
         const pending = d._drainJob(job);
@@ -380,7 +456,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 reserve: async () => ({ ok: true }),
                 reportRateLimited: async (ms) => { reports.push(ms); },
             },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             ownerId: 't1',
         });
         const result = await d._drainJob(job);
@@ -426,8 +502,10 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                     : { ok: true };
             } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
-            bumpCount: async () => { counted++; },
+            fetchUserdata: async () => new Map(),
+            stats: {
+                bumpCount: async () => { counted++; },
+            },
             log: {
                 append: async (entry) => { appended.push(entry); },
                 markUndone: async () => {},
@@ -479,8 +557,10 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 unignore: async () => ({ ok: false, rateLimited: false, unavailable: true }),
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(['480']),
-            dropCount: async () => { throw new Error('a refused rollback must not move the total'); },
+            fetchUserdata: async () => ignoredOf(['480']),
+            stats: {
+                dropCount: async () => { throw new Error('a refused rollback must not move the total'); },
+            },
             log: {
                 append: async (entry) => { appended.push(entry); },
                 markUndone: async (appid, ts) => { marked.push([appid, ts]); },
@@ -530,7 +610,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 unignore: async (appid) => { posts.push(appid); return { ok: false }; },
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(['1']),
+            fetchUserdata: async () => ignoredOf(['1']),
             probeLogin: async () => true,     // the session is fine — a per-appid refusal
             log: {
                 // Neither hook may fire: the entry has to stay LIVE (not undone,
@@ -582,7 +662,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 return appid === '1' ? { ok: false } : { ok: true };
             } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             probeLogin: async () => true,     // the session is fine — a per-appid refusal
             log: { append: async (e) => { appended.push(e); }, markUndone: async () => {} },
             ownerId: 't1',
@@ -638,9 +718,11 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 unignore: async (appid) => { unposts.push(appid); return { ok: true }; },
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(['1', '3']), // '2' is NOT ignored
-            bumpCount: async () => { counted++; },
-            dropCount: async () => { uncounted++; },
+            fetchUserdata: async () => ignoredOf(['1', '3']), // '2' is NOT ignored
+            stats: {
+                bumpCount: async () => { counted++; },
+                dropCount: async () => { uncounted++; },
+            },
             log: {
                 append: async () => {},
                 markUndone: async (appid, ts) => { marked.push([appid, ts]); },
@@ -732,7 +814,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 unignore: async () => ({ ok: true }),
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),   // empty, NOT failed
+            fetchUserdata: async () => new Map(),   // empty, NOT failed
             probeLogin: async () => probeResult,
             log: {
                 append: async () => {},
@@ -756,6 +838,84 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(alive.cursor).toBe(1);
         expect(alive.removed).toBe(true);
         expect(alive.marked).toEqual([['1', 500]]);
+    });
+
+    test('the pass hands its userdata size to recordTotal, but never a signed-out empty read', async () => {
+        // The popup's headline is Steam's list size, harvested from the read a
+        // pass makes anyway. An empty set is also what a signed-out read looks
+        // like: a curator job never probes for it, so it must record nothing;
+        // an undo job confirms the session first, so its 0 is real.
+        const Drainer = loadDrainerClass();
+        const run = async (job, userdata, probe, lastSlotAt = 0) => {
+            const recorded = [];
+            let removed = false;
+            const d = new Drainer({
+                store: {
+                    getQueue: async () => (removed ? [] : [{ ...job }]),
+                    holdsLock: async () => true,
+                    getCursor: async () => job.appids.length,   // nothing left: the pass only reads
+                    setCursor: async () => {},
+                    renewLock: async () => {},
+                    removeJob: async () => { removed = true; },
+                    removeIfDrained: async () => { removed = true; return true; },
+                    signalCompleted: async () => {},
+                },
+                fetchUserdata: async () => userdata,
+                probeLogin: async () => probe,
+                stats: {
+                    recordTotal: async (n) => { recorded.push(n); },
+                },
+                gate: { lastSlotAt: async () => lastSlotAt },
+                ownerId: 't1',
+            });
+            await d._drainJob(job);
+            return recorded;
+        };
+        const curator = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['1'] };
+        const undo = { id: 'ju', curatorId: 'undo', type: 'undo', status: 'pending', appids: ['1'], snapshotTs: 1 };
+
+        expect(await run(curator, ignoredOf(['5', '6', '7']), true)).toEqual([3]);
+        expect(await run(curator, new Map(), true)).toEqual([]);
+        expect(await run(curator, null, true)).toEqual([]);
+        expect(await run(undo, new Map(), true)).toEqual([0]);
+        expect(await run(undo, new Map(), false)).toEqual([]);
+    });
+
+    test('a read within the userdata lag of a POST from any source records no total', async () => {
+        // userdata trails a fresh ignore by seconds, and the counter already has
+        // it: snapshotting now would pin the headline one short until the next
+        // read. The last gate slot answers for every source, not just this pass.
+        const Drainer = loadDrainerClass();
+        const run = async (lastSlotAt, readMs = 0) => {
+            const recorded = [];
+            let removed = false;
+            const job = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['1'] };
+            const d = new Drainer({
+                store: {
+                    getQueue: async () => (removed ? [] : [{ ...job }]),
+                    holdsLock: async () => true,
+                    getCursor: async () => 1,
+                    setCursor: async () => {},
+                    removeIfDrained: async () => { removed = true; return true; },
+                },
+                fetchUserdata: async () => {
+                    await new Promise((r) => setTimeout(r, readMs));
+                    return ignoredOf(['5', '6']);
+                },
+                stats: {
+                    recordTotal: async (n) => { recorded.push(n); },
+                },
+                gate: { lastSlotAt: async () => lastSlotAt },
+                ownerId: 't1',
+            });
+            await d._drainJob(job);
+            return recorded;
+        };
+        expect(await run(Date.now() - 3000)).toEqual([]);
+        expect(await run(Date.now() + 2000)).toEqual([]);     // a slot reserved ahead
+        expect(await run(Date.now() - 20000)).toEqual([2]);
+        // The lag runs from when the read was made, not from when it came back.
+        expect(await run(Date.now() - 14500, 800)).toEqual([]);
     });
 
     test('undo job: an appid re-ignored after the snapshot is skipped, not un-ignored', async () => {
@@ -787,7 +947,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 unignore: async (appid) => { unposts.push(appid); return { ok: true }; },
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(['1']),
+            fetchUserdata: async () => ignoredOf(['1']),
             log: {
                 append: async () => {},
                 markUndone: async (appid, ts) => { marked.push([appid, ts]); },
@@ -835,13 +995,13 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 unignore: async (appid) => { unposts.push(appid); return { ok: true }; },
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),   // '1' not reflected yet
+            fetchUserdata: async () => new Map(),   // '1' not reflected yet
             probeLogin: async () => true,           // empty set + live session → proceed
             log: {
                 append: async () => {},
                 markUndone: async (appid, ts) => { marked.push([appid, ts]); },
                 wasReIgnoredAfter: async () => false,
-                lastIgnoredAt: async () => now - 2000, // ignored 2 s ago — inside UNDO_FRESH_MS
+                lastIgnoredAt: async () => now - 2000, // ignored 2 s ago — inside USERDATA_LAG_MS
             },
             ownerId: 't1',
         });
@@ -877,9 +1037,11 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             api: { ignore: async () => ({ ok: true }), unignore: async () => ({ ok: true }) },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
-            saveStats: async (name, reason) => { stats.push([name, reason]); },
-            bumpCount: async () => { counted++; },
+            fetchUserdata: async () => new Map(),
+            stats: {
+                save: async (name, reason) => { stats.push([name, reason]); },
+                bumpCount: async () => { counted++; },
+            },
             log: {
                 append: async (entry) => { appended.push(entry); },
                 markUndone: async () => {},
@@ -929,9 +1091,11 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             api: { ignore: async (appid, reason) => { posts.push([appid, reason]); return { ok: true }; } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
-            saveStats: async (name, reason) => { stats.push([name, reason]); },
-            bumpCount: async () => { counted++; },
+            fetchUserdata: async () => new Map(),
+            stats: {
+                save: async (name, reason) => { stats.push([name, reason]); },
+                bumpCount: async () => { counted++; },
+            },
             log: {
                 append: async (entry) => { appended.push(entry); },
                 markUndone: async () => {},
@@ -981,8 +1145,10 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             api: { ignore: async (appid, reason) => { posts.push([appid, reason]); return { ok: true }; } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
-            saveStats: async (name, reason) => { stats.push([name, reason]); },
+            fetchUserdata: async () => new Map(),
+            stats: {
+                save: async (name, reason) => { stats.push([name, reason]); },
+            },
             log: {
                 append: async (entry) => { appended.push(entry); },
                 markUndone: async () => {},
@@ -1025,8 +1191,10 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             api: { ignore: async (appid, reason) => { posts.push([appid, reason]); return { ok: true }; } },
             // The gesture lands while this reservation is being paced.
             gate: { reserve: async () => { cancelled = true; return { ok: true }; } },
-            fetchUserdata: async () => new Set(),
-            saveStats: async () => {},
+            fetchUserdata: async () => new Map(),
+            stats: {
+                save: async () => {},
+            },
             log: { append: async () => {}, markUndone: async () => {}, wasReIgnoredAfter: async () => false },
             ownerId: 't1',
         });
@@ -1073,14 +1241,48 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 },
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
-            saveStats: async () => {},
+            fetchUserdata: async () => new Map(),
+            stats: {
+                save: async () => {},
+            },
             log: { append: async () => {}, markUndone: async () => {}, wasReIgnoredAfter: async () => false },
             ownerId: 't1',
         });
         await d._drainJob({ id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending' });
         expect(posts).toEqual([['10', 0]]);   // nothing could stop it — it was already sent
         expect(rollbacks).toEqual(['10']);    // …so it is undone instead of left standing
+        expect(cursor).toBe(1);
+    });
+
+    test('MI job: an in-flight cancel of a change of reason leaves it standing', async () => {
+        // Same window, but the POST only changed a reason: un-ignoring would take
+        // away an ignore the user made long before the swipe they cancelled, and
+        // a change of reason is never rolled back.
+        const Drainer = loadDrainerClass();
+        let cancelled = false;
+        let cursor = 0;
+        let removed = false;
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{
+                    id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+                    appids: ['10'],
+                    meta: { 10: { name: 'A', reason: 2, cancelled } },
+                }]),
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                removeIfDrained: async () => { removed = true; return true; },
+                enqueueMi: async () => { throw new Error('a change of reason is not put back'); },
+                enqueueMiUndo: async () => { throw new Error('a change of reason is not un-ignored'); },
+            },
+            api: { ignore: async () => { cancelled = true; return { ok: true }; } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => ignoredOf(['10'], 0),
+            ownerId: 't1',
+        });
+        await d._drainJob({ id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending' });
+        expect(cancelled).toBe(true);
         expect(cursor).toBe(1);
     });
 
@@ -1119,8 +1321,10 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
-            saveStats: async () => {},
+            fetchUserdata: async () => new Map(),
+            stats: {
+                save: async () => {},
+            },
             log: { append: async () => {}, markUndone: async () => {}, wasReIgnoredAfter: async () => false },
             ownerId: 't1',
         });
@@ -1161,8 +1365,10 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 ? { ok: false, rateLimited: false, unavailable: true }
                 : { ok: true } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
-            saveStats: async () => {},
+            fetchUserdata: async () => new Map(),
+            stats: {
+                save: async () => {},
+            },
             log: { append: async () => {}, markUndone: async () => {}, wasReIgnoredAfter: async () => false },
             ownerId: 't1',
         });
@@ -1203,7 +1409,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
             gate: { reserve: async () => ({ ok: true }), stopped: async () => verdict },
-            fetchUserdata: async () => { userdataReads += 1; return new Set(); },
+            fetchUserdata: async () => { userdataReads += 1; return new Map(); },
             ownerId: 't1',
             standbyMs: 0,
         });
@@ -1252,7 +1458,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             // the same moment the probe starts answering "logged in".
             api: { ignore: async (appid) => { posts.push(appid); return { ok: loggedIn }; } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             probeLogin: async () => { probes += 1; return loggedIn; },
             ownerId: 't1',
             standbyMs: 0,
@@ -1274,6 +1480,77 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         await d.drain();
         expect(posts).toEqual(['10', '10', '20']);   // retried, then moved on
         expect(cursor).toBe(2);
+    });
+
+    test('MI job: a swipe whose POST meets a session ended elsewhere keeps its badge until the session is back', async () => {
+        // The stale-header case: a page opened signed in still reads signed in
+        // after the user signs out in another window, so the gesture and the
+        // gate both let the swipe through, and Steam refuses its POST (signed
+        // out it answers 400 {success:false}, measured live). That is the
+        // session, not the game: no 'failed' pulse — it would take the badge
+        // down and say Steam refused this game — no stats, no log, no total
+        // from the signed-out empty read. The entry waits, then lands once.
+        let now = 0;
+        const Drainer = loadDrainerClass({ now: () => now });
+        const job = {
+            id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+            appids: ['10'], meta: { 10: { name: 'A', reason: 0 } },
+        };
+        let cursor = 0;
+        let removed = false;
+        let loggedIn = false;
+        const posts = [];
+        const stats = [];
+        const appended = [];
+        const pulses = [];
+        const totals = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{ ...job }]),
+                acquireLock: async () => true,
+                releaseLock: async () => {},
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => { removed = true; return true; },
+                signalUnignored: async (appids, why) => { pulses.push([appids, why]); },
+            },
+            api: {
+                ignore: async (appid) => {
+                    posts.push(appid);
+                    return loggedIn ? { ok: true } : { ok: false, status: 400 };
+                },
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Map(),   // what a signed-out read returns
+            probeLogin: async () => loggedIn,
+            stats: {
+                save: async (name, reason) => { stats.push([name, reason]); },
+                recordTotal: async (size) => { totals.push(size); },
+            },
+            log: { append: async (entry) => { appended.push(entry); } },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+
+        await d.drain();
+        expect(posts).toEqual(['10']);
+        expect(cursor).toBe(0);
+        expect(removed).toBe(false);
+        expect(pulses).toEqual([]);
+        expect(stats).toEqual([]);
+        expect(appended).toEqual([]);
+        expect(totals).toEqual([]);
+
+        now += 60000;
+        loggedIn = true;
+        await d.drain();
+        expect(posts).toEqual(['10', '10']);
+        expect(stats).toEqual([['A', 0]]);
+        expect(appended).toEqual([{ appid: '10', name: 'A', source: 'mi' }]);
+        expect(pulses).toEqual([]);
+        expect(removed).toBe(true);
     });
 
     test('a failed POST with the session alive still burns MAX_FAILS and skips', async () => {
@@ -1301,7 +1578,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 }
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             probeLogin: async () => true,          // session is fine
             ownerId: 't1',
             standbyMs: 0,
@@ -1344,7 +1621,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             gate: { reserve: async () => ({ ok: true }) },
             // '2' is already NOT ignored → the inverse dedupe skips it with no POST.
-            fetchUserdata: async () => new Set(['1']),
+            fetchUserdata: async () => ignoredOf(['1']),
             log: {
                 append: async () => { throw new Error('a rollback is not an ignore'); },
                 markUndone: async (appid, ts) => { marked.push([appid, ts]); },
@@ -1395,7 +1672,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 unignore: async () => ({ ok: false, rateLimited: false, unavailable: true }),
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(['1']),
+            fetchUserdata: async () => ignoredOf(['1']),
             log: {
                 append: async () => { throw new Error('nothing was rolled back to log'); },
                 markUndone: async () => { throw new Error('a refused rollback must not mark the log'); },
@@ -1443,7 +1720,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         const Drainer = loadDrainerClass();
         const d = new Drainer({
             store: { getCursor: async () => 0 }, api: {}, gate: {},
-            fetchUserdata: async () => new Set(), ownerId: 't1',
+            fetchUserdata: async () => new Map(), ownerId: 't1',
         });
         const queue = [
             { id: 'c', curatorId: '1', status: 'pending', appids: ['1'] },
@@ -1462,7 +1739,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         const Drainer = loadDrainerClass();
         const d = new Drainer({
             store: { getCursor: async () => 0 }, api: {}, gate: {},
-            fetchUserdata: async () => new Set(), ownerId: 't1',
+            fetchUserdata: async () => new Map(), ownerId: 't1',
         });
         const unknown = { id: 'x', curatorId: 'x', type: 'from-a-newer-build', status: 'pending', appids: ['1'] };
         const curator = { id: 'c', curatorId: '1', status: 'pending', appids: ['2'] };
@@ -1478,7 +1755,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         const Drainer = loadDrainerClass();
         const make = (cursors) => new Drainer({
             store: { getCursor: async (id) => cursors[id], getQueue: async () => [] },
-            api: {}, gate: {}, fetchUserdata: async () => new Set(), ownerId: 't1',
+            api: {}, gate: {}, fetchUserdata: async () => new Map(), ownerId: 't1',
         });
         const job = { id: 'j', curatorId: 'c', status: 'pending', appids: ['1', '2'] };
 
@@ -1503,7 +1780,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             // 'mu-done' is the one job whose cursor key says it has nothing left.
             store: { getCursor: async (id) => (id === 'mu-done' ? 1 : 0) },
             api: {}, gate: {},
-            fetchUserdata: async () => new Set(), ownerId: 't1',
+            fetchUserdata: async () => new Map(), ownerId: 't1',
         });
         const curator = { id: 'c', curatorId: '1', status: 'pending', appids: ['1'] };
         const undo = { id: 'u', curatorId: 'undo', type: 'undo', status: 'pending', appids: ['2'] };
@@ -1559,7 +1836,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 unignore: async () => ({ ok: true }),
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             ownerId: 't1',
             standbyMs: 0,
         });
@@ -1576,7 +1853,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         const d = new Drainer({
             store: { getCursor: async (id) => (id === 'mu-done' ? 1 : 0) },
             api: {}, gate: {},
-            fetchUserdata: async () => new Set(), ownerId: 't1',
+            fetchUserdata: async () => new Map(), ownerId: 't1',
         });
         const mi = { id: 'm', curatorId: 'mi', type: 'mi', status: 'pending', appids: ['1'] };
         const curator = { id: 'c', curatorId: '1', status: 'pending', appids: ['2'] };
@@ -1595,6 +1872,90 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             .toBe(false);
         expect(await d._preemptedBy([mi, Object.assign({}, miundo, { status: 'paused' })], mi))
             .toBe(false);
+    });
+
+    test('_preemptedBy: a swipe that has waited long enough takes a curator or undo pass over', async () => {
+        // Its badge is already painted, so it does not preempt at once: each
+        // hand-off costs two userdata GETs. What counts is how long the OLDEST
+        // undrained entry has been queued — the one at the cursor.
+        let now = 1000000;
+        const Drainer = loadDrainerClass({ now: () => now });
+        const d = new Drainer({
+            store: { getCursor: async (id) => (id === 'm' ? 1 : 0) },
+            api: {}, gate: {},
+            fetchUserdata: async () => new Map(), ownerId: 't1',
+        });
+        const mi = {
+            id: 'm', curatorId: 'mi', type: 'mi', status: 'pending', appids: ['1', '2'],
+            meta: { 1: { ts: 0 }, 2: { ts: now - 10000 } },   // '1' is drained already
+        };
+        const curator = { id: 'c', curatorId: '1', status: 'pending', appids: ['5'] };
+        const undo = { id: 'u', curatorId: 'undo', type: 'undo', status: 'pending', appids: ['6'] };
+
+        expect(await d._preemptedBy([curator, mi], curator)).toBe(false);   // 10 s: not yet
+        now += 20000;
+        expect(await d._preemptedBy([curator, mi], curator)).toBe(true);
+        expect(await d._preemptedBy([undo, mi], undo)).toBe(true);
+        // A gesture job never steps aside for swipes, its own included.
+        expect(await d._preemptedBy([mi], mi)).toBe(false);
+        // Nothing to hand over to: the swipes are paused.
+        expect(await d._preemptedBy([curator, Object.assign({}, mi, { status: 'paused' })], curator))
+            .toBe(false);
+        // A record with no entry time counts from when the job was added.
+        const noTs = Object.assign({}, mi, { meta: {}, addedAt: now - 1000 });
+        expect(await d._preemptedBy([curator, noTs], curator)).toBe(false);
+        expect(await d._preemptedBy([curator, Object.assign({}, noTs, { addedAt: now - 30000 })], curator))
+            .toBe(true);
+        // A cancelled entry sends nothing: it is passed over, whatever its age,
+        // and the next live one decides.
+        const cancelledHead = Object.assign({}, mi, {
+            appids: ['1', '2', '3'],
+            meta: { 2: { ts: now - 60000, cancelled: true }, 3: { ts: now - 1000 } },
+        });
+        expect(await d._preemptedBy([curator, cancelledHead], curator)).toBe(false);
+        const waitingBehind = Object.assign({}, cancelledHead, {
+            meta: Object.assign({}, cancelledHead.meta, { 3: { ts: now - 40000 } }),
+        });
+        expect(await d._preemptedBy([curator, waitingBehind], curator)).toBe(true);
+        const allCancelled = Object.assign({}, cancelledHead, {
+            meta: Object.assign({}, cancelledHead.meta, { 3: { ts: now - 40000, cancelled: true } }),
+        });
+        expect(await d._preemptedBy([curator, allCancelled], curator)).toBe(false);
+    });
+
+    test('a curator pass hands over to swipes that have waited, and resumes from its cursor', async () => {
+        // The case a lone host meets: Firefox with one store tab drains a long
+        // curator job while the user swipes in it. Each POST here takes 20 s of
+        // fake time; the swipe was queued just before the pass started.
+        let now = 1000000;
+        const Drainer = loadDrainerClass({ now: () => now });
+        const curator = { id: 'c', curatorId: '1', status: 'pending', appids: ['10', '20', '30', '40'] };
+        const mi = {
+            id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending', appids: ['7'],
+            meta: { 7: { name: 'A', reason: 0, ts: now } },
+        };
+        const queue = [curator, mi];
+        const cursors = { c: 0, job_mi: 0 };
+        const posts = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => queue.map(j => Object.assign({}, j)),
+                holdsLock: async () => true,
+                getCursor: async (id) => cursors[id],
+                setCursor: async (id, c) => { cursors[id] = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => { throw new Error('a yielding pass finishes nothing'); },
+            },
+            api: { ignore: async (appid) => { posts.push(appid); now += 20000; return { ok: true }; } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => new Map(),
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        await d._drainJob(curator);
+        expect(posts).toEqual(['10', '20']);   // stepped aside once the swipe had waited 40 s
+        expect(cursors.c).toBe(2);             // …with the curator job's progress intact
+        expect((await d._pickJob(queue)).id).toBe('job_mi');
     });
 
     test('a job left drained in the queue is collected by the idle pass', async () => {
@@ -1623,7 +1984,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 acquireLock: async () => { throw new Error('nothing here is drainable'); },
             },
             api: {}, gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(), ownerId: 't1', standbyMs: 0,
+            fetchUserdata: async () => new Map(), ownerId: 't1', standbyMs: 0,
         });
 
         await d.drain();
@@ -1653,7 +2014,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             api: { ignore: async () => ({ ok: true }) },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             ownerId: 't1',
         });
 
@@ -1703,7 +2064,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             // One slot per pass, so each pass ends with the job still drainable —
             // the shape a re-kick has to find something to do in.
             gate: { reserve: async () => ({ ok: reserves++ % 2 === 0 }) },
-            fetchUserdata: async () => { reads += 1; return new Set(); },
+            fetchUserdata: async () => { reads += 1; return new Map(); },
             ownerId: 't1',
             standbyMs: 0,
         });
@@ -1757,7 +2118,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             api: { ignore: async () => ({ ok: true }) },
             gate: { reserve: async () => ({ ok: reserves++ % 2 === 0 }) },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             ownerId: 't1',
             standbyMs: 0,
             rekick: () => { hostKicks += 1; },
@@ -1799,7 +2160,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             api: { ignore: async () => ({ ok: true }) },
             gate: { reserve: async () => ({ ok: true }), stopped: async () => verdict },
-            fetchUserdata: async () => { reads += 1; return new Set(); },
+            fetchUserdata: async () => { reads += 1; return new Map(); },
             ownerId: 't1',
             standbyMs: 0,
         });
@@ -1822,7 +2183,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store: { getQueue: async () => [{ id: 'j1', curatorId: 'c1', status: 'paused', appids: ['1'] }] },
             api: { ignore: async () => ({ ok: true }) },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             ownerId: 't1',
             standbyMs: 0,
         });
@@ -1843,7 +2204,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 getQueue: async () => { throw new Error('Extension context invalidated'); },
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             ownerId: 't1',
         });
 
@@ -1881,7 +2242,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 signalCompleted: async () => {},
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             ownerId: 't1',
         });
 
@@ -1928,7 +2289,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             gate: { reserve: async () => ({ ok: true }) },
             // '1' is absent, so the inverse dedupe fires and no POST is spent.
-            fetchUserdata: async () => new Set(['999']),
+            fetchUserdata: async () => ignoredOf(['999']),
             log: {
                 append: async () => {},
                 lastIgnoredAt: async () => 0,   // ignored long ago → the skip is trusted
@@ -1978,7 +2339,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             gate: { reserve: async () => ({ ok: true }) },
             // '1' is already ignored → the MI dedupe skips it, so no POST is spent
             // and the iteration ends at exactly the cursor write under test.
-            fetchUserdata: async () => new Set(['1']),
+            fetchUserdata: async () => ignoredOf(['1']),
             ownerId: 't1',
         });
 
@@ -1986,6 +2347,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
 
         expect(cursorWrites).toEqual([]);
     });
+
 });
 
 // A filter switch through the REAL store and staging service, racing a drainer
@@ -2047,13 +2409,13 @@ test.describe('CuratorQueueDrainer × EnqueueService — filter switch mid-drain
                         switched = true;
                         // The user picks another filter while the POST for '2'
                         // waits its slot, and the cache answers before it arrives.
-                        const o = await svc.stage('123', 'Cur', 'url', 'informational');
+                        const o = await svc.stage('123', 'Cur', 'informational');
                         await svc.resolve('123', o.jobId, o.name, 'informational', o.paused);
                     }
                     return { ok: true };
                 },
             },
-            fetchUserdata: async () => new Set(),
+            fetchUserdata: async () => new Map(),
             ownerId: 't1',
         });
 
@@ -2069,5 +2431,185 @@ test.describe('CuratorQueueDrainer × EnqueueService — filter switch mid-drain
 
         await d._drainJob(job);
         expect(posts).toEqual(['7', '8']);   // the new list, from its first entry
+    });
+});
+
+test.describe('CuratorQueueDrainer × Store — one game swiped in two tabs (unit)', () => {
+
+    test('an un-ignore outlasts an older swipe from another tab still pending behind it', async () => {
+        // Tab A swiped X at 100 and it landed. Tab B, which has no badge for X,
+        // swiped it again at 200 and that entry is still queued (a held drain).
+        // Tab A then clicks its badge. B's entry is not A's to cancel — A's
+        // ignore was sent, so the rollback must be real — but left pending it
+        // would land after the rollback and re-ignore X with no badge anywhere,
+        // though the un-ignore was the last thing the user did.
+        const { Store } = loadRealStore({});
+        await Store.enqueueMi({ appid: 10, name: 'X', reason: 0, ts: 100 });
+        await Store.setCursor('job_mi', 1);                                   // A's swipe landed
+        await Store.enqueueMi({ appid: 10, name: 'X', reason: 0, ts: 200 });  // B's, pending
+
+        // What processUnignoreRequest does with A's swipe time.
+        expect(await Store.cancelMiEntry(10, 100)).toBe(false);
+        await Store.enqueueMiUndo({ appid: 10 });
+
+        const steam = new Set(['10']);
+        const undoneAt = new Map();
+        const posts = [];
+        const Drainer = loadDrainerClass();
+        const d = new Drainer({
+            store: Store,
+            api: {
+                ignore: async (appid) => { posts.push('ignore ' + appid); steam.add(appid); return { ok: true }; },
+                unignore: async (appid) => { posts.push('unignore ' + appid); steam.delete(appid); return { ok: true }; },
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            // Steam's list as it stands: no lag, the worst case for the guard.
+            fetchUserdata: async () => new Map([...steam].map(a => [a, 0])),
+            log: {
+                markUndone: async (appid) => { undoneAt.set(String(appid), Date.now()); },
+                lastUndoneAt: async (appid) => undoneAt.get(String(appid)) || 0,
+            },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+
+        // drain()'s loop, bounded: a pass that stops would otherwise spin here.
+        for (let i = 0; i < 5; i++) {
+            const job = await d._pickJob(await Store.getQueue());
+            if (!job) break;
+            await d._drainJob(job);
+        }
+
+        expect(posts).toEqual(['unignore 10']);   // B's older swipe sent nothing after it
+        expect(steam.has('10')).toBe(false);
+    });
+});
+
+// A swipe on a game Steam already lists with the other reason. Steam takes the
+// same ignore POST as a change of reason (verified live, 0 -> 2 and 2 -> 0), so
+// the MI dedupe compares reasons, and the change is shown but neither counted
+// nor logged for Undo.
+test.describe('CuratorQueueDrainer — change of reason (unit)', () => {
+    // One pass over `job` with `userdata`; returns what it did. `undoneAt`: the
+    // log's newest rollback of the game (0 = none).
+    async function drainOnce(job, userdata, undoneAt = 0) {
+        const Drainer = loadDrainerClass();
+        let cursor = 0;
+        let removed = false;
+        const out = { ignores: [], unignores: [], stats: [], history: [], appended: [],
+            marked: [], pulses: [], counted: 0, dropped: 0 };
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{ ...job }]),
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                removeIfDrained: async () => { removed = true; return true; },
+                signalUnignored: async (appid, reason) => { out.pulses.push([appid, reason || 'undo']); },
+            },
+            api: {
+                ignore: async (appid, reason) => { out.ignores.push([appid, reason]); return { ok: true }; },
+                unignore: async (appid) => { out.unignores.push(appid); return { ok: true }; },
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => userdata,
+            stats: {
+                save: async (name, reason) => { out.stats.push([name, reason]); },
+                saveHistory: async (name, reason) => { out.history.push([name, reason]); },
+                bumpCount: async () => { out.counted += 1; },
+                dropCount: async () => { out.dropped += 1; },
+            },
+            log: {
+                append: async (entry) => { out.appended.push(entry); },
+                markUndone: async (appid, ts) => { out.marked.push([appid, ts]); },
+                lastUndoneAt: async () => undoneAt,
+            },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        out.cursor = cursor;
+        return out;
+    }
+
+    const miJob = (reason) => ({
+        id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+        appids: ['10'], meta: { 10: { name: 'Foo', reason } },
+    });
+
+    test('a swipe with the other reason POSTs it: shown, neither counted nor undoable', async () => {
+        const out = await drainOnce(miJob(2), ignoredOf(['10'], 0));
+        expect(out.ignores).toEqual([['10', 2]]);
+        expect(out.stats).toEqual([]);                  // the list did not grow
+        expect(out.history).toEqual([['Foo', 2]]);      // but it is in Last Ignored
+        expect(out.appended).toEqual([]);               // Undo takes games off the list only
+    });
+
+    test('a swipe with the reason Steam already has sends nothing', async () => {
+        const out = await drainOnce(miJob(2), ignoredOf(['10'], 2));
+        expect(out.ignores).toEqual([]);
+        expect(out.history).toEqual([]);
+        expect(out.cursor).toBe(1);
+    });
+
+    test('a swipe on a game not on the list is a plain ignore, counted', async () => {
+        const out = await drainOnce(miJob(2), new Map());
+        expect(out.ignores).toEqual([['10', 2]]);
+        expect(out.stats).toEqual([['Foo', 2]]);
+        expect(out.appended).toEqual([{ appid: '10', name: 'Foo', source: 'mi' }]);
+    });
+
+    // userdata lags a remove=1 as it lags an ignore: a read this close to a
+    // rollback of the game may still list it.
+    test('a re-swipe right after a rollback is POSTed though the read still lists the game', async () => {
+        const out = await drainOnce(miJob(2), ignoredOf(['10'], 2), Date.now() - 3000);
+        expect(out.ignores).toEqual([['10', 2]]);
+        expect(out.stats).toEqual([['Foo', 2]]);        // a re-ignore, counted
+        expect(out.appended).toEqual([{ appid: '10', name: 'Foo', source: 'mi' }]);
+    });
+
+    test('a re-swipe with the other reason right after a rollback is a re-ignore, not a change', async () => {
+        const out = await drainOnce(miJob(2), ignoredOf(['10'], 0), Date.now() - 3000);
+        expect(out.ignores).toEqual([['10', 2]]);
+        expect(out.stats).toEqual([['Foo', 2]]);
+        expect(out.history).toEqual([]);
+        expect(out.appended).toEqual([{ appid: '10', name: 'Foo', source: 'mi' }]);
+    });
+
+    test('a rollback long before the read leaves the dedupe alone', async () => {
+        const out = await drainOnce(miJob(2), ignoredOf(['10'], 2), Date.now() - 60000);
+        expect(out.ignores).toEqual([]);
+        expect(out.cursor).toBe(1);
+    });
+
+    test('a curator list re-adds a game rolled back right before the read', async () => {
+        const job = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10'] };
+        const out = await drainOnce(job, ignoredOf(['10'], 0), Date.now() - 3000);
+        expect(out.ignores).toEqual([['10', 0]]);
+        expect(out.counted).toBe(1);
+    });
+
+    test('a curator list skips a game the user ignored with any reason', async () => {
+        const job = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10'] };
+        const out = await drainOnce(job, ignoredOf(['10'], 2));
+        expect(out.ignores).toEqual([]);
+        expect(out.counted).toBe(0);
+    });
+
+    test('the droplist undo un-ignores whatever the reason, and uncounts', async () => {
+        const undoJob = { id: 'ju', curatorId: 'undo', type: 'undo', status: 'pending', appids: ['10'], snapshotTs: 500 };
+        const out = await drainOnce(undoJob, ignoredOf(['10'], 2));
+        expect(out.unignores).toEqual(['10']);
+        expect(out.ignores).toEqual([]);
+        expect(out.dropped).toBe(1);
+        expect(out.marked).toEqual([['10', 500]]);
+        expect(out.pulses).toEqual([['10', 'undo']]);
+    });
+
+    test('the solo un-ignore takes the game off the list whatever the reason', async () => {
+        const job = { id: 'job_mi_undo', curatorId: 'miundo', type: 'miundo', status: 'pending',
+            appids: ['10'], meta: { 10: { ts: 500 } } };
+        const out = await drainOnce(job, ignoredOf(['10'], 2));
+        expect(out.unignores).toEqual(['10']);
+        expect(out.ignores).toEqual([]);
     });
 });

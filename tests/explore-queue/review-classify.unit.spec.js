@@ -13,7 +13,7 @@ function loadExplore() {
     vm.createContext(sandbox);
     // The shades are no longer utils.js's own: they come from the table both
     // classifiers share, so it has to be in the sandbox first.
-    vm.runInContext(src('steam-palette.js'), sandbox);
+    vm.runInContext(src('queue-common', 'steam-palette.js'), sandbox);
     vm.runInContext(src('explore-queue', 'utils.js'), sandbox);
     return { Explore: sandbox.window.ILAP.Explore, Palette: sandbox.window.ILAP.SteamPalette };
 }

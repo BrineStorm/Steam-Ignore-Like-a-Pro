@@ -10,6 +10,7 @@
 // never appears — which reads like an EQ injection bug rather than a login one.
 
 const { AUTH_FILE } = require('../_fixtures.js');
+const { skipUnlessQueueRewardSafe } = require('../_sale-reward.js');
 
 const SEL = {
     toast: '#ilap-toast',
@@ -18,7 +19,7 @@ const SEL = {
     closeX: '#ilap-close-x',
     modeBadge: '#ilap-mode-badge',
     runningStopBtn: '#ilap-stop-btn',
-    // The one-time automation notice (src/automation-notice.js).
+    // The one-time automation notice (src/queue-common/automation-notice.js).
     notice: '.ilap-notice',
     noticeGo: '.ilap-notice-go',
     noticeCancel: '.ilap-notice-cancel',
@@ -59,6 +60,8 @@ async function landedOnQueue(page) {
 }
 
 async function openExploreQueue(page, pos) {
+    // Walking the live queue earns a running sale's queue reward (see the file).
+    skipUnlessQueueRewardSafe();
     const wantsPos = !(pos === undefined || pos === null || pos === '');
     const path = wantsPos ? `/explore/next/${pos}` : '/explore/next/';
 

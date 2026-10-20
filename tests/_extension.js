@@ -160,10 +160,18 @@ async function getExtensionStorage(context, keys = null) {
     );
 }
 
+// On Firefox one key survives the clear: ilap_press_menu_hint. Playwright's
+// Firefox fires contextmenu at mouse-DOWN, the way macOS and Linux do, so on a
+// profile without the flag the first swipe of every test raises the one-time
+// menu-at-press card (App._hintMenuAtPress). It stays 12 s, stacks with the
+// card a spec asserts on (`.ilap-toast` then matches two) and sits over the
+// bottom-right rows. The cancel that raises it is pinned by
+// bindings.unit.spec.js.
 async function clearExtensionStorage(context) {
     if (isFirefoxContext(context)) {
         const page = await getBridgePage(context);
         await bridgeRequest(page, { op: 'clear' });
+        await bridgeRequest(page, { op: 'set', payload: { ilap_press_menu_hint: true } });
         return;
     }
     const sw = await getServiceWorker(context);

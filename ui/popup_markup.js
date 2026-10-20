@@ -35,7 +35,9 @@
               </button>
             </span>
             <span class="undo-tip" id="undo-tip" role="tooltip"></span>
-            <a id="count-link" href="https://store.steampowered.com/account/notinterested/" target="_blank">0</a>
+            <a id="count-link" href="https://store.steampowered.com/account/notinterested/" target="_blank">—</a>
+            <!-- Own tooltip for the count (Steam's whole list): renderTotal in popup_main.js fills it. -->
+            <span class="count-tip" id="count-tip" role="tooltip"></span>
 
             <!-- Undo droplist: "un-ignore the last X" (by count) / "over the last X
                  hours/days" (by time). The count row is a -[ ]+ stepper whose

@@ -243,6 +243,13 @@
                 btn.style.opacity = "0.7";
                 btn.style.cursor = "default";
                 onStop();
+                // Out of the way at once (clicks pass through to the page), then a
+                // short read of "Stopped" and a fade-out. A toast that replaced this
+                // one meanwhile is not ours to remove.
+                toast.style.pointerEvents = 'none';
+                toast.style.transition = 'opacity 0.4s ease';
+                setTimeout(() => { toast.style.opacity = '0'; }, 800);
+                setTimeout(() => { if (this._toast === toast) this.removeToast(); }, 1200);
             });
         }
 

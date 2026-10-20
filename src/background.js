@@ -157,9 +157,17 @@ importScripts(
         const safe = ILAP.Sanitizer.sanitizeName(name);
         return writeStats([Stats.HISTORY_KEY, Stats.COUNT_KEY], (r) => Stats.nextState(r, safe, source));
     }
+    // A drained swipe that changed an ignore's reason: shown, not counted.
+    function saveHistory(name, reason) {
+        const source = Stats.miSourceLabel(reason);
+        const safe = ILAP.Sanitizer.sanitizeName(name);
+        return writeStats([Stats.HISTORY_KEY], (r) => Stats.historyState(r, safe, source));
+    }
     // Total only: +1 for a drained curator ignore, −1 for a confirmed rollback.
     const bumpCount = () => writeStats([Stats.COUNT_KEY], Stats.countState);
     const dropCount = () => writeStats([Stats.COUNT_KEY], Stats.uncountState);
+    // Steam's ignore-list size from the drainer's userdata read, on the same chain.
+    const recordTotal = (size) => writeStats([Stats.COUNT_KEY], (r) => Stats.totalState(r, size, Date.now()));
 
     // --- gate wrapper ------------------------------------------------------
     // reserve() sleeps in memory until its slot, and a wait past the worker's
@@ -169,16 +177,16 @@ importScripts(
     // Not atomic with the claim: a 429 landing in between can make reserve()
     // sleep through the worker's death, burning one slot with no POST. The retry
     // alarm recovers it.
-    async function swReserve() {
-        const d = await get({ [HALT_KEY]: false, [Gate.GATE_KEY]: 0, [Gate.PENALTY_KEY]: null });
+    async function swReserve(opts) {
+        const d = await get({ [HALT_KEY]: false, [Gate.GATE_KEY]: 0, [Gate.PENALTY_KEY]: null, [Gate.ACTIVITY_KEY]: 0 });
         if (d[HALT_KEY]) return { ok: false, reason: 'halted' };
         const now = Date.now();
         const slot = Math.max(
-            Gate.nextSlot(d[Gate.GATE_KEY], now, Gate.MIN_GAP),
+            Gate.nextSlot(d[Gate.GATE_KEY], now, Gate.gapFor(opts, d[Gate.ACTIVITY_KEY], now)),
             Gate.penaltyUntil(d[Gate.PENALTY_KEY], now)
         );
         if (slot - now > MAX_WAIT_MS) return { ok: false, reason: 'backoff' };
-        return Gate.reserve();
+        return Gate.reserve(opts);
     }
 
     // --- the drainer -------------------------------------------------------
@@ -203,13 +211,12 @@ importScripts(
         gate: {
             reserve: swReserve,
             reportRateLimited: (ms) => Gate.reportRateLimited(ms),
-            stopped: () => Gate.stopVerdict()
+            stopped: () => Gate.stopVerdict(),
+            lastSlotAt: () => Gate.lastSlotAt()
         },
         fetchUserdata: Net.fetchIgnoredAppsStrict,
         probeLogin: probeLoginAndReap,
-        saveStats,
-        bumpCount,
-        dropCount,
+        stats: { save: saveStats, saveHistory, bumpCount, dropCount, recordTotal },
         log: Log.drainerHooks(),
         ownerId: ILAP.newOwnerId('sw_'),
         standbyMs: 0,  // no in-memory standby tick; the alarm below is the retry
@@ -297,12 +304,13 @@ importScripts(
         // the onChanged listener above kicks the pass — and if the cause was
         // permanent, two more refused POSTs halt it again for another hour.
         get({ [HALT_KEY]: false })
-            .then((d) => (d[HALT_KEY] ? set({ [HALT_KEY]: false }) : kick()));
+            .then((d) => (d[HALT_KEY] ? set({ [HALT_KEY]: false }) : kick()))
+            .catch((e) => console.warn('[ILAP] SW drain alarm failed:', e));
     });
 
     // Boot pass, whatever woke the worker. The sid goes into memory first.
     get({ [SID_KEY]: null }).then((d) => {
         cachedSid = d[SID_KEY] || null;
         kick();
-    });
+    }).catch((e) => console.warn('[ILAP] SW boot read failed:', e));
 })();

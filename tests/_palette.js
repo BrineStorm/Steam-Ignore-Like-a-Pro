@@ -13,7 +13,7 @@ function loadPalette() {
     const sandbox = { window: {} };
     vm.createContext(sandbox);
     vm.runInContext(
-        fs.readFileSync(path.join(__dirname, '..', 'src', 'steam-palette.js'), 'utf8'), sandbox);
+        fs.readFileSync(path.join(__dirname, '..', 'src', 'queue-common', 'steam-palette.js'), 'utf8'), sandbox);
     return sandbox.window.ILAP.SteamPalette;
 }
 

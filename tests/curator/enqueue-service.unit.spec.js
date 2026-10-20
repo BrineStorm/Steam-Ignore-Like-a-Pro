@@ -75,13 +75,13 @@ test.describe('EnqueueService.stage (unit)', () => {
     test('adds a new job as enumerating and reports kind:added', async () => {
         const store = makeStore();
         const svc = build(store, makeEnum([]));
-        const outcome = await svc.stage('123', 'Cur', 'https://x/curator/123', 'not_recommended');
+        const outcome = await svc.stage('123', 'Cur', 'not_recommended');
         expect(outcome.kind).toBe('added');
         expect(store.state.queue).toHaveLength(1);
         const job = store.state.queue[0];
         expect(job).toMatchObject({
             type: 'curator',
-            curatorId: '123', curatorName: 'Cur', curatorUrl: 'https://x/curator/123',
+            curatorId: '123', curatorName: 'Cur',
             filter: 'not_recommended', status: 'enumerating', appids: [], total: 0
         });
         expect(outcome.jobId).toBe(job.id);
@@ -90,7 +90,7 @@ test.describe('EnqueueService.stage (unit)', () => {
     test('re-picking the SAME filter is a no-op (null outcome, queue unchanged)', async () => {
         const store = makeStore([{ id: 'j1', curatorId: '123', filter: 'not_recommended', status: 'pending' }]);
         const svc = build(store, makeEnum([]));
-        const outcome = await svc.stage('123', 'Cur', 'url', 'not_recommended');
+        const outcome = await svc.stage('123', 'Cur', 'not_recommended');
         expect(outcome).toBeNull();
         expect(store.state.queue[0].status).toBe('pending'); // untouched
     });
@@ -101,7 +101,7 @@ test.describe('EnqueueService.stage (unit)', () => {
         const store = makeStore([{ id: 'j1', curatorId: '123', curatorName: 'Cur',
             filter: 'not_recommended', status: 'pending', appids: [1, 2], total: 2 }]);
         const svc = build(store, makeEnum([]));
-        const outcome = await svc.stage('123', 'Cur', 'url', 'informational');
+        const outcome = await svc.stage('123', 'Cur', 'informational');
         expect(outcome).toMatchObject({ kind: 'switched', name: 'Cur', paused: false });
         expect(outcome.jobId).not.toBe('j1');
         expect(store.state.queue).toHaveLength(1);
@@ -117,7 +117,7 @@ test.describe('EnqueueService.stage (unit)', () => {
             filter: 'not_recommended', status: 'paused', appids: [1, 2], total: 2 }]);
         store.state.cache = { apps: [{ appid: 12, type: 'informational' }] }; store.state.cacheFresh = true;
         const svc = build(store, makeEnum([]));
-        const outcome = await svc.stage('123', 'Cur', 'url', 'informational');
+        const outcome = await svc.stage('123', 'Cur', 'informational');
         expect(outcome).toMatchObject({ kind: 'switched', paused: true });
         expect(store.state.queue[0].status).toBe('enumerating');
 
@@ -133,7 +133,7 @@ test.describe('EnqueueService.stage (unit)', () => {
             { id: 'c', curatorId: '3', filter: 'all_but_recommended' }
         ]);
         const svc = build(store, makeEnum([]));
-        const outcome = await svc.stage('9', 'New', 'url', 'not_recommended');
+        const outcome = await svc.stage('9', 'New', 'not_recommended');
         expect(outcome).toEqual({ kind: 'full' });
         expect(store.state.queue).toHaveLength(3); // nothing added
     });
@@ -146,8 +146,8 @@ test.describe('EnqueueService.stage (unit)', () => {
             { id: 'b', curatorId: '2', filter: 'all_but_recommended' }
         ]);
         const svc = build(store, makeEnum([]));
-        expect(await svc.stage('9', 'New', 'url', 'not_recommended')).toMatchObject({ kind: 'added' });
-        expect(await svc.stage('10', 'Next', 'url', 'not_recommended')).toEqual({ kind: 'full' });
+        expect(await svc.stage('9', 'New', 'not_recommended')).toMatchObject({ kind: 'added' });
+        expect(await svc.stage('10', 'Next', 'not_recommended')).toEqual({ kind: 'full' });
     });
 
     test('a job of a type this build does not know still counts', async () => {
@@ -157,7 +157,7 @@ test.describe('EnqueueService.stage (unit)', () => {
             { id: 'b', curatorId: '2', filter: 'all_but_recommended' }
         ]);
         const svc = build(store, makeEnum([]));
-        expect(await svc.stage('9', 'New', 'url', 'not_recommended')).toEqual({ kind: 'full' });
+        expect(await svc.stage('9', 'New', 'not_recommended')).toEqual({ kind: 'full' });
     });
 });
 

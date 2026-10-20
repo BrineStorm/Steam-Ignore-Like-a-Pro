@@ -382,6 +382,23 @@ test.describe('SW drain host (unit)', () => {
         expect(env.data().ilap_ignore_gate).toBeUndefined();
     });
 
+    test('the backoff pre-check counts the slower gap while the user browses', async () => {
+        // A last slot 18 s out: one plain gap still fits the 20 s budget, the
+        // 3 s gap of an active user does not, and a curator job takes that one.
+        const last = Date.now() + 18000;
+        const env = loadBackground({
+            ilap_master_enabled: true,
+            ilap_sw_sid: 'sess-1',
+            ilap_curator_queue: [job()],
+            ilap_ignore_gate: last,
+            ilap_user_active_at: Date.now(),
+        });
+        await env.until(() => !!env.alarms[ALARM]);
+        await env.settle();
+        expect(env.posts).toEqual([]);
+        expect(env.data().ilap_ignore_gate).toBe(last);
+    });
+
     test('the alarm handler kicks a drain pass', async () => {
         const until = Date.now() + 120000;
         const env = loadBackground({

@@ -36,7 +36,8 @@ function loadAutomatorClass() {
 // verdict and the notice's answer.
 function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore, reward, confirm }) {
     const calls = { ignores: 0, toastRemoved: 0, visualsCleared: 0, statsSaved: [], rateReports: [],
-        locked: 0, lockPending: [], intents: [] };
+        locked: 0, lockPending: [], intents: [], runIds: [], openRuns: new Set(), closedRuns: [],
+        prompts: 0 };
     const a = new Automator({
         settings: { read: async () => ({}), subscribe: () => {}, disableQueue: async () => {} },
         ui: {
@@ -46,7 +47,7 @@ function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore
             clearVisuals: () => { calls.visualsCleared++; },
             showAdvanceLock: (btn, pending) => { calls.locked++; calls.lockPending.push(pending); },
             clearAdvanceLock: () => {}, showIgnoredToast: () => {},
-            showStartPrompt: () => {}, updateRunButtonMode: () => {},
+            showStartPrompt: () => { calls.prompts++; }, updateRunButtonMode: () => {},
         },
         api: { ignore: async () => { calls.ignores++; return ignore ? ignore() : (ignoreRes || { ok: ignoreOk }); } },
         gate: {
@@ -57,7 +58,7 @@ function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore
         navGuard: {
             resetState: () => {}, authorizeNextStep: () => {}, consumeAuthorization: () => false,
             getActiveAppid: () => null, getUserIntent: () => ({}), setActiveAppid: () => {},
-            setIntent: (type) => { calls.intents.push(type); },
+            setIntent: (type, appid, run) => { calls.intents.push(type); calls.runIds.push(run); },
         },
         nameExtractor: { get: () => 'Test Game' },
         context: {
@@ -71,6 +72,16 @@ function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore
             STATUS: { ALLOWED: 'allowed', PENDING: 'pending', UNKNOWN: 'unknown' },
         },
         notice: { confirmOnce: confirm || (async () => true) },
+        // RunLedger over an in-memory set: a run id is live from open() to close().
+        runs: {
+            open: async () => {
+                const id = 'run' + (calls.openRuns.size + calls.closedRuns.length + 1);
+                calls.openRuns.add(id);
+                return id;
+            },
+            isLive: async (id) => calls.openRuns.has(id),
+            close: async (id) => { calls.openRuns.delete(id); calls.closedRuns.push(id); },
+        },
     });
     return { a, calls };
 }
@@ -84,9 +95,11 @@ test.describe('ExploreAutomator (unit)', () => {
             settings: a.settings, ui: a.ui, api: a.api, gate: a.gate, stats: a.stats,
             navGuard: a.nav, nameExtractor: a.nameExtractor, context: a.context,
             analyzer: a.analyzer, decisionEngine: a.decisionEngine, reward: a.reward, notice: a.notice,
+            runs: a.runs,
         });
         expect(() => new Automator(deps())).not.toThrow();
-        for (const name of ['ui', 'navGuard', 'context', 'analyzer', 'decisionEngine', 'gate', 'reward', 'notice']) {
+        for (const name of ['ui', 'navGuard', 'context', 'analyzer', 'decisionEngine', 'gate', 'reward', 'notice',
+            'runs']) {
             const broken = Object.assign(deps(), { [name]: {} });
             expect(() => new Automator(broken), name).toThrow(`needs deps.${name}`);
         }
@@ -327,6 +340,98 @@ test.describe('ExploreAutomator (unit)', () => {
         await pending;
         expect(calls.intents).toEqual([]);
         expect(calls.ignores).toBe(0);
+        expect(calls.openRuns.size).toBe(0);
+    });
+
+    // ---- the run behind the intent ---------------------------------------
+    // The ACTIVE intent rides in sessionStorage, which the Steam page can write.
+    // What it cannot write is the ledger: only a real Run click opens a run.
+
+    // A queue page whose sessionStorage claims an ACTIVE run on this very page.
+    function makeReloaded(Automator, run) {
+        const made = makeAutomator(Automator, { gateOk: true, ignoreOk: true });
+        made.a.settings.read = async () => ({ globalOn: true, queueOn: true });
+        Object.assign(made.a.context, {
+            isQueuePage: () => true,
+            getAppID: () => '123',
+            getNextButton: () => ({ dataset: {}, addEventListener: () => {} }),
+        });
+        Object.assign(made.a.nav, {
+            getUserIntent: () => ({ wantsActive: true, run }),
+            getActiveAppid: () => '123',   // a same-page reload: no nav token needed
+        });
+        return made;
+    }
+    const settle = () => new Promise(r => setTimeout(r, 0));
+
+    test('Run opens a run and hands its id to the intent; a stop closes it', async () => {
+        const Automator = loadAutomatorClass();
+        const { a, calls } = makeAutomator(Automator, { gateOk: true, ignoreOk: true });
+        a.context.getAppID = () => '123';
+        await a._startRun();
+        expect(calls.intents).toEqual(['ACTIVE']);
+        expect(calls.runIds).toEqual(['run1']);
+        expect([...calls.openRuns]).toEqual(['run1']);
+
+        a.nav.getUserIntent = () => ({ wantsActive: true, run: 'run1' });
+        a._stopAutomation();
+        await settle();
+        expect(calls.closedRuns).toEqual(['run1']);
+        expect(calls.openRuns.size).toBe(0);
+    });
+
+    test('an ACTIVE intent with no open run behind it starts nothing and asks again', async () => {
+        // What a page script that wrote the intent itself gets, and what a run
+        // stopped in another way gets after a reload.
+        const Automator = loadAutomatorClass();
+        const { a, calls } = makeReloaded(Automator, 'written-by-the-page');
+        await a.run();
+        await settle();
+        expect(calls.ignores).toBe(0);
+        expect(calls.prompts).toBe(1);
+    });
+
+    test('an open run continues on the reload of its page', async () => {
+        const Automator = loadAutomatorClass();
+        const { a, calls } = makeReloaded(Automator, 'run7');
+        calls.openRuns.add('run7');
+        await a.run();
+        await settle();
+        expect(calls.ignores).toBe(1);
+        expect(calls.prompts).toBe(0);
+    });
+
+    test('a stop while the ledger is read sends no ignore', async () => {
+        // The queue toggle going off: the gate checks only the global master,
+        // so this check is the one that stops the pass.
+        const Automator = loadAutomatorClass();
+        const { a, calls } = makeReloaded(Automator, 'run7');
+        calls.openRuns.add('run7');
+        let release;
+        a.runs.isLive = () => new Promise(r => { release = () => r(true); });
+        const pending = a.run();
+        await settle();
+        a._stopAutomation();
+        release();
+        await pending;
+        await settle();
+        expect(calls.ignores).toBe(0);
+    });
+
+    test('a stop while Run opens its run closes that run', async () => {
+        const Automator = loadAutomatorClass();
+        const { a, calls } = makeAutomator(Automator, { gateOk: true, ignoreOk: true });
+        let release;
+        const open = a.runs.open;
+        a.runs.open = () => new Promise(r => { release = () => r(open()); });
+        const pending = a._startRun();
+        await settle();
+        a._stopAutomation();
+        release();
+        await pending;
+        expect(calls.intents).toEqual([]);
+        expect(calls.openRuns.size).toBe(0);
+        expect(calls.closedRuns).toEqual(['run1']);
     });
 
     test('a second Run click while the first waits starts one run, not two', async () => {
@@ -474,7 +579,7 @@ test.describe('ExploreAutomator (unit)', () => {
         };
         vm.createContext(sandbox);
         loadSettingsSchema(sandbox);
-        vm.runInContext(src('steam-palette.js'), sandbox);
+        vm.runInContext(src('queue-common', 'steam-palette.js'), sandbox);
         vm.runInContext(src('explore-queue', 'utils.js'), sandbox);
         const ILAP = sandbox.window.ILAP;
         return { settings: new ILAP.Explore.QueueSettings(ILAP.Settings), listeners };
@@ -575,5 +680,52 @@ test.describe('ExploreAutomator (unit)', () => {
         }
         expect(leaked.map(String)).toEqual([]);
         expect(warned.filter((w) => w.includes('EQ pass failed'))).toHaveLength(1);
+    });
+
+    test('RunLedger: a run is live from open() to close(), and an id it never gave is not', async () => {
+        const src = (...p) => fs.readFileSync(path.join(__dirname, '..', '..', 'src', ...p), 'utf8');
+        const data = {};
+        const sandbox = {
+            window: {}, Date, Promise, Object,
+            chrome: { storage: { local: {
+                get: (query, cb) => {
+                    const out = {};
+                    for (const [k, dflt] of Object.entries(query)) out[k] = k in data ? JSON.parse(data[k]) : dflt;
+                    setTimeout(() => cb(out), 0);
+                },
+                set: (obj, cb) => {
+                    for (const [k, v] of Object.entries(obj)) data[k] = JSON.stringify(v);
+                    setTimeout(cb, 0);
+                },
+            } } },
+        };
+        vm.createContext(sandbox);
+        loadSettingsSchema(sandbox);
+        vm.runInContext(src('escape.js'), sandbox);
+        vm.runInContext(src('queue-common', 'steam-palette.js'), sandbox);
+        vm.runInContext(src('explore-queue', 'utils.js'), sandbox);
+        const runs = new sandbox.window.ILAP.Explore.RunLedger();
+
+        const id = await runs.open();
+        expect(await runs.isLive(id)).toBe(true);
+        for (const forged of ['eq_forged', '', null, undefined, '__proto__', 'constructor']) {
+            expect(await runs.isLive(forged), String(forged)).toBe(false);
+        }
+        // A second tab's run is its own entry.
+        const other = await runs.open();
+        await runs.close(id);
+        expect(await runs.isLive(id)).toBe(false);
+        expect(await runs.isLive(other)).toBe(true);
+
+        // An entry past the TTL, or stamped in the future, is not a live run,
+        // and the next write drops it.
+        const stored = JSON.parse(data.ilap_queue_runs);
+        stored.old = Date.now() - 25 * 3600 * 1000;
+        stored.ahead = Date.now() + 3600 * 1000;
+        data.ilap_queue_runs = JSON.stringify(stored);
+        expect(await runs.isLive('old')).toBe(false);
+        expect(await runs.isLive('ahead')).toBe(false);
+        await runs.close(other);
+        expect(JSON.parse(data.ilap_queue_runs)).toEqual({});
     });
 });

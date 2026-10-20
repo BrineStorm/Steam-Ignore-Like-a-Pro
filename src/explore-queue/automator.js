@@ -26,11 +26,12 @@
             need(deps.context, ['getAppID', 'getGameContainer', 'getNextButton', 'isQueuePage'], 'context');
             need(deps.analyzer, ['getState'], 'analyzer');
             need(deps.decisionEngine, ['decide'], 'decisionEngine');
-            need(deps.reward, ['check'], 'reward');               // src/sale-reward.js
+            need(deps.reward, ['check'], 'reward');               // src/queue-common/sale-reward.js
             if (!deps.reward.STATUS || !deps.reward.STATUS.ALLOWED || !deps.reward.STATUS.PENDING) {
                 throw new TypeError('[ILAP] ExploreAutomator needs deps.reward.STATUS');
             }
-            need(deps.notice, ['confirmOnce'], 'notice');         // src/automation-notice.js
+            need(deps.notice, ['confirmOnce'], 'notice');         // src/queue-common/automation-notice.js
+            need(deps.runs, ['open', 'isLive', 'close'], 'runs'); // explore-queue/utils.js RunLedger
 
             this.settings = deps.settings;   // explore-queue/utils.js QueueSettings
             this.ui = deps.ui;
@@ -44,7 +45,8 @@
             this.decisionEngine = deps.decisionEngine;
             this.reward = deps.reward;
             this.notice = deps.notice;
-            
+            this.runs = deps.runs;
+
             this.processedSession = new Set();
             this.nextTimeoutId = null;
             // Bumped by every stop, so an ignore waiting on the gate can tell it
@@ -108,6 +110,17 @@
                     this._showStartPrompt();
                     return;
                 }
+                // The intent lives in page-writable sessionStorage: it continues
+                // only a run that a real Run click opened and no stop has closed.
+                // A stop during the read (the queue toggle, which the gate does
+                // not check) ends the pass as well.
+                const stops = this._stops;
+                if (!(await this.runs.isLive(intent.run))) {
+                    this._stopAutomation();
+                    this._showStartPrompt();
+                    return;
+                }
+                if (stops !== this._stops) return;
 
                 this.nav.setActiveAppid(appid);
                 this._executeLogic(appid);
@@ -172,7 +185,10 @@
 
         _stopAutomation() {
             this._stops++;
+            const run = this.nav.getUserIntent().run;
             this.nav.resetState();
+            // Nothing awaits a stop; a rejected write ends here.
+            if (run) this.runs.close(run).catch((e) => console.warn('[ILAP] EQ run close failed:', e));
             clearTimeout(this.nextTimeoutId);
         }
 
@@ -205,8 +221,11 @@
                 const stops = this._stops;
                 if (!(await this.notice.confirmOnce())) return;
                 if (stops !== this._stops) return;
+                const run = await this.runs.open();
+                // A stop meanwhile found no run id in the tab to close.
+                if (stops !== this._stops) { await this.runs.close(run); return; }
                 const currentAppid = this.context.getAppID();
-                this.nav.setIntent('ACTIVE', currentAppid);
+                this.nav.setIntent('ACTIVE', currentAppid, run);
                 this.ui.clearStartPrompt();
                 this._executeLogic(currentAppid);
             } finally {

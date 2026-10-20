@@ -81,10 +81,14 @@
             if (!btn) return;
             const id = btn.dataset.jobId;
             const act = btn.dataset.act;
+            // Nothing awaits a click: in the widget, a rejected storage write (an
+            // extension update) ends here as one warn line.
+            const swallow = (e) => console.warn('[ILAP] queue action failed:', e);
             if (act === 'remove') {
-                Store.removeJob(id);
+                Store.removeJob(id).catch(swallow);
             } else if (act === 'pause' && !this._masterOff) {
-                Store.updateJob(id, (j) => ({ status: j.status === 'paused' ? 'pending' : 'paused' }));
+                Store.updateJob(id, (j) => ({ status: j.status === 'paused' ? 'pending' : 'paused' }))
+                    .catch(swallow);
             }
         }
 

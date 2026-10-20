@@ -33,6 +33,15 @@
     // briefly.
     const YIELD_MS = 2500;
 
+    // The user's own browsing on a Steam store page (src/steam-activity.js). While
+    // it is recent, a background ignore waits ACTIVE_GAP instead of GAP, so our
+    // stream leaves room for the requests the user's clicks send.
+    const ACTIVITY_KEY = 'ilap_user_active_at';
+    const ACTIVE_WINDOW_MS = 30000;
+    const ACTIVE_GAP = 3000;
+    // One write per this much activity: the service worker hears every write.
+    const ACTIVITY_THROTTLE_MS = 5000;
+
     // 429 backoff, shared by every source: doubles from PENALTY_BASE up to
     // PENALTY_MAX (a Retry-After is honoured up to the same cap), escalating
     // while each 429 lands within PENALTY_DECAY of the previous penalty's end.
@@ -126,9 +135,25 @@
         return live === null ? 'offline' : 'no-session';
     }
 
+    // A stamp from the past ACTIVE_WINDOW_MS. One from the future is clock skew
+    // or corruption and counts as none, or it would slow the drain for good.
+    function isUserActive(at, now) {
+        return Number.isFinite(at) && at <= now && now - at < ACTIVE_WINDOW_MS;
+    }
+
+    // The gap reserve(opts) puts after the last slot. Exported for a host that
+    // estimates its wait before reserving (the service worker).
+    function gapFor(opts, activityAt, now) {
+        const foreground = !!(opts && opts.foreground);
+        const gesture = !!(opts && opts.gesture);
+        return !foreground && !gesture && isUserActive(activityAt, now) ? ACTIVE_GAP : GAP;
+    }
+
     // Called before every ignore. `opts.foreground` marks a visible source
     // (EQ / DQ): it stamps activity and never yields; the background drainer
-    // yields while that stamp is fresh. Resolves { ok: true } when the slot
+    // yields while that stamp is fresh. `opts.gesture` marks a background
+    // ignore the user asked for one by one (a Manual-Ignore swipe): it keeps the
+    // normal gap while the user browses. Resolves { ok: true } when the slot
     // arrives, or { ok: false, reason } with a stop verdict or 'yield'; callers
     // stop the whole pass on !ok.
     function reserve(opts) {
@@ -137,14 +162,14 @@
         const claim = stopVerdict().then((stop) => {
             if (stop) return { stop };
             return serial(async () => {
-                const data = await get({ [GATE_KEY]: 0, [PENALTY_KEY]: null, [FOREGROUND_KEY]: 0 });
+                const data = await get({ [GATE_KEY]: 0, [PENALTY_KEY]: null, [FOREGROUND_KEY]: 0, [ACTIVITY_KEY]: 0 });
                 const now = Date.now();
                 if (!foreground && (now - (data[FOREGROUND_KEY] || 0)) < YIELD_MS) {
                     return { yield: true };
                 }
                 // An active penalty folds into the slot.
                 const slot = Math.max(
-                    nextSlot(data[GATE_KEY], now, GAP),
+                    nextSlot(data[GATE_KEY], now, gapFor(opts, data[ACTIVITY_KEY], now)),
                     penaltyUntil(data[PENALTY_KEY], now)
                 );
                 const write = { [GATE_KEY]: slot };
@@ -168,6 +193,26 @@
         });
     }
 
+    // A READ outside a drain pass (a curator's list, page by page, or the
+    // userdata a gesture on a greyed capsule checks) takes a slot in the same
+    // stream, so reading while a list drains does not add a second stream on
+    // top. Only the pacing: no stop verdict (a read sends no ignore)
+    // and no yield. A penalty still holds it back: a 429 is Steam asking for
+    // less of everything. The slot reads back through lastSlotAt() like a POST,
+    // which only delays the total's snapshot by the userdata lag.
+    function paceRead() {
+        return serial(async () => {
+            const data = await get({ [GATE_KEY]: 0, [PENALTY_KEY]: null });
+            const now = Date.now();
+            const slot = Math.max(nextSlot(data[GATE_KEY], now, GAP), penaltyUntil(data[PENALTY_KEY], now));
+            await set({ [GATE_KEY]: slot });
+            return slot;
+        }).then((slot) => {
+            const wait = slot - Date.now();
+            return wait > 0 ? sleep(wait) : undefined;
+        });
+    }
+
     // A 429 from the ignore endpoint: escalate the shared penalty. Same chain as
     // reserve(), so the two read-modify-writes cannot interleave in one context.
     function reportRateLimited(retryAfterMs) {
@@ -179,10 +224,44 @@
         });
     }
 
+    // The user acted on a Steam page. Throttled in memory, per page.
+    let lastActivityWrite = 0;
+    function noteUserActivity() {
+        const now = Date.now();
+        if (now - lastActivityWrite < ACTIVITY_THROTTLE_MS) return Promise.resolve();
+        lastActivityWrite = now;
+        return set({ [ACTIVITY_KEY]: now });
+    }
+
+    // A Steam page sent an ignore POST of its own: the user's click, or the one
+    // a DQ click makes. The stream counts it, so the next slot is a gap after it;
+    // a slot already further ahead stays. A 429 on it escalates the shared
+    // penalty like one on ours. status 0 (aborted, or a browser that does not
+    // expose it) only counts the POST.
+    function noteNativeIgnore(status) {
+        const counted = serial(async () => {
+            const at = (await get({ [GATE_KEY]: 0 }))[GATE_KEY];
+            const now = Date.now();
+            const last = Number.isFinite(at) && at <= now + MAX_AHEAD ? at : 0;
+            if (last < now) await set({ [GATE_KEY]: now });
+        });
+        return status === 429 ? counted.then(() => reportRateLimited(0)) : counted;
+    }
+
+    // The last reserved slot — about when the last ignore POST from any source
+    // went out — or 0. Same corruption rule as nextSlot: a slot beyond
+    // MAX_AHEAD, or not a number, counts as none.
+    async function lastSlotAt() {
+        const at = (await get({ [GATE_KEY]: 0 }))[GATE_KEY];
+        return Number.isFinite(at) && at <= Date.now() + MAX_AHEAD ? at : 0;
+    }
+
     window.ILAP.IgnoreGate = {
         configure,
-        reserve, reportRateLimited, stopVerdict, nextSlot, nextPenalty, penaltyUntil,
-        GATE_KEY, PENALTY_KEY, FOREGROUND_KEY, MIN_GAP, GAP_FLOOR, MAX_AHEAD, YIELD_MS,
+        reserve, paceRead, reportRateLimited, stopVerdict, lastSlotAt, nextSlot, nextPenalty, penaltyUntil, gapFor,
+        noteUserActivity, noteNativeIgnore,
+        GATE_KEY, PENALTY_KEY, FOREGROUND_KEY, ACTIVITY_KEY, MIN_GAP, GAP_FLOOR, MAX_AHEAD, YIELD_MS,
+        ACTIVE_GAP,
         PENALTY_BASE, PENALTY_MAX, PENALTY_DECAY
     };
 })();

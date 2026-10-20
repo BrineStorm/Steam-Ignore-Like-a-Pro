@@ -37,7 +37,8 @@
     // Lenient userdata read: an empty Set on failure, for callers where missing
     // data only disables an optimization (DQ confirmation). Never for undo.
     async function fetchIgnoredApps() {
-        return (await Net.fetchIgnoredAppsStrict()) || new Set();
+        const ignored = await Net.fetchIgnoredAppsStrict();
+        return new Set(ignored ? ignored.keys() : []);
     }
 
     // Login state from two signals: the store header (free, but frozen at page
@@ -68,6 +69,28 @@
         }
     };
 
+    // Start times (performance.now()) of this page's own ignore POSTs, so the
+    // native-ignore watcher (steam-activity.js) can tell them from Steam's: on
+    // Firefox a content script's fetch lands in the page's resource timeline.
+    // Chromium keeps it out, and the marks simply expire there.
+    const OWN_POST_TTL_MS = 15000;     // past fetchWithTimeout's deadline
+    const OWN_POST_SLACK_MS = 250;     // well under the gate's gap between two POSTs
+    const OwnIgnorePosts = {
+        _starts: [],
+        mark() {
+            const now = performance.now();
+            this._starts = this._starts.filter(t => now - t < OWN_POST_TTL_MS);
+            this._starts.push(now);
+        },
+        // true, and the mark spent, when a POST of ours started at startTime.
+        claim(startTime) {
+            const i = this._starts.findIndex(t => Math.abs(t - startTime) <= OWN_POST_SLACK_MS);
+            if (i < 0) return false;
+            this._starts.splice(i, 1);
+            return true;
+        }
+    };
+
     // The ignore endpoint, this world's copy (see steam-net.js for why). Resolves
     //   { ok, rateLimited, retryAfterMs, status }
     // rateLimited: a 429, which throttles the account; callers report it to the
@@ -80,6 +103,7 @@
         // Encoded per field, so no cookie value can break the body's structure.
         const body = new URLSearchParams(Object.assign({ sessionid }, fields)).toString();
         try {
+            OwnIgnorePosts.mark();
             const response = await fetchWithTimeout(Net.IGNORE_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
@@ -114,6 +138,12 @@
             return this._write((result) => StatsLogic.nextState(result, safeName, source));
         },
 
+        // Shown but not counted: a swipe that changed an ignore's reason.
+        saveHistory(gameName, source) {
+            const safeName = sanitizeName(gameName);
+            return this._write((result) => StatsLogic.historyState(result, safeName, source));
+        },
+
         // Counted but not shown: a drained curator ignore.
         bumpCount() {
             return this._write(StatsLogic.countState);
@@ -122,6 +152,11 @@
         // The mirror, for a confirmed un-ignore.
         dropCount() {
             return this._write(StatsLogic.uncountState);
+        },
+
+        // Steam's list size from a userdata read (see StatsLogic.totalState).
+        recordTotal(size) {
+            return this._write((result) => StatsLogic.totalState(result, size, Date.now()));
         },
 
         // Queue one read-modify-write; `next` maps the stored record to the write.
@@ -170,9 +205,12 @@
     window.ILAP.fetchIgnoredAppsStrict = Net.fetchIgnoredAppsStrict;
     window.ILAP.classifyRefusal = Net.classifyRefusal;
     window.ILAP.SteamAuth = SteamAuth;
+    window.ILAP.OwnIgnorePosts = OwnIgnorePosts;
     window.ILAP.saveStats = (name, source) => StatsManager.save(name, source);
+    window.ILAP.saveHistory = (name, source) => StatsManager.saveHistory(name, source);
     window.ILAP.bumpIgnoredCount = () => StatsManager.bumpCount();
     window.ILAP.dropIgnoredCount = () => StatsManager.dropCount();
+    window.ILAP.recordIgnoredTotal = (size) => StatsManager.recordTotal(size);
     window.ILAP.SessionStateService = SessionStateService;
     window.ILAP.ResourceService = ResourceService;
     window.ILAP.fetchWithTimeout = fetchWithTimeout;

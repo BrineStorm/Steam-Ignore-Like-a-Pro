@@ -13,7 +13,7 @@
 // anonymous, headless, read-only.
 //
 // Deliberately NOT asserted: every selector in a fallback chain. The badge-target
-// and name strategies in src/manual-ignore/utils.js and src/utils.js are long
+// and name strategies in src/manual-ignore/containers.js and src/utils.js are long
 // OR-lists on purpose, and several of their branches are already dead on today's
 // storefront (.tab_item, .home_smallcap_title, .capsule_name and .game_capsule
 // match nothing anywhere). Requiring those would be red forever and teach us to
@@ -37,7 +37,7 @@ const { PALETTE } = require('../_palette.js');
 // The curator id and the product's own recommendations URL — same principle as
 // the palette above: read out of src/, not retyped here.
 const { CURATOR_ID, curatorPath, recommendationsPath } = require('../_curator.js');
-// The sale-reward check, run as the product runs it (src/sale-reward.js builds
+// The sale-reward check, run as the product runs it (src/queue-common/sale-reward.js builds
 // the request and reads the answer); only the network is the canary's.
 const { loadSaleReward } = require('../_sale-reward.js');
 
@@ -47,7 +47,7 @@ const { loadSaleReward } = require('../_sale-reward.js');
 // check exists for — restyle the palette and classification does not throw, it
 // silently stops ignoring anything, with nothing in the logs.
 // ONLY the current shade of each band. The product deliberately also accepts the
-// shades Steam painted before (see src/steam-palette.js) so a rollback cannot
+// shades Steam painted before (see src/queue-common/steam-palette.js) so a rollback cannot
 // disable ignoring for users — but the canary must not: an older shade coming
 // back is exactly the kind of move we want to hear about, quietly survived or
 // not. Anything unlisted, current-but-different or resurrected alike, is red.
@@ -253,9 +253,17 @@ test.describe('Steam markup canary', () => {
         await page.goto('/', { waitUntil: 'domcontentloaded' });
         await page.waitForTimeout(2000);
 
-        expect(await page.locator('.store_main_capsule').count(),
-            '.store_main_capsule is gone — the hero badge surface on the storefront')
-            .toBeGreaterThan(0);
+        // A seasonal sale takes the homepage over (body.seasonal_sale): the
+        // featured carousel is gone and .hero_capsule stands in for it.
+        if (await page.locator('body.seasonal_sale').count()) {
+            expect(await page.locator('.hero_capsule').count(),
+                '.hero_capsule is gone — the hero badge surface on the seasonal-sale storefront')
+                .toBeGreaterThan(0);
+        } else {
+            expect(await page.locator('.store_main_capsule').count(),
+                '.store_main_capsule is gone — the hero badge surface on the storefront')
+                .toBeGreaterThan(0);
+        }
         expect(await page.locator('[data-ds-appid]').count(),
             'no [data-ds-appid] on the storefront — the structural container root the resolver falls back to')
             .toBeGreaterThan(0);
@@ -264,7 +272,7 @@ test.describe('Steam markup canary', () => {
     // Not markup but the same kind of dependency: the queue automators gate on
     // the sale reward, and its public half (GetCurrentDefinition) needs no
     // token, so it can be asked from here. The PRODUCT judges the shape, not
-    // this test: src/sale-reward.js runs on the live answer, with only the
+    // this test: src/queue-common/sale-reward.js runs on the live answer, with only the
     // account's progress (the half behind a login) canned at 0 earned. A shape it
     // can read gives 'pending' (a reward running) or 'allowed' (none running);
     // anything else gives 'unknown', which keeps both queue helpers from

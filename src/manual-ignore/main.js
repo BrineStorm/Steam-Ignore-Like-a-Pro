@@ -8,11 +8,21 @@
     // ignore→rollback POST ping-pong, short enough that nobody notices it.
     const UNIGNORE_COOLDOWN_MS = 2000;
 
+    // How long a gesture on a greyed capsule waits for the gate before it
+    // decides without Steam's reason (buildAdapters, steamReason). Past the
+    // longest ordinary wait: the swipe marks the user active, so a curator
+    // drain reserves at ACTIVE_GAP (3 s), and the read queues one GAP (650 ms)
+    // behind it. Only a 429 penalty goes further.
+    const STEAM_REASON_WAIT_MS = 4000;
+
+    // true once the menu-at-press hint has been shown (App._hintMenuAtPress).
+    const PRESS_MENU_HINT_KEY = 'ilap_press_menu_hint';
+
     class IgnoreManager {
         constructor(deps) {
             // Every hook is required: a missing login gate or master check would
             // not fail, it would quietly let a gesture through.
-            for (const name of ['enqueue', 'enqueueUndo', 'cancelIgnore', 'signalUnignored',
+            for (const name of ['enqueue', 'enqueueUndo', 'cancelIgnore', 'signalUnignored', 'steamReason',
                 'isLoggedIn', 'isEnabled', 'notifyQueueFull', 'notifyUndoQueueFull', 'notifyDropped']) {
                 if (typeof deps[name] !== 'function') {
                     throw new TypeError(`[ILAP] IgnoreManager needs deps.${name}`);
@@ -21,7 +31,8 @@
             // The collaborators would only fail at the first gesture: check them
             // at boot too.
             const adapters = {
-                badgeRenderer: ['render', 'unrender', 'syncPending', 'syncMasks'],
+                badgeRenderer: ['render', 'unrender', 'syncPending', 'syncMasks',
+                    'steamGreyed', 'tintSteamFlag', 'untintSteamFlag'],
                 containerStrategies: ['findContainer'],
                 nameExtractor: ['get'],
                 sessionState: ['get', 'set'],
@@ -33,10 +44,13 @@
             }
             this.renderer = deps.badgeRenderer;
             this.strategies = deps.containerStrategies;
-            this.enqueue = deps.enqueue;            // (appid, name, reason) => Promise<{ kind }>
+            this.enqueue = deps.enqueue;            // (appid, name, reason, ts) => Promise<{ kind }>
             this.enqueueUndo = deps.enqueueUndo;    // (appid) => Promise<{ kind }>
-            this.cancelIgnore = deps.cancelIgnore;  // (appid) => Promise<boolean>
+            this.cancelIgnore = deps.cancelIgnore;  // (appid, ts) => Promise<boolean>
             this.signalUnignored = deps.signalUnignored;  // (appid) => Promise<void>
+            // (appid) => Promise<reason | undefined>: the reason Steam's list has
+            // for the game, undefined when it is not there or the read failed.
+            this.steamReason = deps.steamReason;
             this.nameExtractor = deps.nameExtractor;
             this.session = deps.sessionState;
             this.isLoggedIn = deps.isLoggedIn;      // () => Promise<bool> (logged-out gate)
@@ -53,8 +67,10 @@
             // Appids whose solo un-ignore is queued but not confirmed. Per tab, like
             // the badges it marks.
             this.pending = new Set();
-            // When this tab swiped each badged game, for the cooldown alone. Never
-            // persisted: a reload outlasts the cooldown anyway.
+            // When this tab swiped each badged game: the cooldown, and what a
+            // cancel asks the queue for — an entry queued by then contains this
+            // tab's swipe, a later one is somebody else's. Persisted with the
+            // session map for that.
             this.ignoredAt = new Map();
             // Swipes whose enqueue is still in flight. The sessionMap check that
             // opens processIgnoreRequest cannot hold across its awaits — the map
@@ -63,6 +79,14 @@
             // is the second resolve, which on a capsule with no readable name is
             // an appdetails request.
             this._enqueueing = new Set();
+            // Games un-ignored since this page loaded, in any tab (the
+            // ilap_unignored pulse, reason 'undo'). Steam keeps its grey on them
+            // until a reload, so its `ds_ignored` is stale for exactly these.
+            this.unignoredHere = new Set();
+            // Greyed capsules this tab gestured on: appid -> the reason queued.
+            // Their mark is Steam's own flag, tinted, not a badge of ours, so they
+            // stay out of the session map (no badge click, no solo un-ignore).
+            this.tinted = new Map();
             this.SESSION_KEY = 'ilap_session_map_v2';
 
             this._loadSession();
@@ -79,14 +103,23 @@
                 // wrong badge but a thrown DOMException that kills the whole
                 // badge pass. A digit string is the only thing this tab ever
                 // wrote (EventParser takes it from an /app/ href match).
-                this.sessionMap = new Map(JSON.parse(stored)
-                    .filter(([appid]) => typeof appid === 'string' && /^\d+$/.test(appid)));
+                const rows = JSON.parse(stored)
+                    .filter(([appid]) => typeof appid === 'string' && /^\d+$/.test(appid));
+                this.sessionMap = new Map(rows.map(([appid, reason]) => [appid, reason]));
+                // A swipe time from the future is no time of ours: it would hold
+                // the cooldown shut for good and let a cancel claim another tab's
+                // entry. Without one the cancel errs safe (a real rollback).
+                const now = Date.now();
+                for (const [appid, , ts] of rows) {
+                    if (Number.isFinite(ts) && ts <= now) this.ignoredAt.set(appid, ts);
+                }
             } catch (e) { /* ignore */ }
         }
 
         _saveSession() {
             try {
-                this.session.set(this.SESSION_KEY, JSON.stringify(Array.from(this.sessionMap.entries())));
+                this.session.set(this.SESSION_KEY, JSON.stringify(Array.from(this.sessionMap,
+                    ([appid, reason]) => [appid, reason, this.ignoredAt.get(appid)])));
             } catch(e) { /* ignore */ }
         }
 
@@ -94,12 +127,26 @@
             const { appid, reason, linkElement } = intent;
 
             if (this.sessionMap.has(appid) || this._enqueueing.has(appid)) return;
+
+            // Steam already greys this capsule out: the game is on the account's
+            // list. The gesture then sets its reason, and Steam's flag takes the
+            // gesture's colour instead of a badge of ours.
+            const greyed = !this.unignoredHere.has(appid) && this.renderer.steamGreyed(linkElement);
+            if (greyed && this.tinted.get(appid) === reason) return;
+
             this._enqueueing.add(appid);
             try {
                 // A logged-out swipe does nothing: its POST could only be refused,
                 // and the drainer parks on a dead session rather than dropping the
                 // job, so the badge would never be corrected.
                 if (!(await this.isLoggedIn())) return;
+
+                // The reason Steam already has changes nothing: no POST, and no
+                // mark either. Unless this tab tinted the other reason since:
+                // then it is queued to take that back, and the tint goes. A
+                // failed read leaves it to the drainer's own check.
+                const asSteam = greyed && (await this.steamReason(appid)) === reason;
+                if (asSteam && !this.tinted.has(appid)) return;
 
                 // The name now, while the DOM is live: the drainer stamps Last
                 // Ignored with it when the POST lands.
@@ -109,24 +156,35 @@
 
                 // Enqueue before badging: a swipe past MI_MAX is refused, and the
                 // badge must only paint for one that landed.
-                const outcome = await this.enqueue(appid, name, reason);
+                const ts = Date.now();
+                const outcome = await this.enqueue(appid, name, reason, ts);
                 if (!outcome || outcome.kind !== 'added') {
                     // The cap is only reached when the queue is not draining at
                     // all, so say so rather than paint nothing.
                     if (outcome && outcome.kind === 'full') this.notifyQueueFull();
                     return;
                 }
-                this._onEnqueued(intent);
+                if (asSteam) {
+                    this.tinted.delete(appid);
+                    this.renderer.untintSteamFlag(appid);
+                } else if (greyed) {
+                    this.tinted.set(appid, reason);
+                    // Through refreshAll's pass rather than `greyed` alone: the
+                    // same game may sit in several capsules on the page.
+                    this.refreshAll();
+                } else {
+                    this._onEnqueued(intent, ts);
+                }
             } finally {
                 this._enqueueing.delete(appid);
             }
         }
 
-        _onEnqueued(intent) {
+        _onEnqueued(intent, ts) {
             const { appid, reason } = intent;
 
             this.sessionMap.set(appid, reason);
-            this.ignoredAt.set(appid, Date.now());
+            this.ignoredAt.set(appid, ts);
             this._saveSession();
 
             this.refreshBadgesForGame(appid);
@@ -144,7 +202,7 @@
             // of queueing a rollback. Ahead of both gates below: the cooldown
             // brakes POST ping-pong and a cancel sends no POST, and cancelling
             // needs no session.
-            if (await this.cancelIgnore(appid)) {
+            if (await this.cancelIgnore(appid, this.ignoredAt.get(appid))) {
                 // Through the pulse, not in place: another tab may have badged the
                 // same game, and this tab's own listener handles it on the way back.
                 await this.signalUnignored(appid);
@@ -180,13 +238,19 @@
             this.renderer.syncPending(Array.from(this.pending));
         }
 
-        // Games that are not ignored any more (the ilap_unignored pulse): drop the
-        // ones this tab badged. 'failed' is the one reason the user did not ask
-        // for, so only then — and only in a tab that badged one — is it said.
+        // The ilap_unignored pulse: drop the marks this tab painted for these
+        // games. 'undo' took them off the list; 'removed' and 'failed' left
+        // Steam's list as it was. 'failed' is the one the user did
+        // not ask for, so only then — and only in a tab that marked one — is it said.
         handleUnignored(appids, reason) {
             let dropped = 0;
             for (const raw of (Array.isArray(appids) ? appids : [appids])) {
                 const appid = String(raw);
+                if (reason === 'undo') this.unignoredHere.add(appid);
+                if (this.tinted.delete(appid)) {
+                    this.renderer.untintSteamFlag(appid);
+                    dropped += 1;
+                }
                 if (!this.sessionMap.has(appid)) continue;  // only clear what THIS tab badged
                 this.sessionMap.delete(appid);
                 this.pending.delete(appid);   // the badge is going — its mark goes with it
@@ -216,13 +280,18 @@
         refreshAll() {
             // Guarded here rather than at the three call sites.
             if (!this.isEnabled()) return;
-            if (this.sessionMap.size === 0) return;
-            // One document pass against the session map, not one per appid: this
-            // runs on every mutation batch of the storefront.
+            if (this.sessionMap.size === 0 && this.tinted.size === 0) return;
+            // One document pass against the session map and the tints, not one
+            // per appid: this runs on every mutation batch of the storefront.
             const links = document.querySelectorAll('a[href*="/app/"]');
             for (const link of links) {
                 const m = (link.getAttribute('href') || '').match(/\/app\/(\d+)([/?]|$)/);
-                if (!m || !this.sessionMap.has(m[1])) continue;
+                if (!m) continue;
+                if (this.tinted.has(m[1])) {
+                    const greyed = this.renderer.steamGreyed(link);
+                    if (greyed) this.renderer.tintSteamFlag(greyed, m[1], this.tinted.get(m[1]));
+                }
+                if (!this.sessionMap.has(m[1])) continue;
                 this.renderer.render(link, m[1], this.sessionMap.get(m[1]) || 0);
             }
             // Badges Steam just rebuilt come back without their pending mark.
@@ -237,6 +306,7 @@
         // veil). The session map stays — it is the model a re-enable repaints from.
         hideBadges() {
             for (const appid of this.sessionMap.keys()) this.renderer.unrender(appid);
+            for (const appid of this.tinted.keys()) this.renderer.untintSteamFlag(appid);
         }
     }
 
@@ -264,11 +334,23 @@
     function buildAdapters() {
         const Store = window.ILAP.Curator.Store;
         return {
-            enqueue: (appid, name, reason) => Store.enqueueMi({ appid, name, reason }),
+            enqueue: (appid, name, reason, ts) => Store.enqueueMi({ appid, name, reason, ts }),
             enqueueUndo: (appid) => Store.enqueueMiUndo({ appid }),
-            cancelIgnore: (appid) => Store.cancelMiEntry(appid),
+            cancelIgnore: (appid, ts) => Store.cancelMiEntry(appid, ts),
             // A cancelled swipe un-badges like a rollback: the silent 'undo' reason.
             signalUnignored: (appid) => Store.signalUnignored([appid], 'undo'),
+            // A userdata GET, paced in the ignores' stream: swiping greyed covers
+            // during a curator drain shares it. A slot further off than
+            // STEAM_REASON_WAIT_MS (a 429 penalty) skips the read, and the
+            // drainer's own check decides instead. The skipped read keeps its
+            // slot: one GAP more for the drain, during a penalty only.
+            steamReason: async (appid) => {
+                const paced = window.ILAP.IgnoreGate.paceRead().then(() => true);
+                const late = new Promise(resolve => setTimeout(() => resolve(false), STEAM_REASON_WAIT_MS));
+                if (!(await Promise.race([paced, late]))) return undefined;
+                const ignored = await window.ILAP.fetchIgnoredAppsStrict();
+                return ignored ? ignored.get(String(appid)) : undefined;
+            },
             nameExtractor: { get: (appid, el) => window.ILAP.resolveGameName(appid, el) },
             // Not the sessionid cookie: Steam gives one to anonymous visitors too.
             // Fails closed: a probe that could not be made is not a session.
@@ -338,13 +420,7 @@
             chrome.storage.onChanged.addListener((changes, area) => {
                 if (area !== 'local') return;
                 const p = changes[Store.UNIGNORE_PULSE_KEY];
-                // `appid` is the pre-list payload shape, from a build whose
-                // drainer pulsed one appid at a time. On Chromium no such writer
-                // survives an update — a content script left in an open tab loses
-                // storage access (verified live) — so there this branch is dead;
-                // kept until the same is checked on Firefox.
-                const pulsed = p && p.newValue
-                    && (p.newValue.appids || (p.newValue.appid ? [p.newValue.appid] : null));
+                const pulsed = p && p.newValue && p.newValue.appids;
                 if (pulsed) {
                     this.ignoreManager.handleUnignored(pulsed, p.newValue.reason);
                 }
@@ -357,6 +433,20 @@
             });
 
             this.ignoreManager.refreshAll();
+        }
+
+        // The first time the detector cancels a menu that opened at press (macOS,
+        // Linux), say once per install why the menu is gone on game covers and
+        // how to get it back. Asked once per tab, so every later press in it
+        // costs no storage read.
+        _hintMenuAtPress() {
+            if (this._menuHintAsked) return;
+            this._menuHintAsked = true;
+            chrome.storage.local.get(PRESS_MENU_HINT_KEY, (d) => {
+                if (chrome.runtime.lastError || d[PRESS_MENU_HINT_KEY]) return;
+                chrome.storage.local.set({ [PRESS_MENU_HINT_KEY]: true });
+                window.ILAP.showToast(window.ILAP.t('press_menu_hint'), 12000);
+            });
         }
 
         // Both paths are fire-and-forget: a gesture is not awaited by anything.
@@ -393,7 +483,7 @@
                 const intent = this.eventParser.createIntent(gestureData.startEl, gestureData.reason);
                 if (!intent) return;
                 this._dispatch(intent, gestureData.action);
-            });
+            }, () => this._hintMenuAtPress());
 
             // The un-ignore that cannot be rebound: a click on the IGNORED badge,
             // either button, whatever the select says (its "off" is labelled for

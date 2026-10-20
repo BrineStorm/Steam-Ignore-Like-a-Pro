@@ -169,7 +169,7 @@
         }
 
         // Remove a previously-rendered IGNORED badge for `appid` across the
-        // document — the un-render path BadgeRenderer lacked (it only ever added).
+        // document, the inverse of render().
         // Used when a game this tab badged is deliberately un-ignored (undo): the
         // badge, its blur class and any backdrop veil come off, and the container's
         // processed markers are cleared so a later re-ignore can badge it again.
@@ -226,6 +226,29 @@
             });
         }
 
+        // The capsule Steam greys out as already on the account's list, or null.
+        steamGreyed(linkElement) {
+            return linkElement.closest('.ds_ignored');
+        }
+
+        // A gesture on a greyed capsule paints no badge of ours: Steam's own
+        // IGNORED flag there takes the gesture's colour, the badge colours
+        // (styles.css). The class sits on the capsule, the rule reaches its flag.
+        tintSteamFlag(greyed, appid, reason) {
+            greyed.classList.toggle('ilap-steam-tint-played', reason === 2);
+            greyed.classList.toggle('ilap-steam-tint-ignore', reason !== 2);
+            greyed.dataset.ilapTint = String(appid);
+            if (!this.tintTip) this.tintTip = new TintTip(this.resources);
+        }
+
+        untintSteamFlag(appid) {
+            document.querySelectorAll(`[data-ilap-tint="${String(appid)}"]`).forEach(el => {
+                el.classList.remove('ilap-steam-tint-ignore', 'ilap-steam-tint-played');
+                delete el.dataset.ilapTint;
+            });
+            if (this.tintTip) this.tintTip.hide();
+        }
+
         _getVariantClass(type) {
             const map = {
                 'list': this.badgeClasses.LIST,
@@ -244,6 +267,58 @@
             if (style.display === 'inline') {
                 element.style.display = 'inline-block';
             }
+        }
+    }
+
+    // What a tinted flag means, shown on hover. Steam dims and clips the whole
+    // greyed capsule (opacity, overflow), so a tooltip inside it would be faint
+    // and cut off: this one is a single element on <body>, placed over the flag,
+    // after the badge tooltip's dwell (styles.css). Created with the first tint,
+    // so a page without one listens to nothing.
+    class TintTip {
+        constructor(resources) {
+            this.resources = resources;
+            this.tip = null;
+            this.flag = null;
+            document.addEventListener('mouseover', (e) => this._onOver(e), true);
+            document.addEventListener('mouseout', (e) => this._onOut(e), true);
+            window.addEventListener('scroll', () => this.hide(), { capture: true, passive: true });
+        }
+
+        _onOver(e) {
+            if (!e.isTrusted || !e.target.closest) return;
+            const flag = e.target.closest('[data-ilap-tint] > .ds_ignored_flag');
+            if (flag && flag !== this.flag) this.show(flag);
+        }
+
+        _onOut(e) {
+            if (!this.flag || !this.flag.contains(e.target)) return;
+            if (!this.flag.contains(e.relatedTarget)) this.hide();
+        }
+
+        show(flag) {
+            if (!this.tip || !this.tip.isConnected) {
+                this.tip = document.createElement('div');
+                this.tip.className = 'ilap-tooltip ilap-tooltip-floating';
+                document.body.appendChild(this.tip);
+            }
+            const played = flag.parentElement.classList.contains('ilap-steam-tint-played');
+            // Escaped with a stand-in for the icon, which then becomes the <img>.
+            const text = t(played ? 'steam_tint_tip_played' : 'steam_tint_tip_ignore', { icon: '\u0001' });
+            const icon = `<img src="${Sanitizer.escapeHTML(this.resources.getIconUrl('icon16.png'))}" alt="">`;
+            this.tip.innerHTML = Sanitizer.escapeHTML(text).replace('\u0001', icon);
+            // Above the flag's left edge: Steam keeps that edge put while the
+            // flag expands from its icon into the word.
+            const r = flag.getBoundingClientRect();
+            this.tip.style.left = `${Math.max(4, r.left)}px`;
+            this.tip.style.top = `${r.top}px`;
+            this.tip.classList.add('show');
+            this.flag = flag;
+        }
+
+        hide() {
+            if (this.tip) this.tip.classList.remove('show');
+            this.flag = null;
         }
     }
 

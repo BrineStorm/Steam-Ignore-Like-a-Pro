@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-// AutomationNotice (src/automation-notice.js) as a Node unit, on a minimal fake
+// AutomationNotice (src/queue-common/automation-notice.js) as a Node unit, on a minimal fake
 // DOM. The notice sits on a Steam page, so two things must hold whatever that
 // page does:
 //   - only real input accepts it: a page script cannot start a run for the user;
@@ -73,7 +73,7 @@ function load({ store = {} } = {}) {
     };
     vm.createContext(sandbox);
     vm.runInContext(SRC('escape.js'), sandbox, { filename: 'escape.js' });
-    vm.runInContext(SRC('automation-notice.js'), sandbox, { filename: 'automation-notice.js' });
+    vm.runInContext(SRC('queue-common', 'automation-notice.js'), sandbox, { filename: 'automation-notice.js' });
     return {
         Notice: sandbox.window.ILAP.AutomationNotice,
         store,

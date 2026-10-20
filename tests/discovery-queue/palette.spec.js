@@ -55,7 +55,7 @@ test.describe('Discovery Queue — review palette (live)', () => {
                         `${tag} / "${card.name}" reads "${card.band}" but Steam paints it ${card.color}, ` +
                         `not ${PALETTE.current(key)}. The classifier matches on colour alone and treats an ` +
                         `unrecognised one as well-reviewed, so Keep High Score would spare this game ` +
-                        `silently. Fix src/steam-palette.js: put the new shade first, keep the old one behind it.`)
+                        `silently. Fix src/queue-common/steam-palette.js: put the new shade first, keep the old one behind it.`)
                         .toBe(PALETTE.current(key));
                 }
                 if (!(await nextSlide(page))) break;

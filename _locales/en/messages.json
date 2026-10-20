@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "Steam Ignore Like A Pro — Fast & Auto Ignore",
+    "description": "Extension name for Firefox (AMO). Keep the brand \"Steam Ignore Like A Pro\" untranslated; max 50 characters in every language."
+  },
+  "extNameChrome": {
+    "message": "Steam Ignore Like A Pro — Fast & Auto Ignore",
+    "description": "Extension name for the Chromium build (Chrome Web Store). Keep the brand untranslated; max 75 characters. Can say more than extName where 50 did not fit."
+  },
+  "extDescription": {
+    "message": "Add games to your ignore list on the Steam Store with one mouse gesture, or whole lists at once, picked by you or by curators.",
+    "description": "Store short description / summary; max 132 characters."
+  }
+}

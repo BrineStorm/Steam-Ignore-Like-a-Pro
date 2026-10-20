@@ -1,0 +1,11 @@
+{
+  "extName": {
+    "message": "Steam Ignore Like A Pro — Ignora juegos rápido"
+  },
+  "extNameChrome": {
+    "message": "Steam Ignore Like A Pro — Ignora juegos rápido y automáticamente"
+  },
+  "extDescription": {
+    "message": "Añade juegos a tu lista de ignorados en la tienda de Steam con un gesto del ratón, o listas enteras a tu elección o de mentores."
+  }
+}

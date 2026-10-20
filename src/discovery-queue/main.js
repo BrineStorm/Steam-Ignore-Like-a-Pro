@@ -50,8 +50,8 @@
         //   registry           Discovery.Registry — cross-tab DQ-automator cap (lease)
         //   insertionStrategy  { find(modal) → { parent, referenceNode } | null }
         //   masterSwitch       { watch({ onInit, onChange }) } (src/master-switch.js)
-        //   reward             { check({ fresh }) → a STATUS value, STATUS } (src/sale-reward.js)
-        //   notice             { confirmOnce() → Promise<boolean> } (src/automation-notice.js)
+        //   reward             { check({ fresh }) → a STATUS value, STATUS } (src/queue-common/sale-reward.js)
+        //   notice             { confirmOnce() → Promise<boolean> } (src/queue-common/automation-notice.js)
         //   ownerId            this tab's identity in the registry
         constructor(deps) {
             this.automator = deps.automator;
@@ -147,9 +147,13 @@
             }
         }
 
+        // Nothing awaits the heartbeat or the release: a rejected storage write
+        // (an extension update) ends as one warn line.
         _startHeartbeat() {
             this._stopHeartbeat();
-            this._beat = setInterval(() => this.registry.renew(this.ownerId), this.registry.HEARTBEAT_MS);
+            this._beat = setInterval(() => {
+                this.registry.renew(this.ownerId).catch((e) => console.warn('[ILAP] DQ slot renew failed:', e));
+            }, this.registry.HEARTBEAT_MS);
         }
 
         _stopHeartbeat() {
@@ -158,7 +162,7 @@
 
         _releaseSlot() {
             this._stopHeartbeat();
-            this.registry.release(this.ownerId);
+            this.registry.release(this.ownerId).catch((e) => console.warn('[ILAP] DQ slot release failed:', e));
         }
 
         // Take the panel off the page and stop the loop behind it. Keep High Score

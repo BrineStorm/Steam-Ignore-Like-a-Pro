@@ -503,6 +503,10 @@
         }
     }
 
-    window.ILAP_Settings = { create: (root, deps) => new SettingsManager(root, deps), wireExclusiveDetails };
+    // The droplist guard is shared with the language chip (ui/popup_main.js).
+    window.ILAP_Settings = {
+        create: (root, deps) => new SettingsManager(root, deps), wireExclusiveDetails,
+        dispatchPick, isSelfPick, isPageReachable,
+    };
 
 })();

@@ -13,10 +13,9 @@
     // The colour of a lock the user can lift: the sale's queue reward, theirs to earn.
     const LOCK = '#f2c94c';
 
-    // The panel's ONLY stylesheet. It used to share the job with a block in
-    // styles/styles.css, which set some of the same properties to other values
-    // and some that were only there — so what the panel looked like was decided
-    // by injection order, and neither half could be read on its own.
+    // The panel's ONLY stylesheet: styles/styles.css has no rules for it. Two
+    // sheets setting the same properties would leave the look to injection
+    // order, and neither could be read on its own.
     class Styles {
         static inject() {
             if (document.getElementById('ilap-queue-styles')) return;
@@ -104,7 +103,7 @@
     }
 
     const t = window.ILAP.t;
-    const escapeHTML = (s) => (window.ILAP && window.ILAP.Sanitizer) ? window.ILAP.Sanitizer.escapeHTML(s) : String(s);
+    const escapeHTML = window.ILAP.Sanitizer.escapeHTML;
 
     class DiscoveryQueueUI {
         // resources: { getIconUrl(fileName) } (src/utils.js ResourceService)
@@ -224,7 +223,7 @@
             }, 3500);
         }
 
-        // A Start refused by the sale-reward check (src/sale-reward.js): the
+        // A Start refused by the sale-reward check (src/queue-common/sale-reward.js): the
         // button stays outlined in gold and says why on hover — the reward is
         // unearned (`pending`), or its status could not be read. Lifted by
         // clearRewardLock() once a check lets a Start through.

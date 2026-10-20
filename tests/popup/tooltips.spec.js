@@ -47,7 +47,7 @@ const unhover = (page) => page.mouse.move(2, 2);
 // tip 2s (see the dedicated tests below). What THESE walks measure is geometry,
 // not patience, so they drop the delay rather than paying it 19 times per locale list.
 const dropTipDelay = (page) => page.addStyleTag({
-    content: '#undo-tip, #lang-tip, .dq-next-tip { transition-delay: 0s !important; }',
+    content: '#undo-tip, #lang-tip, .dq-next-tip, #count-tip { transition-delay: 0s !important; }',
 });
 
 // Hover a trigger until ITS tooltip is actually up. The retry is not "wait a bit
@@ -128,6 +128,44 @@ test.describe('Popup — our own tooltips fit the panel', () => {
             await expectFits(page, '#undo-tip', code);
             await unhover(page);
         }
+    });
+
+    test('the Total Ignored tip fits in every locale, read and not read yet alike', async ({ page, context }) => {
+        test.setTimeout(3 * 60 * 1000);
+        await openPopup(page, context);
+        await dropTipDelay(page);
+
+        const locales = await shippedLocales(page);
+        for (const code of locales) {
+            await useLocale(page, context, code);
+
+            // Not read yet → the long sentence; it wraps across the row.
+            await setExtensionStorage(context, { ilap_ignored_total: null });
+            await hoverForTip(page, '#count-link', '#count-tip', code);
+            await expect(page.locator('#count-tip b')).toHaveCount(0);
+            await expectFits(page, '#count-tip', code);
+            await unhover(page);
+
+            // Read → Steam's number in bold, then the read time.
+            await setExtensionStorage(context, { ilap_ignored_total: { total: 123456, tallyAt: 0, ts: Date.now() } });
+            await hoverForTip(page, '#count-link', '#count-tip', code);
+            await expect(page.locator('#count-tip b')).toHaveText('123456');
+            await expectFits(page, '#count-tip', code);
+            // Two short lines: the box hugs its text instead of spanning the row.
+            const tipW = (await page.locator('#count-tip').boundingBox()).width;
+            const rowW = (await page.locator('#total-row').boundingBox()).width;
+            expect(tipW, `#count-tip @ ${code}: as wide as its text`).toBeLessThan(rowW - 10);
+            await unhover(page);
+        }
+    });
+
+    test('the Total Ignored tip waits 1.5s before it appears', async ({ page, context }) => {
+        await openPopup(page, context);
+        await unhover(page);
+        await page.locator('#count-link').hover();
+        await page.waitForTimeout(800);
+        await expect(page.locator('#count-tip'), '#count-tip must still be down after 0.8s').toBeHidden();
+        await expect(page.locator('#count-tip')).toBeVisible({ timeout: 3000 });
     });
 
     test('the language tooltip is ours, not the browser title, and fits in every locale', async ({ page, context }) => {

@@ -249,6 +249,14 @@ test.describe('ignore-rate gate (unit)', () => {
         expect(await out.Gate.reserve()).toEqual({ ok: false, reason: 'no-session' });
     });
 
+    test('lastSlotAt: the stored slot, or 0 when absent, corrupt or implausibly far ahead', async () => {
+        const at = Date.now() - 5000;
+        expect(await loadGate({ ilap_ignore_gate: at }).Gate.lastSlotAt()).toBe(at);
+        expect(await loadGate({}).Gate.lastSlotAt()).toBe(0);
+        expect(await loadGate({ ilap_ignore_gate: '123' }).Gate.lastSlotAt()).toBe(0);
+        expect(await loadGate({ ilap_ignore_gate: Date.now() + 10 * 60 * 60 * 1000 }).Gate.lastSlotAt()).toBe(0);
+    });
+
     test('a granted reservation records the slot and returns ok', async () => {
         const { Gate, ILAP, data } = loadGate({});
         ILAP.getSessionID = () => 'sess';
@@ -362,5 +370,117 @@ test.describe('ignore-rate gate (unit)', () => {
         ILAP.getSessionID = () => { calls++; if (calls === 1) throw new Error('boom'); return 'sess'; };
         await expect(Gate.reserve()).rejects.toThrow('boom');
         expect(await Gate.reserve()).toEqual({ ok: true });
+    });
+
+    test('paceRead takes a slot in the same stream, with no stop verdict', async () => {
+        // A curator page read spaces itself one gap past the last ignore and
+        // pushes the next ignore one gap further: two streams stay one. Master
+        // off does not stop it: a read sends no ignore.
+        const last = Date.now();
+        const { Gate, data } = loadGate({ ilap_ignore_gate: last, ilap_master_enabled: false });
+        await Gate.paceRead();
+        expect(Date.now()).toBeGreaterThanOrEqual(last + Gate.MIN_GAP - 5);
+        expect(data().ilap_ignore_gate).toBe(last + Gate.MIN_GAP);
+    });
+
+    test('paceRead waits out an active 429 penalty', async () => {
+        const until = Date.now() + 300;
+        const { Gate, data } = loadGate({ ilap_ignore_gate_penalty: { until, level: 1 } });
+        await Gate.paceRead();
+        expect(Date.now()).toBeGreaterThanOrEqual(until - 5);
+        expect(data().ilap_ignore_gate).toBe(until);
+    });
+
+    // The slot a reservation claims, read as soon as it is written: the wait
+    // that follows is not what these tests are about.
+    async function claimedSlot(data, before) {
+        for (let i = 0; i < 200 && data().ilap_ignore_gate === before; i++) {
+            await new Promise(r => setTimeout(r, 5));
+        }
+        return data().ilap_ignore_gate;
+    }
+
+    // While the user browses Steam, the background drain leaves room for the
+    // requests their clicks send: ACTIVE_GAP between its ignores instead of the
+    // normal gap. Visible sources and the user's own swipes keep the normal gap.
+    test('a background reservation takes the long gap while the user is active', async () => {
+        const last = Date.now() - 100;
+        const { Gate, ILAP, data } = loadGate({
+            ilap_master_enabled: true, ilap_ignore_gate: last, ilap_user_active_at: Date.now(),
+        });
+        ILAP.getSessionID = () => 'sess';
+        Gate.reserve();
+        expect(await claimedSlot(data, last)).toBe(last + Gate.ACTIVE_GAP);
+    });
+
+    test('the normal gap returns once the activity window has passed', async () => {
+        const last = Date.now() - 100;
+        const { Gate, ILAP, data } = loadGate({
+            ilap_master_enabled: true, ilap_ignore_gate: last, ilap_user_active_at: Date.now() - 31000,
+        });
+        ILAP.getSessionID = () => 'sess';
+        Gate.reserve();
+        expect(await claimedSlot(data, last)).toBe(last + Gate.MIN_GAP);
+    });
+
+    test('a gesture or foreground reservation keeps the normal gap while the user is active', async () => {
+        for (const opts of [{ gesture: true }, { foreground: true }]) {
+            const last = Date.now() - 100;
+            const { Gate, ILAP, data } = loadGate({
+                ilap_master_enabled: true, ilap_ignore_gate: last, ilap_user_active_at: Date.now(),
+            });
+            ILAP.getSessionID = () => 'sess';
+            Gate.reserve(opts);
+            expect(await claimedSlot(data, last)).toBe(last + Gate.MIN_GAP);
+        }
+    });
+
+    test('an activity stamp from the future counts as none', async () => {
+        const last = Date.now() - 100;
+        const { Gate, ILAP, data } = loadGate({
+            ilap_master_enabled: true, ilap_ignore_gate: last, ilap_user_active_at: Date.now() + 60000,
+        });
+        ILAP.getSessionID = () => 'sess';
+        Gate.reserve();
+        expect(await claimedSlot(data, last)).toBe(last + Gate.MIN_GAP);
+    });
+
+    test('noteUserActivity writes at most once per throttle window', async () => {
+        const { Gate, data } = loadGate({});
+        await Gate.noteUserActivity();
+        const first = data().ilap_user_active_at;
+        expect(first).toBeGreaterThan(0);
+        await new Promise(r => setTimeout(r, 20));
+        await Gate.noteUserActivity();
+        expect(data().ilap_user_active_at).toBe(first);
+    });
+
+    // An ignore POST that Steam's own page sent (the user's click, or a DQ
+    // click) joins the stream: the next slot is a gap after it.
+    test('noteNativeIgnore moves a past slot up to now', async () => {
+        const { Gate, data } = loadGate({ ilap_ignore_gate: Date.now() - 5000 });
+        const before = Date.now();
+        await Gate.noteNativeIgnore(200);
+        expect(data().ilap_ignore_gate).toBeGreaterThanOrEqual(before);
+        expect(data().ilap_ignore_gate).toBeLessThanOrEqual(Date.now());
+        expect(data().ilap_ignore_gate_penalty).toBeUndefined();
+    });
+
+    test('noteNativeIgnore never moves a slot back', async () => {
+        const ahead = Date.now() + 2000;
+        const { Gate, data } = loadGate({ ilap_ignore_gate: ahead });
+        await Gate.noteNativeIgnore(200);
+        expect(data().ilap_ignore_gate).toBe(ahead);
+    });
+
+    test('a 429 on a native ignore escalates the shared penalty; status 0 does not', async () => {
+        const { Gate, data } = loadGate({});
+        await Gate.noteNativeIgnore(0);
+        expect(data().ilap_ignore_gate_penalty).toBeUndefined();
+        const before = Date.now();
+        await Gate.noteNativeIgnore(429);
+        const p = data().ilap_ignore_gate_penalty;
+        expect(p.level).toBe(1);
+        expect(p.until).toBeGreaterThanOrEqual(before + Gate.PENALTY_BASE);
     });
 });

@@ -11,7 +11,7 @@ const {
 const RU_TOTAL = 'Всего скрыто:';
 const DE_TOTAL = 'Insgesamt ignoriert:';
 const EN_TOTAL = 'Total Ignored:';
-const RU_DQ_TITLE = 'Классическая очередь рекомендаций';
+const RU_DQ_TITLE = 'Классический список рекомендаций';
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);

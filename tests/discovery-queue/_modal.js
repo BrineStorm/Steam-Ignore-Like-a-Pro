@@ -7,6 +7,17 @@
 const fs = require('fs');
 const path = require('path');
 const { tagUrl } = require('../_tags.js');
+const { skipUnlessQueueRewardSafe } = require('../_sale-reward.js');
+
+// Steam's markup anchors the automator reads, out of the product so a spec
+// cannot walk the queue by a path the product no longer recognises.
+const LOGIC = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'discovery-queue', 'logic.js'), 'utf8');
+const fromLogic = (name) => LOGIC.match(new RegExp(`${name}:\\s*"([^"]+)"`))[1];
+const NEXT_ARROW = fromLogic('NEXT_ARROW');
+const IGNORE_ICON = fromLogic('IGNORE_ICON');
+const CAROUSEL = fromLogic('CAROUSEL');
+// How long the automator waits for the Ignore button to show the ignore.
+const CONFIRM_PRIMARY_MS = Number(LOGIC.match(/CONFIRM_PRIMARY_MS:\s*(\d+)/)[1]);
 
 const SEL = {
     // The "Explore Your Discovery Queue" widget on a tag page; clicking it opens
@@ -20,12 +31,8 @@ const SEL = {
     label: '#ilap-queue-controls .ilap-checkbox-label',
     closeBtn: '.FullModalOverlay div[aria-label="Close"]',
     review: 'a[href*="#app_reviews_hash"]',
+    carousel: CAROUSEL,
 };
-
-// The chevron the automator itself clicks, read out of the product so a spec
-// cannot walk the queue by a path the product no longer recognises.
-const LOGIC = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'discovery-queue', 'logic.js'), 'utf8');
-const NEXT_ARROW = LOGIC.match(/NEXT_ARROW:\s*"([^"]+)"/)[1];
 
 // The Discovery Queue modal (.FullModalOverlay div[role="dialog"]) — the one the
 // DQ module injects #ilap-queue-controls into — is NOT the /explore/next/ page
@@ -36,6 +43,8 @@ const NEXT_ARROW = LOGIC.match(/NEXT_ARROW:\s*"([^"]+)"/)[1];
 // The tag is random per call — see tests/_tags.js for why a fixed one starves
 // the queue.
 async function openQueueModal(page, url) {
+    // Opening the modal already skips a card: see tests/_sale-reward.js.
+    skipUnlessQueueRewardSafe();
     await page.goto(url || tagUrl(), { waitUntil: 'domcontentloaded' });
 
     const section = page.locator(SEL.queueSection).first();
@@ -67,7 +76,7 @@ const BANDS = ['Overwhelmingly Positive', 'Very Positive', 'Mostly Positive', 'P
 // it "Mixed" because the constant said so would be circular.
 const READ_CARD = ({ S, BB }) => {
     const dialog = document.querySelector(S.modal);
-    const hashed = dialog && dialog.querySelector('._3q6eNRFBrPSFSGEn8uRFZ3');
+    const hashed = dialog && dialog.querySelector(S.carousel);
     const slot = hashed && hashed.children.length > 2 ? hashed.children[2] : null;
     if (!slot) return { kind: 'no-slot' };
     const link = slot.querySelector('a[href*="/app/"]');
@@ -145,4 +154,7 @@ const nextSlide = (page) => page.evaluate(({ S, D }) => {
     return true;
 }, { S: SEL, D: NEXT_ARROW });
 
-module.exports = { SEL, BANDS, openQueueModal, readCard, waitForCard, nextSlide };
+module.exports = {
+    SEL, BANDS, NEXT_ARROW, IGNORE_ICON, CONFIRM_PRIMARY_MS,
+    openQueueModal, readCard, waitForCard, nextSlide,
+};

@@ -2,7 +2,7 @@
 const { test, expect } = require('@playwright/test');
 const { loadSaleReward } = require('../_sale-reward.js');
 
-// SaleReward (src/sale-reward.js) as a Node unit — no browser, no Steam. What it
+// SaleReward (src/queue-common/sale-reward.js) as a Node unit — no browser, no Steam. What it
 // decides is whether a queue automator may advance a queue on its own, so the
 // contract is about which answers unlock and which do not:
 //   - no sale reward running, or an earned one → 'allowed';

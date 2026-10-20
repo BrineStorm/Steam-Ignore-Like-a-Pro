@@ -19,6 +19,8 @@ window.ILAP.dropIgnoredCount  // Count only, −1 — a confirmed rollback (hist
 window.ILAP.SteamAuth         // login gate: header DOM check + live /account/ probe
                               // (hasLiveSession = the ignore-side flavour, shared with IgnoreGate)
 window.ILAP.fetchIgnoredApps  // lenient userdata read (empty Set on failure)
+window.ILAP.OwnIgnorePosts    // marks of this page's own ignore POSTs, so steam-activity.js
+                              // can tell them from Steam's in the resource timeline (Firefox)
 window.ILAP.SessionStateService
 window.ILAP.ResourceService
 ```
@@ -40,7 +42,7 @@ window.ILAP.Settings          // settings-schema.js — settings keys, defaults,
 window.ILAP.newOwnerId        // escape.js   — collision-resistant lease/slot owner id (all 3 worlds)
 window.ILAP.serialChain       // escape.js   — the per-context write chain every storage module builds on (all 3 worlds)
 window.ILAP.realInput         // escape.js   — the real-input guard for controls in the page's DOM (DQ panel, EQ toast, automation notice)
-window.ILAP.SteamPalette      // steam-palette.js — Steam's review-score bands as ONE table for
+window.ILAP.SteamPalette      // queue-common/steam-palette.js — Steam's review-score bands as ONE table for
                               //               both classifiers (EQ rows + DQ cards); each band a
                               //               SET, current shade first, previous ones behind it
 window.ILAP.StatsLogic        // stats.js    — Last-Ignored record shape + the count-only
@@ -69,7 +71,7 @@ reach for a default of their own, knowingly:
 - `IgnoreGate` (`gate.js`) resolves its session check from the facade
   (`defaultHasSession` → `SteamAuth.hasLiveSession`); the service worker, which
   has no such facade, swaps it through `IgnoreGate.configure({ hasSession })`.
-- `ContainerStrategyProvider` (`manual-ignore/utils.js`) builds its fixed list of
+- `ContainerStrategyProvider` (`manual-ignore/containers.js`) builds its fixed list of
   container strategies in its own constructor.
 - `DiscoveryQueueAutomator` (`discovery-queue/logic.js`) reads the modal through
   the static `SlideScanner`, finds it with `document.querySelector` and reads the
@@ -95,7 +97,7 @@ the **content script**, the **popup document** (`ui/popup.html`), and the
 graded by how many worlds actually need it — pure helpers, the settings schema
 and the Steam reads have exactly one definition in a file every relevant world
 loads (`escape.js`, `settings-schema.js`, `stats.js`, `steam-net.js`,
-`steam-palette.js`), while the `chrome.storage` plumbing and the ignore POST stay
+`queue-common/steam-palette.js`), while the `chrome.storage` plumbing and the ignore POST stay
 duplicated beside their consumers. The rule is stated where the storage shim sits
 in `src/curator/store.js`; `src/steam-net.js` records the one call that stays
 per-world and why.
@@ -122,7 +124,7 @@ See [`claude.storage-keys.md`](./claude.storage-keys.md) for the storage keys re
 
 **SRP** — `StatsLogic` (pure computation) is separated from `StatsManager` (I/O). Adapter objects have single methods. `BadgeFactory`, `BadgeRenderer`, and `DuplicateDetector` each have clear, distinct responsibilities.
 
-**OCP** — Name extraction (`game-name.js`) uses `NameExtractionStrategyProvider` with five interchangeable strategy classes; adding a new extraction method requires no existing edits. `DecisionEngine.strategies` is a dictionary-keyed strategy map, and so is the curator drainer's policy table (`policiesFor`): one entry per job type (`post`, `onLanded`, `droppedLogEntry`, `onDropped`), with `_drainJob` a loop shared by all of them — `_skipReason` decides an entry that needs no POST, `_handleResult` what a POST's result means. `ContainerStrategyProvider` shares the strategy SHAPE but not the openness: its list is fixed in its constructor, so a new container strategy is an edit there.
+**OCP** — Name extraction (`game-name.js`) uses `NameExtractionStrategyProvider` with five interchangeable strategy classes; adding a new extraction method requires no existing edits. `DecisionEngine.strategies` is a dictionary-keyed strategy map, and so is the curator drainer's policy table (`policiesFor`): one entry per job type (`satisfied`, `staleRead`, `onDeduped`, `superseded`, `post`, `onLanded`, `droppedLogEntry`, `onDropped`), with `_drainJob` a loop shared by all of them — `_skipReason` decides an entry that needs no POST, `_handleResult` what a POST's result means. `ContainerStrategyProvider` shares the strategy SHAPE but not the openness: its list is fixed in its constructor, so a new container strategy is an edit there.
 
 **LSP** — All name-extraction strategies implement the same `extract(appid, contextElement, root)` signature. Container strategies implement `{ match, resolve }`. Adapter duck-typing is validated at construction time via `typeof` checks in `ExploreAutomator` and `DiscoveryQueueAutomator`.
 

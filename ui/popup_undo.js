@@ -187,7 +187,7 @@
                 this._applyCount(Log.undoableCount(log));
                 this.menu.classList.add('open');
                 this.btn.setAttribute('aria-expanded', 'true');
-            });
+            }).catch((e) => console.warn('[ILAP] undo log read failed:', e));
         }
 
         _close() {
@@ -196,8 +196,16 @@
             this._showMsg(null);
         }
 
+        // Nothing awaits this (the Go buttons call it): in the widget, a rejected
+        // storage call (an extension update) ends here as one warn line.
         async _stage(outcomePromise) {
-            const outcome = await outcomePromise;
+            let outcome;
+            try {
+                outcome = await outcomePromise;
+            } catch (e) {
+                console.warn('[ILAP] undo staging failed:', e);
+                return;
+            }
             if (!outcome) return;
             if (outcome.kind === 'added') {
                 this._showMsg(t('undo_msg_added', { n: outcome.total }), true);

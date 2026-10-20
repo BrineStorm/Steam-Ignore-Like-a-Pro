@@ -127,6 +127,20 @@ test.describe('IgnoreLog (unit)', () => {
         expect(Log.lastIgnoredAt([], '1')).toBe(0);
     });
 
+    test('lastUndoneAt: newest rollback of the game, 0 when none', () => {
+        const Log = loadIgnoreLog({});
+        const log = [
+            e('1', 10, { undoneAt: 50 }),
+            e('1', 20, { undoneAt: 95 }),
+            e('1', 90),                              // live, never rolled back
+            e('2', 30, { undoneAt: 70 }),
+        ];
+        expect(Log.lastUndoneAt(log, '1')).toBe(95);
+        expect(Log.lastUndoneAt(log, '2')).toBe(70);
+        expect(Log.lastUndoneAt(log, '999')).toBe(0);
+        expect(Log.lastUndoneAt([], '1')).toBe(0);
+    });
+
     test('markedUndone: marks live entries up to the snapshot, leaves newer ones', () => {
         const Log = loadIgnoreLog({});
         const log = [e('1', 10), e('1', 40), e('1', 90), e('2', 20)];
@@ -304,5 +318,37 @@ test.describe('IgnoreLog (unit)', () => {
         // ...and this context's own, which drops the snapshot up front.
         await hooks.append({ appid: '1', ts: 5000, source: 'mi' });
         expect(await hooks.lastIgnoredAt('1')).toBe(5000);
+    });
+
+    test('drainerHooks: lastIgnoredAt/lastUndoneAt read an index of the snapshot, dropped with it', async () => {
+        // A pass asks them on every dedupe skip: a scan of the full log per skip
+        // was seconds of CPU on a 5000-appid list.
+        const storage = {};
+        const bus = [];
+        const stats = {};
+        const Log = loadIgnoreLog(storage, stats, bus);
+        await Log.append({ appid: '1', ts: 1000, source: 'mi' });
+        await Log.append({ appid: '2', ts: 1100, source: 'mi' });
+        const hooks = Log.drainerHooks();
+
+        expect(await hooks.lastUndoneAt('1')).toBe(0);
+        stats.gets = 0;
+        for (let i = 0; i < 10; i++) {
+            expect(await hooks.lastUndoneAt(i % 2 ? '2' : 1)).toBe(0);
+            expect(await hooks.lastIgnoredAt(i % 2 ? '2' : 1)).toBe(i % 2 ? 1100 : 1000);
+        }
+        expect(stats.gets).toBe(0);   // index built once, no re-read
+
+        await hooks.markUndone('1', 1000);
+        const undoneAt = await hooks.lastUndoneAt('1');
+        expect(undoneAt).toBeGreaterThan(0);
+        expect(await hooks.lastUndoneAt(1)).toBe(undoneAt);   // number appid, same answer
+        expect(await hooks.lastIgnoredAt('1')).toBe(0);       // rolled back: no live ignore
+        expect(await hooks.lastUndoneAt('2')).toBe(0);
+
+        // Another context's rollback reaches the index through onChanged.
+        const foreign = loadIgnoreLog(storage, null, bus);
+        await foreign.markUndone('2', 1100);
+        expect(await hooks.lastUndoneAt('2')).toBeGreaterThan(0);
     });
 });

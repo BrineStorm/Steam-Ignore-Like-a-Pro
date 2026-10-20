@@ -25,7 +25,7 @@ function loadAutomator(warns, setTimeoutImpl) {
     // logic.js reads the shared review palette at load time (window.ILAP.SteamPalette),
     // so the table goes into the sandbox first — without it SlideScanner would
     // find no bad shades and fail safe on every slide.
-    vm.runInContext(src('steam-palette.js'), sandbox);
+    vm.runInContext(src('queue-common', 'steam-palette.js'), sandbox);
     vm.runInContext(src('discovery-queue', 'logic.js'), sandbox);
     // sandbox is exposed so a test can swap the globals logic.js reads at call
     // time — _loop probes `document` for the dialog on every iteration.

@@ -3,7 +3,9 @@
     'use strict';
 
     // A curator id → the appids it recommends, by recommendation type. The JSON
-    // endpoint honours a large `count`, so 2000 games take ~4 reads.
+    // endpoint honours a large `count`, so 2000 games take ~4 reads. Each read
+    // takes a slot from the ignore gate (IgnoreGate.paceRead), so reading a list
+    // while another drains stays one paced stream of requests to Steam.
     // Language-independent: rows are read by `data-ds-appid` and the
     // `.color_*` class, never by the visible label.
 
@@ -13,7 +15,6 @@
     const BASE = 'https://store.steampowered.com';
     const DEFAULT_COUNT = 500;       // honoured by Steam at least up to 500 rows/call
     const MAX_PAGES = 12;            // safety ceiling (12 × 500 = 6000 games)
-    const PAGE_GAP_MS = 600;         // between page reads, as courtesy to Steam's servers
 
     const TYPES = ['not_recommended', 'recommended', 'informational'];
 
@@ -80,7 +81,11 @@
             credentials: 'include',
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
         }, 15000));
-        const sleep = opts.sleep || ((ms) => new Promise(r => setTimeout(r, ms)));
+        const pace = opts.pace || (() => window.ILAP.IgnoreGate.paceRead());
+        // A 429 on a read escalates the same penalty an ignore's 429 does: the
+        // stream is one, so Steam's "slow down" holds back the drains too.
+        const rateLimited = opts.rateLimited || ((res) => window.ILAP.IgnoreGate
+            .reportRateLimited(window.ILAP.SteamNet.ignoreResult(res).retryAfterMs));
         const count = opts.count || DEFAULT_COUNT;
         const maxPages = opts.maxPages || MAX_PAGES;
 
@@ -98,7 +103,9 @@
         for (let page = 0; page < maxPages; page++) {
             let data;
             try {
+                await pace();
                 const res = await doFetch(buildUrl(curatorId, start, count));
+                if (res && res.status === 429) await rateLimited(res);
                 if (!res || !res.ok) { partial = true; break; }
                 data = await res.json();
             } catch (e) {
@@ -115,10 +122,8 @@
             start += count;
             if (start >= total) break;
             // Last allowed page and the list still is not covered: we stopped,
-            // Steam did not. Checked before the pause, which would otherwise be
-            // spent on a loop that is about to exit anyway.
+            // Steam did not.
             if (page === maxPages - 1) { partial = true; break; }
-            await sleep(PAGE_GAP_MS);
         }
 
         // Not one row parsed while the server says this curator HAS rows: that is

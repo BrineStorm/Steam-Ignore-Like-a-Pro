@@ -70,18 +70,21 @@ async function queueJob(context, type) {
 async function miJob(context) { return queueJob(context, 'mi'); }
 async function miUndoJob(context) { return queueJob(context, 'miundo'); }
 
-// Track contextmenu events on document so tests can assert that the
-// SwipeGestureDetector blocked the native menu after a successful gesture.
-// The content script listens in capture phase (isolated world) and calls
-// preventDefault; the underlying event's canceled flag is shared across worlds,
-// so a main-world listener reads the correct defaultPrevented.
+// Count every contextmenu on the page and how many ended up cancelled, so tests
+// can assert whether the extension took the native menu away. The spy captures
+// on WINDOW: the content script's listeners capture on body and stop the event
+// once they handle it, so a document listener in the bubble phase never sees a
+// handled menu at all — it read fired=0 and asserted nothing. The verdict is read
+// after the dispatch, once every listener has run; the canceled flag is shared
+// across worlds, so the main world reads what the isolated world decided. Read it
+// after a short wait, not in the same tick as the click.
 async function installContextMenuSpy(page) {
     await page.evaluate(() => {
         window.__ctxMenu = { fired: 0, prevented: 0 };
-        document.addEventListener('contextmenu', (e) => {
+        window.addEventListener('contextmenu', (e) => {
             window.__ctxMenu.fired += 1;
-            if (e.defaultPrevented) window.__ctxMenu.prevented += 1;
-        });
+            setTimeout(() => { if (e.defaultPrevented) window.__ctxMenu.prevented += 1; });
+        }, true);
     });
 }
 
@@ -126,18 +129,38 @@ async function pressPoint(locator, attempts = 3) {
     return null;
 }
 
+// Steam's own ignore state is known once its dynamicstore has loaded:
+// `m_bLoadComplete` flips in the same tick the rows already on the page take
+// their flags (sampled live at 40 ms: no row flagged before it, all of them
+// flagged with it) — Steam's own ready bit, not a guessed pause.
+async function waitForSteamIgnores(page) {
+    await page.waitForFunction(() => window.GDynamicStore && window.GDynamicStore.m_bLoadComplete === true,
+        null, { timeout: 15000 });
+}
+
+// Does the account already ignore this capsule's game? A spec must never pick
+// one: its badge would land on a game Steam has already put away. The class
+// covers the capsules Steam flags, the lookup the ones it renders unflagged.
+async function isSteamIgnored(link, appid) {
+    return link.evaluate((el, id) => !!el.closest('.ds_ignored')
+        || !!(window.GDynamicStore && window.GDynamicStore.BIsAppIgnored
+            && window.GDynamicStore.BIsAppIgnored(Number(id))), appid);
+}
+
 // Like pickFirstRow, but for surfaces where the first match is not necessarily
-// pressable: returns the first candidate that owns its press point (see
-// pressPoint), or null when none of them does.
+// pressable: returns the first candidate that the account does not ignore yet
+// and that owns its press point (see pressPoint), or null when none does.
 async function pickSwipeable(page, selector, limit = 8) {
+    await waitForSteamIgnores(page);
     const all = page.locator(selector);
     const count = Math.min(await all.count(), limit);
     for (let i = 0; i < count; i++) {
         const link = all.nth(i);
-        if (!(await pressPoint(link))) continue;
         const href = await link.getAttribute('href');
         const m = href && href.match(/\/app\/(\d+)/);
-        if (m) return { link, appid: m[1], href };
+        if (!m || await isSteamIgnored(link, m[1])) continue;
+        if (!(await pressPoint(link))) continue;
+        return { link, appid: m[1], href };
     }
     return null;
 }
@@ -164,7 +187,7 @@ async function rightClickSwipe(page, locator, dx, dy = 0) {
 
 // Synthesize the solo un-ignore gesture: a held right-click that travels out
 // and comes back — the X-axis trace a circle leaves, either direction (see
-// ZigzagTracker in src/manual-ignore/utils.js). One reversal, both legs `dx`
+// ZigzagTracker in src/manual-ignore/gestures.js). One reversal, both legs `dx`
 // long; the detector needs ≥30 px per leg and ≥12 px of counter-travel before a
 // reversal counts, so the default clears both with room to spare.
 //
@@ -191,7 +214,9 @@ async function rightClickZigzag(page, locator, dx = 70) {
 // extension resolves these rows via its Fallback strategy → 'grid' badge.
 const SEARCH_ROW = 'a.search_result_row[href*="/app/"]';
 
-async function pickFirstRow(page, rowSelector = SEARCH_ROW, limit = 12) {
+// The first `n` rows a spec may act on, distinct games in page order (see the
+// comment inside for which ones are left out). Throws when fewer qualify.
+async function pickRows(page, n, rowSelector = SEARCH_ROW, limit = 12) {
     const all = page.locator(rowSelector);
     await all.first().waitFor({ state: 'attached', timeout: 15000 });
     // Steam's dynamicstore lands after the rows do, and the account's "Hide
@@ -200,22 +225,85 @@ async function pickFirstRow(page, rowSelector = SEARCH_ROW, limit = 12) {
     // `ds_ignored`. On the test account (~20k ignores) that is routinely the
     // first row or two, so `attached` alone hands back a row with a zero box —
     // the extension badges it happily and every gesture, click and screenshot
-    // aimed at it misses. Wait for the flags, then take the first row that
-    // survived them. `m_bLoadComplete` flips in the same tick the rows already on
-    // the page take their flags (sampled live at 40 ms: no row flagged before it,
-    // all of them flagged with it) — Steam's own ready bit, not a guessed pause.
-    await page.waitForFunction(() => window.GDynamicStore && window.GDynamicStore.m_bLoadComplete === true,
-        null, { timeout: 15000 });
+    // aimed at it misses. Wait for the flags, then take the first row the
+    // account does not ignore at all — a row the preference leaves visible would
+    // still take a badge for a game Steam has already put away.
+    await waitForSteamIgnores(page);
     const count = Math.min(await all.count(), limit);
-    for (let i = 0; i < count; i++) {
+    const picked = [];
+    for (let i = 0; i < count && picked.length < n; i++) {
         const link = all.nth(i);
-        if (await link.evaluate(el => el.classList.contains('ds_ignored'))) continue;
-        if (!(await link.boundingBox())) continue;
         const href = await link.getAttribute('href');
         const m = href && href.match(/\/app\/(\d+)/);
-        if (m) return { link, appid: m[1], href };
+        if (!m || picked.some(p => p.appid === m[1]) || await isSteamIgnored(link, m[1])) continue;
+        if (!(await link.boundingBox())) continue;
+        picked.push({ link, appid: m[1], href });
     }
-    throw new Error(`pickFirstRow: no reachable row in the first ${count} — all collapsed as already-ignored, or none carries an /app/ link`);
+    if (picked.length < n) {
+        throw new Error(`pickRows: ${picked.length} of ${n} reachable rows in the first ${count} — the rest are already ignored, hidden, or carry no /app/ link`);
+    }
+    return picked;
+}
+
+async function pickFirstRow(page, rowSelector = SEARCH_ROW, limit = 12) {
+    return (await pickRows(page, 1, rowSelector, limit))[0];
+}
+
+// A capsule Steam already greys out (`ds_ignored`) is on the account's list:
+// a gesture there sets the ignore's reason and tints Steam's own IGNORED flag. The test
+// account hides ignored games (Steam's rules collapse those rows: display none,
+// height 0), so a live row is given the exact markup Steam puts on an ignored
+// one and kept open, which is what Steam renders for an account that does not
+// hide them (greyed to opacity .3, the flag on top).
+async function greyOut(link) {
+    await link.evaluate((el) => {
+        el.classList.add('ds_flagged', 'ds_ignored');
+        el.style.setProperty('display', 'block', 'important');
+        el.style.setProperty('height', 'auto', 'important');
+        const flag = document.createElement('div');
+        flag.className = 'ds_flag ds_ignored_flag';
+        flag.textContent = 'IGNORED';
+        el.appendChild(flag);
+    });
+}
+
+// A row Steam itself greys out: a game the account really ignores with reason 0
+// (Default), found by searching its name. "Hide ignored items" is an ACCOUNT
+// preference (the search sidebar's click POSTs /account/savesearchpreferences),
+// so the click that shows the greyed rows is routed to a fake success: the page
+// unhides them client-side and the account keeps its setting. Reads the live
+// list with `?t=`, which the extension's userdata stub (`?_=`) lets through.
+// Install the ignore and userdata stubs first: the extension is live on every
+// page this walks.
+const HIDE_IGNORED = '.tab_filter_control_row[data-value="hide_ignored"]';
+
+async function pickSteamGreyedRow(page, context, tries = 6) {
+    await context.route('**/account/savesearchpreferences*', (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":1}' }));
+    await page.goto('/about/');
+    const ignored = await page.evaluate(async () =>
+        (await (await fetch('/dynamicstore/userdata/?t=' + Date.now(), { credentials: 'include' })).json()).rgIgnoredApps || {});
+    // Highest appids (the newest games) first: they are the likeliest to come up for their own name.
+    const candidates = Object.keys(ignored).filter(id => ignored[id] === 0).reverse();
+    for (const appid of candidates.slice(0, tries)) {
+        const name = await page.evaluate(async (id) => {
+            const j = await (await fetch(`/api/appdetails?appids=${id}&filters=basic`)).json();
+            return j[id] && j[id].success && j[id].data.type === 'game' ? j[id].data.name : null;
+        }, appid);
+        if (!name) continue;   // region-locked or not a game
+        await page.goto(`/search/?term=${encodeURIComponent(name)}`);
+        await waitForContentScript(page);
+        await waitForSteamIgnores(page);
+        const toggle = page.locator(HIDE_IGNORED);
+        if (/\bchecked\b/.test(await toggle.getAttribute('class'))) {
+            await toggle.locator('.tab_filter_control').click();
+            await page.waitForFunction((sel) => !document.querySelector(sel).classList.contains('checked'), HIDE_IGNORED);
+        }
+        const link = page.locator(`a.search_result_row[data-ds-appid="${appid}"]`).first();
+        if (!(await link.count()) || !(await pressPoint(link))) continue;
+        return { link, appid, flag: link.locator('.ds_ignored_flag') };
+    }
+    throw new Error(`pickSteamGreyedRow: none of ${Math.min(tries, candidates.length)} ignored games showed up greyed in a search for its name`);
 }
 
 // Locator for the search row of a specific appid (used to scope badge asserts).
@@ -242,13 +330,17 @@ async function scrollTagPage(page) {
 async function seedTagPage(page) {
     await page.goto(tagUrl());
     await waitForContentScript(page);
+    await waitForSteamIgnores(page);
     await scrollTagPage(page);
 
+    // Tag pages leave the account's ignored games out; filtered anyway, so a
+    // page that starts showing them cannot get them badged a second time.
     const ids = await page.evaluate(() => {
         const s = new Set();
+        const G = window.GDynamicStore;
         document.querySelectorAll('a[href*="/app/"]').forEach(a => {
             const m = a.getAttribute('href').match(/\/app\/(\d+)/);
-            if (m) s.add(m[1]);
+            if (m && !(G && G.BIsAppIgnored && G.BIsAppIgnored(Number(m[1])))) s.add(m[1]);
         });
         return Array.from(s).slice(0, 80);
     });
@@ -289,7 +381,10 @@ module.exports = {
     rightClickZigzag,
     scrollTagPage,
     seedTagPage,
+    pickRows,
     pickFirstRow,
+    greyOut,
+    pickSteamGreyedRow,
     pickSwipeable,
     searchRow,
     SEARCH_ROW,

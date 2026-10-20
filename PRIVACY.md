@@ -1,6 +1,6 @@
 # Privacy Policy for Steam Ignore Like a Pro
 
-**Effective Date:** October 3, 2026
+**Effective Date:** October 20, 2026
 
 Steam Ignore Like a Pro is a free, open-source browser extension. This Privacy Policy explains our commitment to your privacy — in the extension and on its website.
 
@@ -12,10 +12,12 @@ Specifically:
 * **No personal information (PII)** is collected or transmitted.
 * **No usage statistics or analytics** are collected.
 * **No cookies** are created by the extension. Requests to Steam carry your existing Steam session cookies, exactly as your browser sends them when you use the site yourself, and the extension reads one value from them — your Steam `sessionid` — because Steam requires it on every ignore request.
-* **No data** is sent to us or to any third-party server. The extension communicates only with Steam's own endpoints on `store.steampowered.com` and `api.steampowered.com`, and only to carry out the ignore and un-ignore actions you initiate in the extension, to read the account state those actions need (which of your games are already ignored, whether you are signed in, and whether you have earned a sale's Discovery Queue reward), and to look up a game's public store details.
+* **No data** is sent to us or to any third-party server. The extension communicates only with Steam's own endpoints on `store.steampowered.com` and `api.steampowered.com`, and only to perform the ignore and un-ignore actions you initiate in the extension, to read the account state those actions need (which of your games are already ignored, whether you are signed in, and whether you have earned a sale's Discovery Queue reward), to look up a game's public store details, and, while the extension is turned on, to read how many games your Steam ignore list contains (at most once every 15 minutes, when you open a Steam Store page) so the extension's menu can show that number.
 
 ### Permissions & Local Storage
-The extension requires the `storage` browser permission to function. This permission is used **solely** to save your personal preferences, ignore history, pending ignore queue, and a temporary cache of the public game lists you stage from curator pages, locally on your device — that data never leaves your browser — and to cache the Steam session token described below. Nothing in it is ever transmitted to us or to any third party.
+The extension requires the `storage` browser permission to function. This permission is used **solely** to save your personal preferences, ignore history, the number of games on your Steam ignore list (as last read from Steam), pending ignore queue, the start times of the Classic Discovery Queue runs you start, the time you last used a Steam Store page, and a temporary cache of the public game lists you stage from curator pages, locally on your device — that data never leaves your browser — and to cache the Steam session token described below. Nothing in it is ever transmitted to us or to any third party.
+
+While the extension is turned on, it notices on Steam Store pages when the page itself sends an ignore request, for example when you press Steam's own Ignore button, and whether Steam accepted it. It keeps only the time of that request, together with the time of your last click or key press on the page, so the queue can slow down while you browse and back off when Steam asks for fewer requests. Both stay in local storage.
 
 On Chrome and Edge the extension additionally requires the `alarms` permission. It is used **solely** to wake the extension's own background worker on a timer, so a queued list of ignores keeps progressing while no Steam tab is open. It grants no access to your data.
 

@@ -5,8 +5,8 @@ const path = require('path');
 const vm = require('vm');
 const { loadSettingsSchema } = require('../_settings-schema.js');
 
-// ZigzagTracker (src/manual-ignore/utils.js) — the solo-un-ignore gesture.
-// utils.js is an IIFE that evals with no chrome/document, so it runs in Node.
+// ZigzagTracker (src/manual-ignore/gestures.js) — the solo-un-ignore gesture.
+// gestures.js is an IIFE that evals with no chrome/document, so it runs in Node.
 //
 // The tracker measures the X axis ONLY, the same rule the swipe uses (direction
 // from dx alone is deliberate). The consequence is
@@ -16,7 +16,7 @@ const { loadSettingsSchema } = require('../_settings-schema.js');
 // read as a zigzag, because that would un-ignore the game the user just ignored.
 function loadTracker() {
     const code = fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'utils.js'), 'utf8');
+        path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'gestures.js'), 'utf8');
     const sandbox = { window: {}, Math, Set, Array, Object, String };
     vm.createContext(sandbox);
     loadSettingsSchema(sandbox);

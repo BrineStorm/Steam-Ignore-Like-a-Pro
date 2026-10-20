@@ -87,7 +87,7 @@ test.describe('Discovery Queue — Keep High Score (live)', () => {
             intervals: [400],
             message: 'the run never ignored a game with Keep High Score on. If Steam has repainted a review '
                 + 'band, every slide reads as well-reviewed and the feature spares the whole queue — check '
-                + 'tests/discovery-queue/palette.spec.js and src/steam-palette.js',
+                + 'tests/discovery-queue/palette.spec.js and src/queue-common/steam-palette.js',
         }).toBe(true);
 
         await btn.click();

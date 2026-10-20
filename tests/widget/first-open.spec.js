@@ -24,6 +24,8 @@ test.describe('on-page widget — first open', () => {
 
         await setExtensionStorage(context, {
             ilap_ignored_count: 42,
+            // Fresh, so the page's own poll leaves it alone.
+            ilap_ignored_total: { total: 900, tallyAt: 40, ts: Date.now() },
             ilap_last_ignored_name: 'Hydrated Game',
             ilap_settings_open: true, // the settings accordion restores open: its fill is part of the first frame
         });
@@ -60,7 +62,7 @@ test.describe('on-page widget — first open', () => {
         const snap = await page.evaluate(() => window.__ilapFirstOpen);
         expect(snap.iconSrc).toContain('assets/icons/icon48.png');
         expect(snap.master).toBe(true);              // default on
-        expect(snap.count).toBe('42');
+        expect(snap.count).toBe('42');               // the counter; Steam's total rides the tip
         expect(snap.last).toBe('Hydrated Game');
         expect(snap.hints).toBeGreaterThan(0);       // Ignore / Already played lines
         expect(snap.settingsOpen).toBe(true);

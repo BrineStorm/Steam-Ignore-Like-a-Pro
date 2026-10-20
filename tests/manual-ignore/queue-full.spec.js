@@ -3,6 +3,7 @@ const {
     SEL,
     interceptIgnoreApi,
     pickFirstRow,
+    pickRows,
     searchRow,
     waitForContentScript,
 } = require('./_helpers');
@@ -154,11 +155,8 @@ test.describe('Manual Ignore — queue full at MI_MAX', () => {
         // Steam's search page serves off-screen duplicate rows and occasionally
         // a zero-size one; when it landed in the first three, the loop spun
         // until the test timeout — twice on a full run, green in isolation.
-        const rows = page.locator('a.search_result_row[href*="/app/"]:visible');
-        await rows.first().waitFor({ state: 'attached', timeout: 15000 });
-        const count = Math.min(3, await rows.count());
-        for (let i = 0; i < count; i++) {
-            const row = rows.nth(i);
+        const rows = await pickRows(page, 3, 'a.search_result_row[href*="/app/"]:visible');
+        for (const { link: row } of rows) {
             await row.scrollIntoViewIfNeeded();
             await row.click({ modifiers: ['Control'], force: true });
             await page.waitForTimeout(150);

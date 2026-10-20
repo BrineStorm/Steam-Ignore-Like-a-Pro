@@ -79,21 +79,41 @@
 
     // "Last user intent wins": a live ignore newer than the undo's snapshot.
     function reIgnoredAfter(log, appid, snapshotTs) {
-        appid = String(appid);
-        return (log || []).some(e => e && String(e.appid) === appid
-            && !e.undoneAt && !e.skipped && (e.ts || 0) > snapshotTs);
+        return liveIgnoreAfter(timesIndex(log), appid, snapshotTs);
+    }
+
+    // The same over a timesIndex: the newest live ignore is newer, or none is.
+    function liveIgnoreAfter(times, appid, snapshotTs) {
+        const at = times.ignored.get(String(appid));
+        return at !== undefined && at > snapshotTs;
     }
 
     // Newest ts of a live ignore for `appid`, or 0: the undo drainer does not trust
     // userdata for an ignore this recent.
     function lastIgnoredAt(log, appid) {
-        appid = String(appid);
-        let latest = 0;
+        return timesIndex(log).ignored.get(String(appid)) || 0;
+    }
+
+    // Newest undoneAt for `appid`, or 0: the drainer does not trust a userdata
+    // read that may predate a rollback of this game.
+    function lastUndoneAt(log, appid) {
+        return timesIndex(log).undone.get(String(appid)) || 0;
+    }
+
+    // The three above for every appid in one pass: appid -> newest time. The
+    // drainer asks them on every dedupe skip, so it reads these maps, not the log.
+    // A live ignore with no ts is kept as 0: it still exists for reIgnoredAfter.
+    function timesIndex(log) {
+        const ignored = new Map();
+        const undone = new Map();
+        const bump = (map, appid, at) => { if (!map.has(appid) || at > map.get(appid)) map.set(appid, at); };
         for (const e of (log || [])) {
-            if (e && String(e.appid) === appid && !e.undoneAt && !e.skipped
-                && (e.ts || 0) > latest) latest = e.ts || 0;
+            if (!e) continue;
+            const appid = String(e.appid);
+            if (e.undoneAt > 0) bump(undone, appid, e.undoneAt);
+            else if (!e.undoneAt && !e.skipped) bump(ignored, appid, e.ts || 0);
         }
-        return latest;
+        return { ignored, undone };
     }
 
     // Newest undoneAt among entries staged from this curator within `windowMs`
@@ -248,11 +268,18 @@
     // other context — a tab draining MI while the worker drains the undo job.
     // Only the drainer's hooks share it. `getLog` stays a fresh read for the
     // popup, which must not show a stale undoable count.
+    // The times index rides the same snapshot: a pass asks it on every dedupe
+    // skip, and a scan of the full log each time is seconds per pass.
     let snapshot = null;
-    const dropSnapshot = () => { snapshot = null; };
+    let times = null;
+    const dropSnapshot = () => { snapshot = null; times = null; };
     function cachedLog() {
         if (!snapshot) snapshot = getLog().catch((e) => { dropSnapshot(); throw e; });
         return snapshot;
+    }
+    function cachedTimes() {
+        if (!times) times = cachedLog().then(timesIndex).catch((e) => { dropSnapshot(); throw e; });
+        return times;
     }
 
     // The curator drainer's `log` dependency. Identical for its two hosts (a
@@ -264,15 +291,16 @@
         return {
             append: (entry) => { dropSnapshot(); return append(entry); },
             markUndone: (appid, ts) => { dropSnapshot(); return markUndone(appid, ts); },
-            lastIgnoredAt: async (appid) => lastIgnoredAt(await cachedLog(), appid),
-            wasReIgnoredAfter: async (appid, ts) => reIgnoredAfter(await cachedLog(), appid, ts),
+            lastIgnoredAt: async (appid) => (await cachedTimes()).ignored.get(String(appid)) || 0,
+            lastUndoneAt: async (appid) => (await cachedTimes()).undone.get(String(appid)) || 0,
+            wasReIgnoredAfter: async (appid, ts) => liveIgnoreAfter(await cachedTimes(), appid, ts),
         };
     }
 
     window.ILAP.IgnoreLog = {
         // pure
         undoable, snapshotLastN, snapshotSince, undoableCount,
-        reIgnoredAfter, lastIgnoredAt, lastUndoneForCurator, markedUndone,
+        reIgnoredAfter, lastIgnoredAt, lastUndoneAt, lastUndoneForCurator, markedUndone,
         appendPlan, chunkedPlan,
         // storage
         getLog, append, markUndone, drainerHooks,

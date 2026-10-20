@@ -78,6 +78,7 @@ test.describe('Manual Ignore — stats reach the popup history', () => {
         const popup = await context.newPage();
         await popup.goto(popupUrl(extId));
 
+        // The headline is the extension's own counter: this one ignore.
         await expect(popup.locator('#count-link')).toHaveText('1');
         await expect(popup.locator(SEL.lastGame)).toHaveText(recordedName);
 
