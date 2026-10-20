@@ -1,0 +1,15 @@
+name: Site sync
+on:
+  push:
+    branches: [main]
+    paths: [PRIVACY.md, docs/site-changelog.md]
+  workflow_dispatch:
+permissions: {}
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tell the site repo to pull the new text
+        env:
+          GH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+        run: gh api repos/BrineStorm/Steam-Ignore-Like-a-Pro-site/dispatches -f event_type=extension-docs -f "client_payload[sha]=$GITHUB_SHA"
