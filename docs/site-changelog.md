@@ -5,6 +5,14 @@ version heading, newest first, followed by plain bullets. A plain line before th
 bullets becomes that release's one-line lede. Bullets are one line each, with no
 markdown inside.
 
+## 1.3.3
+- Built-in ignore lists for games with AI-generated content, Denuvo DRM, kernel-level anti-cheat, In-App Purchases and every VR game.
+- Ignore a whole bundle, every game and DLC in it, with one gesture.
+- Curator lists, built-in lists, bundles and the Discovery Queue helpers skip games on your wishlist.
+- A curator's second review type joins the queue as its own job, and the curator page shows what is queued.
+- Recent history shows ignores and un-ignores together, and a click opens the game, curator or bundle.
+- Four new interface languages, Simplified Chinese, Latin American Spanish, Indonesian and Vietnamese.
+
 ## 1.3.2
 - The extension's tagline and description are now in all 19 interface languages.
 - The extension's IGNORED badge no longer appears on games Steam already greys out as ignored.

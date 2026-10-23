@@ -217,8 +217,10 @@
 
     class DiscoveryQueueAutomator {
         // No api adapter: DQ never POSTs itself — its click makes Steam's own page
-        // fire the ignore. What it reads is userdata, to confirm that ignore landed.
-        //   userdata       { fetchIgnored() → Promise<Set<appid>> }
+        // fire the ignore. What it reads is userdata, to confirm that ignore landed
+        // and to know the wishlist.
+        //   userdata       { fetchIgnored() → Promise<Set<appid>>,
+        //                    fetchWishlist() → Promise<Set<appid>|null> (null: the read failed) }
         //   stats          { save(name, appid) }
         //   nameExtractor  { get(appid, el) → string }
         //   gate           { reserve() → Promise<{ ok }> }, the shared rate governor
@@ -230,6 +232,7 @@
                 }
             };
             need(deps.userdata, 'fetchIgnored', 'userdata');
+            need(deps.userdata, 'fetchWishlist', 'userdata');
             need(deps.stats, 'save', 'stats');
             need(deps.nameExtractor, 'get', 'nameExtractor');
             need(deps.gate, 'reserve', 'gate');
@@ -255,6 +258,8 @@
             this.processedCount = 0;
             this._continueStreak = 0;
             this.config = { skipPositive: false };
+            // The wishlist, read once per served queue (_wishlistSet).
+            this._wishlist = null;
             this.onUpdateCallback = null;
         }
 
@@ -290,6 +295,7 @@
             this.processedCount = 0;
             this._continueStreak = 0;
             this.refusal = null;
+            this._wishlist = null;
             this._notifyUI();
             await this._loop();
         }
@@ -355,6 +361,15 @@
 
             const appid = SlideScanner.getAppId(slide);
 
+            // A wishlisted game is passed without an ignore, like a positive one
+            // under Keep High Score. A failed read stops the run, as a failed
+            // confirmation does.
+            if (appid) {
+                const wishlist = await this._wishlistSet();
+                if (!wishlist) return false;
+                if (wishlist.has(String(appid))) return this._advance(nextBtn, TIMING.NEXT_CLICK_MS);
+            }
+
             // The click makes Steam's page POST the ignore, so DQ paces through the
             // shared gate like every other source. A stop verdict ends the loop, and
             // so does a Stop landing during the wait.
@@ -412,7 +427,16 @@
             const continueBtn = SlideScanner.getContinueButton(dialog);
             if (!continueBtn) return false;
             if (++this._continueStreak > MAX_CONTINUE_STREAK) return false;
+            // A fresh queue: the next game asks the wishlist again.
+            this._wishlist = null;
             return this._advance(continueBtn, TIMING.CONTINUE_CLICK_MS);
+        }
+
+        // The wishlist for this served queue, read on its first game: one
+        // userdata GET per queue rather than per game. null when the read failed.
+        async _wishlistSet() {
+            if (!this._wishlist) this._wishlist = await this.userdata.fetchWishlist();
+            return this._wishlist;
         }
 
         // Two-tier confirmation, in order of cheapness:

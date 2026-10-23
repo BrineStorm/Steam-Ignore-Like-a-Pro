@@ -413,3 +413,33 @@ test.describe('ManualIgnore — the session ended in another window (unit)', () 
         expect(s.calls.enqueueUndo).toBe(0);
     });
 });
+
+// A finished bundle (ilap_ignored_bundles) badges its capsules under its key,
+// behind the same master gate; a mark that goes takes its badges with it.
+test.describe('ManualIgnore — finished bundles (unit)', () => {
+    test('marked bundles paint on their /bundle/ and /sub/ links only, and come off with the mark', async () => {
+        const { IgnoreManager, sandbox } = loadIgnoreManager();
+        const enabled = { value: true };
+        const { mgr, rendered } = build(sandbox, IgnoreManager, { enabled, enqueue: async () => ({ kind: 'added' }) });
+        const links = ['/bundle/232/Valve/', '/sub/7/?snr=1', '/bundle/8/', '/subscriptions/'].map(href => ({ getAttribute: () => href, querySelector: () => ({}) }));
+        // A text link to a marked bundle: no art, no badge.
+        links.push({ getAttribute: () => '/sub/7/', querySelector: () => null });
+        sandbox.document.querySelectorAll = (sel) => (sel.includes('/bundle/') ? links : []);
+        const unrendered = [];
+        mgr.renderer.unrender = (key) => unrendered.push(key);
+
+        mgr.setBundleMarks(['bundle_232', 'sub_7', 'junk"]']);
+        expect(rendered).toEqual(['bundle_232', 'sub_7']);
+        expect(mgr.isBundleMarked('sub_7')).toBe(true);
+
+        mgr.setBundleMarks(['sub_7']);
+        expect(unrendered).toEqual(['bundle_232']);
+
+        enabled.value = false;
+        rendered.length = 0;
+        mgr.refreshAll();
+        expect(rendered).toEqual([]);
+        mgr.hideBadges();
+        expect(unrendered).toEqual(['bundle_232', 'sub_7']);
+    });
+});

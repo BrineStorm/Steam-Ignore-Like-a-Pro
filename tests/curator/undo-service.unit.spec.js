@@ -68,6 +68,7 @@ test.describe('UndoService (unit)', () => {
         expect(job.appids).toEqual(['1', '2']);       // newest first, '1' deduped, undone '3' skipped
         expect(job.total).toBe(2);
         expect(job.snapshotTs).toBeGreaterThanOrEqual(before);
+        expect(job.scope).toEqual({ n: 10 });         // what was asked, for the job's name
     });
 
     test('stageLastN clamps to what the log holds', async () => {
@@ -129,8 +130,9 @@ test.describe('UndoService (unit)', () => {
             e('3', now - 60000),          // 1 min ago
         ]);
         const svc = new ILAP.UndoService({ store, log, maxJobs: 3 });
-        const outcome = await svc.stageSince(6 * 3600000);
+        const outcome = await svc.stageSince(6, 'h');
         expect(outcome).toEqual({ kind: 'added', total: 2 });
         expect(store.queue[0].appids).toEqual(['3', '2']);
+        expect(store.queue[0].scope).toEqual({ n: 6, unit: 'h' });
     });
 });

@@ -11,13 +11,18 @@
     const HISTORY_KEY = 'ilap_ignored_history';
     const LAST_KEY = 'ilap_last_ignored_name';
     const HISTORY_LIMIT = 20;   // max entries kept in ilap_ignored_history
-    // Every history label (stored, so never renamed): the two queue automators
-    // and Manual Ignore's two reasons.
+    // Every history label (stored, so never renamed): the two queue automators,
+    // Manual Ignore's two reasons, and the four kinds of queue job that leave
+    // one entry when they finish (jobEntry).
     const SOURCE = Object.freeze({
         EQ: 'Explore Auto-Queue',
         DQ: 'Queue',
         MI_DEFAULT: 'Default Ignore',
         MI_PLAYED: 'Played Elsewhere',
+        CURATOR: 'Curator',
+        PRESET: 'Built-in List',
+        BUNDLE: 'Bundle',
+        UNDO: 'Undo',
     });
 
     // An MI entry's reason → its label. 2 is the Played Elsewhere swipe; a reason
@@ -42,9 +47,12 @@
     // the TypeError would be thrown inside a chrome.storage callback — where it
     // wedges the caller's write chain rather than failing one save (see
     // StatsManager in src/utils.js).
-    function pushHistory(currentHistory, name, source) {
+    // `appid` lets the popup open the game's store page from its entry. Kept
+    // only when it is a plain number: the popup builds a URL from it.
+    function pushHistory(currentHistory, name, source, appid) {
         const prev = Array.isArray(currentHistory) ? currentHistory : [];
-        return [{ name, source }, ...prev].slice(0, HISTORY_LIMIT);
+        const entry = /^\d+$/.test(String(appid)) ? { name, source, appid: String(appid) } : { name, source };
+        return [entry, ...prev].slice(0, HISTORY_LIMIT);
     }
 
     // The complete next state for ONE recorded ignore, ready to hand straight to
@@ -53,11 +61,11 @@
     // `current` is the { COUNT_KEY, HISTORY_KEY } snapshot the caller just read;
     // `name` must already be sanitized (Sanitizer.sanitizeName) by the caller,
     // which is where the storage boundary is.
-    function nextState(current, name, source) {
+    function nextState(current, name, source, appid) {
         current = current || {};
         return {
             [COUNT_KEY]: increment(current[COUNT_KEY]),
-            [HISTORY_KEY]: pushHistory(current[HISTORY_KEY], name, source),
+            [HISTORY_KEY]: pushHistory(current[HISTORY_KEY], name, source, appid),
             [LAST_KEY]: name
         };
     }
@@ -85,10 +93,62 @@
     // The shown-but-not-counted half: a swipe that changed the reason of a game
     // already on Steam's list. It is in Last Ignored like any swipe, but the
     // list did not grow, so the total stays.
-    function historyState(current, name, source) {
+    function historyState(current, name, source, appid) {
         return {
-            [HISTORY_KEY]: pushHistory((current || {})[HISTORY_KEY], name, source),
+            [HISTORY_KEY]: pushHistory((current || {})[HISTORY_KEY], name, source, appid),
             [LAST_KEY]: name
+        };
+    }
+
+    // A finished queue job as ONE history entry: a curator's list, a built-in
+    // list, a bundle or an undo. Its games stay out (a job of hundreds would flush the
+    // hand-made swipes), the job itself goes in. `name` is what the entry is
+    // matched by in Last Ignored, the popup draws the label from the rest
+    // (popup_main.js historyLabel). null for a job that leaves no entry: the
+    // two gesture jobs record each game, and an unknown type records nothing.
+    // Each entry keeps its job's id (jobState).
+    function jobEntry(job) {
+        const entry = kindEntry(job);
+        if (entry && job.id) entry.jobId = String(job.id);
+        return entry;
+    }
+    function kindEntry(job) {
+        if (!job) return null;
+        const type = job.type || 'curator';
+        if (type === 'curator') {
+            const id = /^\d+$/.test(String(job.curatorId)) ? String(job.curatorId) : null;
+            const entry = { name: String(job.curatorName || job.curatorId || ''), source: SOURCE.CURATOR, filter: job.filter || '' };
+            if (id) entry.curatorId = id;
+            return entry;
+        }
+        if (type === 'preset') return { name: String(job.presetKey || ''), source: SOURCE.PRESET, presetKey: String(job.presetKey || '') };
+        if (type === 'bundle') {
+            // `bundle` is the store path the popup opens, kept only in its known shape.
+            const m = String(job.curatorId || '').match(/^(bundle|sub)_(\d+)$/);
+            const entry = { name: String(job.curatorName || ''), source: SOURCE.BUNDLE };
+            if (m) entry.bundle = m[1] + '/' + m[2];
+            return entry;
+        }
+        if (type === 'undo') {
+            const entry = { name: 'undo', source: SOURCE.UNDO };
+            if (job.scope && Number(job.scope.n) > 0) entry.scope = { n: Number(job.scope.n), unit: job.scope.unit };
+            return entry;
+        }
+        return null;
+    }
+
+    // The history write for a finished job: shown, not counted (each of its
+    // ignores was counted as it landed). Nothing for a job with no entry, nor
+    // for one already in the history: two drainers that both swept the same
+    // leftover job (drainer.js _collectDrained) record it once.
+    function jobState(current, job) {
+        const entry = jobEntry(job);
+        if (!entry) return {};
+        const prev = Array.isArray((current || {})[HISTORY_KEY]) ? current[HISTORY_KEY] : [];
+        if (entry.jobId && prev.some(e => e && e.jobId === entry.jobId)) return {};
+        return {
+            [HISTORY_KEY]: [entry, ...prev].slice(0, HISTORY_LIMIT),
+            [LAST_KEY]: entry.name
         };
     }
 
@@ -121,6 +181,7 @@
     window.ILAP = window.ILAP || {};
     window.ILAP.StatsLogic = {
         increment, decrement, pushHistory, nextState, countState, uncountState, historyState,
+        jobEntry, jobState,
         totalState, displayTotal,
         miSourceLabel, COUNT_KEY, HISTORY_KEY, LAST_KEY, TOTAL_KEY, HISTORY_LIMIT, SOURCE
     };

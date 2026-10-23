@@ -89,6 +89,29 @@ test.describe('fetchWithTimeout (unit)', () => {
         await expect(res.json()).rejects.toThrow(/abort/i);
     });
 
+    test('the same read has the wishlist; a failed read is null, never an empty wishlist', async () => {
+        const body = { rgIgnoredApps: { 10: 0 }, rgWishlist: [20, 30] };
+        const ILAP = loadIlap(() => Promise.resolve({ ok: true, json: async () => body }));
+        expect([...(await ILAP.fetchIgnoredAppsStrict()).wishlist]).toEqual(['20', '30']);
+        expect([...(await ILAP.fetchWishlist())]).toEqual(['20', '30']);
+        expect(await ILAP.isWishlisted(20)).toBe(true);
+        expect(await ILAP.isWishlisted('10')).toBe(false);
+        const down = loadIlap(() => Promise.resolve({ ok: false }));
+        expect(await down.fetchWishlist()).toBe(null);
+        expect(await down.isWishlisted(20)).toBe(null);
+    });
+
+    test('an answer with no wishlist reads as unknown, never as an empty one', async () => {
+        // A Steam-side change of the shape must stop the automated ignores, not
+        // let them take every wishlisted game.
+        const ILAP = loadIlap(() => Promise.resolve({ ok: true, json: async () => ({ rgIgnoredApps: { 10: 0 } }) }));
+        const strict = await ILAP.fetchIgnoredAppsStrict();
+        expect([...strict.keys()]).toEqual(['10']);
+        expect(strict.wishlist).toBe(null);
+        expect(await ILAP.fetchWishlist()).toBe(null);
+        expect(await ILAP.isWishlisted(20)).toBe(null);
+    });
+
     test('the strict read keeps each game\'s ignore reason; the lenient one only the appids', async () => {
         // The MI dedupe compares reasons: a swipe with the other one is a change
         // of reason Steam accepts, not a duplicate.

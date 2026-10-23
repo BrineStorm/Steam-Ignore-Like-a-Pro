@@ -43,7 +43,8 @@ function loadDrainerClass(DateImpl, timers) {
         constructor(deps) {
             const store = deps.store && withVocab(deps.store);
             if (store) {
-                for (const m of ['signalCompleted', 'signalUnignored', 'signalUndoFailed', 'bumpSkipped']) {
+                for (const m of ['signalCompleted', 'signalUnignored', 'signalUndoFailed', 'bumpSkipped', 'bumpWishlisted',
+                    'markBundleDone', 'unmarkBundlesWith']) {
                     if (!store[m]) store[m] = noop;
                 }
             }
@@ -58,10 +59,10 @@ function loadDrainerClass(DateImpl, timers) {
                     releaseLock: viaStore('releaseLock', noop),
                     LOCK_PREFIX: 'ilap_curator_lock_',
                 },
-                fetchUserdata: async () => new Map(),
+                fetchUserdata: async () => ignoredOf([]),
             }, deps, {
                 stats: Object.assign({
-                    save: noop, saveHistory: noop, bumpCount: noop, dropCount: noop, recordTotal: noop,
+                    save: noop, saveHistory: noop, saveJob: noop, bumpCount: noop, dropCount: noop, recordTotal: noop,
                 }, deps.stats),
                 api: Object.assign({
                     ignore: async () => { throw new Error('unexpected ignore POST'); },
@@ -107,7 +108,7 @@ function loadTabHost() {
             IgnoreGate: { reserve: fn, reportRateLimited: fn, stopVerdict: fn },
             fetchIgnoredAppsStrict: fn,
             SteamAuth: { probeLogin: fn },
-            saveStats: fn, saveHistory: fn, bumpIgnoredCount: fn, dropIgnoredCount: fn,
+            saveStats: fn, saveHistory: fn, saveJobHistory: fn, bumpIgnoredCount: fn, dropIgnoredCount: fn,
             StatsLogic: { miSourceLabel: () => '' },
             IgnoreLog: { drainerHooks: () => ({ append: fn, markUndone: fn, lastIgnoredAt: fn, lastUndoneAt: fn,
                 wasReIgnoredAfter: fn }) },
@@ -121,7 +122,13 @@ function loadTabHost() {
 
 // Steam's userdata as the strict reader returns it: appid -> ignore reason,
 // here all ignored with the default reason (0).
-const ignoredOf = (appids, reason = 0) => new Map(appids.map(a => [String(a), reason]));
+// The shape fetchIgnoredAppsStrict returns: ignored appid → reason, with the
+// wishlist from the same read (an empty one unless a test says otherwise).
+const ignoredOf = (appids, reason = 0) => {
+    const map = new Map(appids.map(a => [String(a), reason]));
+    map.wishlist = new Set();
+    return map;
+};
 
 // A complete set of real-shaped deps, for the construction contract.
 function fullDeps() {
@@ -135,7 +142,7 @@ function fullDeps() {
         probeLogin: fn,
         ownerId: 't',
         log: { append: fn, markUndone: fn, lastIgnoredAt: fn, lastUndoneAt: fn, wasReIgnoredAfter: fn },
-        stats: { save: fn, saveHistory: fn, bumpCount: fn, dropCount: fn, recordTotal: fn },
+        stats: { save: fn, saveHistory: fn, saveJob: fn, bumpCount: fn, dropCount: fn, recordTotal: fn },
     };
 }
 
@@ -251,6 +258,37 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(renews.length).toBeGreaterThanOrEqual(2); // lease heartbeated during the run
     });
 
+    test('a finished curator, built-in list or undo job leaves one history entry; a gesture job leaves none', async () => {
+        // Last Ignored keeps the job itself, not its games (StatsLogic.jobEntry).
+        const Drainer = loadDrainerClass();
+        const jobs = [
+            { id: 'j_cur', curatorId: '101', status: 'pending', appids: [] },
+            { id: 'j_pre', type: 'preset', presetKey: 'vr', curatorId: 'preset_vr', status: 'pending', appids: [] },
+            { id: 'j_undo', type: 'undo', curatorId: 'undo', status: 'pending', appids: [], scope: { n: 5 } },
+            { id: 'j_mi', type: 'mi', curatorId: 'mi', status: 'pending', appids: [], meta: {} },
+        ];
+        const saved = [];
+        for (const job of jobs) {
+            let removed = false;
+            const d = new Drainer({
+                store: {
+                    getQueue: async () => (removed ? [] : [{ ...job }]),
+                    holdsLock: async () => true,
+                    getCursor: async () => 0,
+                    setCursor: async () => true,
+                    removeIfDrained: async () => { removed = true; return true; },
+                    markPresetDone: async () => {},
+                },
+                stats: { saveJob: async (j) => { saved.push(j.id); } },
+                fetchUserdata: async () => ignoredOf([]),
+                ownerId: 't1',
+            });
+            await d._drainJob(job);
+            expect(removed).toBe(true);
+        }
+        expect(saved).toEqual(['j_cur', 'j_pre', 'j_undo']);
+    });
+
     test('a lease stolen during the gate wait stops before the POST (no cursor burn)', async () => {
         // The pacing wait in gate.reserve() can span seconds; model the steal
         // by dropping the lease inside reserve(). The loop-top holdsLock check
@@ -273,7 +311,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
             gate: { reserve: async () => { lockHeld = false; return { ok: true }; } },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             ownerId: 't1',
         });
         await d._drainJob(job);
@@ -308,7 +346,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             api: { ignore: () => new Promise(r => { release = () => r({ ok: true }); }) },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             ownerId: 't1',
         });
         const pending = d._drainJob(job);
@@ -349,7 +387,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 },
                 api: { ignore: async () => ({ ok: true }) },
                 gate: { reserve: async (opts) => { seen.push(opts); return { ok: true }; } },
-                fetchUserdata: async () => new Map(),
+                fetchUserdata: async () => ignoredOf([]),
                 ownerId: 't1',
             });
             await d._drainJob(job);
@@ -413,7 +451,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             api: { ignore: () => new Promise(r => { release = () => r({ ok: true }); }) },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             ownerId: 't1',
         });
         const pending = d._drainJob(job);
@@ -456,7 +494,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 reserve: async () => ({ ok: true }),
                 reportRateLimited: async (ms) => { reports.push(ms); },
             },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             ownerId: 't1',
         });
         const result = await d._drainJob(job);
@@ -502,7 +540,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                     : { ok: true };
             } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             stats: {
                 bumpCount: async () => { counted++; },
             },
@@ -662,7 +700,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 return appid === '1' ? { ok: false } : { ok: true };
             } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             probeLogin: async () => true,     // the session is fine — a per-appid refusal
             log: { append: async (e) => { appended.push(e); }, markUndone: async () => {} },
             ownerId: 't1',
@@ -814,7 +852,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 unignore: async () => ({ ok: true }),
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),   // empty, NOT failed
+            fetchUserdata: async () => ignoredOf([]),   // empty, NOT failed
             probeLogin: async () => probeResult,
             log: {
                 append: async () => {},
@@ -875,10 +913,10 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         const undo = { id: 'ju', curatorId: 'undo', type: 'undo', status: 'pending', appids: ['1'], snapshotTs: 1 };
 
         expect(await run(curator, ignoredOf(['5', '6', '7']), true)).toEqual([3]);
-        expect(await run(curator, new Map(), true)).toEqual([]);
+        expect(await run(curator, ignoredOf([]), true)).toEqual([]);
         expect(await run(curator, null, true)).toEqual([]);
-        expect(await run(undo, new Map(), true)).toEqual([0]);
-        expect(await run(undo, new Map(), false)).toEqual([]);
+        expect(await run(undo, ignoredOf([]), true)).toEqual([0]);
+        expect(await run(undo, ignoredOf([]), false)).toEqual([]);
     });
 
     test('a read within the userdata lag of a POST from any source records no total', async () => {
@@ -995,7 +1033,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 unignore: async (appid) => { unposts.push(appid); return { ok: true }; },
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),   // '1' not reflected yet
+            fetchUserdata: async () => ignoredOf([]),   // '1' not reflected yet
             probeLogin: async () => true,           // empty set + live session → proceed
             log: {
                 append: async () => {},
@@ -1037,7 +1075,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             api: { ignore: async () => ({ ok: true }), unignore: async () => ({ ok: true }) },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             stats: {
                 save: async (name, reason) => { stats.push([name, reason]); },
                 bumpCount: async () => { counted++; },
@@ -1075,7 +1113,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         let removed = false;
         let counted = 0;
         const posts = [];      // [appid, reason]
-        const stats = [];      // [name, reason]
+        const stats = [];      // [name, reason, appid]
         const appended = [];
         const store = {
             getQueue: async () => (removed ? [] : [{ ...job }]),
@@ -1091,9 +1129,9 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             api: { ignore: async (appid, reason) => { posts.push([appid, reason]); return { ok: true }; } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             stats: {
-                save: async (name, reason) => { stats.push([name, reason]); },
+                save: async (name, reason, appid) => { stats.push([name, reason, appid]); },
                 bumpCount: async () => { counted++; },
             },
             log: {
@@ -1105,7 +1143,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         });
         await d._drainJob(job);
         expect(posts).toEqual([['10', 0], ['11', 2]]);   // per-appid reason preserved
-        expect(stats).toEqual([['A', 0], ['B', 2]]);     // Last Ignored stamped at drain time
+        expect(stats).toEqual([['A', 0, '10'], ['B', 2, '11']]);   // Last Ignored stamped at drain time, with the appid
         expect(counted).toBe(0);                         // saveStats already counted these
         expect(appended).toEqual([
             { appid: '10', name: 'A', source: 'mi' },
@@ -1145,7 +1183,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             api: { ignore: async (appid, reason) => { posts.push([appid, reason]); return { ok: true }; } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             stats: {
                 save: async (name, reason) => { stats.push([name, reason]); },
             },
@@ -1191,7 +1229,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             api: { ignore: async (appid, reason) => { posts.push([appid, reason]); return { ok: true }; } },
             // The gesture lands while this reservation is being paced.
             gate: { reserve: async () => { cancelled = true; return { ok: true }; } },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             stats: {
                 save: async () => {},
             },
@@ -1241,7 +1279,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 },
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             stats: {
                 save: async () => {},
             },
@@ -1321,7 +1359,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store,
             api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             stats: {
                 save: async () => {},
             },
@@ -1365,7 +1403,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 ? { ok: false, rateLimited: false, unavailable: true }
                 : { ok: true } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             stats: {
                 save: async () => {},
             },
@@ -1409,7 +1447,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
             gate: { reserve: async () => ({ ok: true }), stopped: async () => verdict },
-            fetchUserdata: async () => { userdataReads += 1; return new Map(); },
+            fetchUserdata: async () => { userdataReads += 1; return ignoredOf([]); },
             ownerId: 't1',
             standbyMs: 0,
         });
@@ -1458,7 +1496,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             // the same moment the probe starts answering "logged in".
             api: { ignore: async (appid) => { posts.push(appid); return { ok: loggedIn }; } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             probeLogin: async () => { probes += 1; return loggedIn; },
             ownerId: 't1',
             standbyMs: 0,
@@ -1523,7 +1561,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 },
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),   // what a signed-out read returns
+            fetchUserdata: async () => ignoredOf([]),   // what a signed-out read returns
             probeLogin: async () => loggedIn,
             stats: {
                 save: async (name, reason) => { stats.push([name, reason]); },
@@ -1578,7 +1616,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 }
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             probeLogin: async () => true,          // session is fine
             ownerId: 't1',
             standbyMs: 0,
@@ -1720,7 +1758,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         const Drainer = loadDrainerClass();
         const d = new Drainer({
             store: { getCursor: async () => 0 }, api: {}, gate: {},
-            fetchUserdata: async () => new Map(), ownerId: 't1',
+            fetchUserdata: async () => ignoredOf([]), ownerId: 't1',
         });
         const queue = [
             { id: 'c', curatorId: '1', status: 'pending', appids: ['1'] },
@@ -1739,7 +1777,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         const Drainer = loadDrainerClass();
         const d = new Drainer({
             store: { getCursor: async () => 0 }, api: {}, gate: {},
-            fetchUserdata: async () => new Map(), ownerId: 't1',
+            fetchUserdata: async () => ignoredOf([]), ownerId: 't1',
         });
         const unknown = { id: 'x', curatorId: 'x', type: 'from-a-newer-build', status: 'pending', appids: ['1'] };
         const curator = { id: 'c', curatorId: '1', status: 'pending', appids: ['2'] };
@@ -1755,7 +1793,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         const Drainer = loadDrainerClass();
         const make = (cursors) => new Drainer({
             store: { getCursor: async (id) => cursors[id], getQueue: async () => [] },
-            api: {}, gate: {}, fetchUserdata: async () => new Map(), ownerId: 't1',
+            api: {}, gate: {}, fetchUserdata: async () => ignoredOf([]), ownerId: 't1',
         });
         const job = { id: 'j', curatorId: 'c', status: 'pending', appids: ['1', '2'] };
 
@@ -1780,7 +1818,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             // 'mu-done' is the one job whose cursor key says it has nothing left.
             store: { getCursor: async (id) => (id === 'mu-done' ? 1 : 0) },
             api: {}, gate: {},
-            fetchUserdata: async () => new Map(), ownerId: 't1',
+            fetchUserdata: async () => ignoredOf([]), ownerId: 't1',
         });
         const curator = { id: 'c', curatorId: '1', status: 'pending', appids: ['1'] };
         const undo = { id: 'u', curatorId: 'undo', type: 'undo', status: 'pending', appids: ['2'] };
@@ -1836,7 +1874,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 unignore: async () => ({ ok: true }),
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             ownerId: 't1',
             standbyMs: 0,
         });
@@ -1853,7 +1891,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         const d = new Drainer({
             store: { getCursor: async (id) => (id === 'mu-done' ? 1 : 0) },
             api: {}, gate: {},
-            fetchUserdata: async () => new Map(), ownerId: 't1',
+            fetchUserdata: async () => ignoredOf([]), ownerId: 't1',
         });
         const mi = { id: 'm', curatorId: 'mi', type: 'mi', status: 'pending', appids: ['1'] };
         const curator = { id: 'c', curatorId: '1', status: 'pending', appids: ['2'] };
@@ -1883,7 +1921,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         const d = new Drainer({
             store: { getCursor: async (id) => (id === 'm' ? 1 : 0) },
             api: {}, gate: {},
-            fetchUserdata: async () => new Map(), ownerId: 't1',
+            fetchUserdata: async () => ignoredOf([]), ownerId: 't1',
         });
         const mi = {
             id: 'm', curatorId: 'mi', type: 'mi', status: 'pending', appids: ['1', '2'],
@@ -1948,7 +1986,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             api: { ignore: async (appid) => { posts.push(appid); now += 20000; return { ok: true }; } },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             ownerId: 't1',
             standbyMs: 0,
         });
@@ -1984,7 +2022,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 acquireLock: async () => { throw new Error('nothing here is drainable'); },
             },
             api: {}, gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(), ownerId: 't1', standbyMs: 0,
+            fetchUserdata: async () => ignoredOf([]), ownerId: 't1', standbyMs: 0,
         });
 
         await d.drain();
@@ -2014,7 +2052,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             api: { ignore: async () => ({ ok: true }) },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             ownerId: 't1',
         });
 
@@ -2064,7 +2102,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             // One slot per pass, so each pass ends with the job still drainable —
             // the shape a re-kick has to find something to do in.
             gate: { reserve: async () => ({ ok: reserves++ % 2 === 0 }) },
-            fetchUserdata: async () => { reads += 1; return new Map(); },
+            fetchUserdata: async () => { reads += 1; return ignoredOf([]); },
             ownerId: 't1',
             standbyMs: 0,
         });
@@ -2118,7 +2156,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             api: { ignore: async () => ({ ok: true }) },
             gate: { reserve: async () => ({ ok: reserves++ % 2 === 0 }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             ownerId: 't1',
             standbyMs: 0,
             rekick: () => { hostKicks += 1; },
@@ -2160,7 +2198,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             },
             api: { ignore: async () => ({ ok: true }) },
             gate: { reserve: async () => ({ ok: true }), stopped: async () => verdict },
-            fetchUserdata: async () => { reads += 1; return new Map(); },
+            fetchUserdata: async () => { reads += 1; return ignoredOf([]); },
             ownerId: 't1',
             standbyMs: 0,
         });
@@ -2183,7 +2221,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
             store: { getQueue: async () => [{ id: 'j1', curatorId: 'c1', status: 'paused', appids: ['1'] }] },
             api: { ignore: async () => ({ ok: true }) },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             ownerId: 't1',
             standbyMs: 0,
         });
@@ -2204,7 +2242,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 getQueue: async () => { throw new Error('Extension context invalidated'); },
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             ownerId: 't1',
         });
 
@@ -2242,7 +2280,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
                 signalCompleted: async () => {},
             },
             gate: { reserve: async () => ({ ok: true }) },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             ownerId: 't1',
         });
 
@@ -2350,9 +2388,9 @@ test.describe('CuratorQueueDrainer (unit)', () => {
 
 });
 
-// A filter switch through the REAL store and staging service, racing a drainer
-// that is mid-iteration on the old list. The stub stores above cannot show it:
-// the bug lived in how the two real modules share one job id.
+// A curator's second review type staged through the REAL store and staging
+// service while a drainer is mid-iteration on the first, and the REAL lease the
+// two jobs share. The stub stores above cannot show how the modules meet.
 function loadRealStore(initial) {
     const clone = (v) => JSON.parse(JSON.stringify(v));
     const norm = (keys) => (Array.isArray(keys) ? keys : [keys]);
@@ -2370,28 +2408,31 @@ function loadRealStore(initial) {
     const sandbox = { window: {}, chrome: { storage: { local } }, setTimeout, Date, Math, JSON };
     vm.createContext(sandbox);
     loadEscape(sandbox);
-    vm.runInContext(fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'curator', 'store.js'), 'utf8'), sandbox);
-    return { Store: sandbox.window.ILAP.Curator.Store, data };
+    for (const file of ['store.js', 'lease.js']) {
+        vm.runInContext(fs.readFileSync(
+            path.join(__dirname, '..', '..', 'src', 'curator', file), 'utf8'), sandbox);
+    }
+    return { Store: sandbox.window.ILAP.Curator.Store, Lease: sandbox.window.ILAP.Curator.Lease, data };
 }
 
 function loadEnqueueService() {
     const sandbox = { window: {} };
     vm.createContext(sandbox);
-    vm.runInContext(fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'curator', 'enqueue-service.js'), 'utf8'), sandbox);
+    for (const file of ['filters.js', 'enqueue-service.js']) {
+        vm.runInContext(fs.readFileSync(
+            path.join(__dirname, '..', '..', 'src', 'curator', file), 'utf8'), sandbox);
+    }
     return sandbox.window.ILAP.Curator.EnqueueService;
 }
 
-test.describe('CuratorQueueDrainer × EnqueueService — filter switch mid-drain (unit)', () => {
+test.describe('CuratorQueueDrainer × EnqueueService — a curator\'s second review type (unit)', () => {
 
-    test('a switch during the gate wait stops the old list: no stale POST, the new list starts at 0', async () => {
-        const OLD = 'job_123_1';
-        const { Store, data } = loadRealStore({
-            ilap_curator_queue: [{ id: OLD, type: 'curator', curatorId: '123', curatorName: 'Cur',
+    test('the other type added mid-drain waits as a job of its own: the first list runs on, then the second', async () => {
+        const FIRST = 'job_123_1';
+        const { Store } = loadRealStore({
+            ilap_curator_queue: [{ id: FIRST, type: 'curator', curatorId: '123', curatorName: 'Cur',
                 filter: 'not_recommended', status: 'pending', appids: ['1', '2', '3'], total: 3 }],
-            ['ilap_curator_cursor_' + OLD]: 1,
-            ['ilap_curator_skipped_' + OLD]: 4,
+            ['ilap_curator_cursor_' + FIRST]: 1,
             ilap_curator_cache: { '123': { fetchedAt: Date.now(), apps: {
                 not_recommended: ['1', '2', '3'], informational: ['7', '8'], recommended: [] } } },
         });
@@ -2399,38 +2440,51 @@ test.describe('CuratorQueueDrainer × EnqueueService — filter switch mid-drain
         const svc = new EnqueueService({ store: Store, enumerator: loadEnumerator(), maxJobs: 3 });
         const Drainer = loadDrainerClass();
         const posts = [];
-        let switched = false;
+        let added = false;
         const d = new Drainer({
             store: Store,
             api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
             gate: {
                 reserve: async () => {
-                    if (!switched) {
-                        switched = true;
-                        // The user picks another filter while the POST for '2'
-                        // waits its slot, and the cache answers before it arrives.
-                        const o = await svc.stage('123', 'Cur', 'informational');
-                        await svc.resolve('123', o.jobId, o.name, 'informational', o.paused);
+                    if (!added) {
+                        added = true;
+                        // The user picks "All except Recommended" while the POST
+                        // for '2' waits its slot: the Informational half is added.
+                        const o = await svc.stage('123', 'Cur', 'all_but_recommended');
+                        expect(o).toMatchObject({ kind: 'added', filter: 'informational' });
+                        await svc.resolve('123', o.jobId, o.name, o.filter);
                     }
                     return { ok: true };
                 },
             },
-            fetchUserdata: async () => new Map(),
+            fetchUserdata: async () => ignoredOf([]),
             ownerId: 't1',
         });
 
         await d._drainJob((await Store.getQueue())[0]);
-        expect(posts).toEqual([]);   // nothing from the old list after the switch
+        expect(posts).toEqual(['2', '3']);   // the first list ran to its end
 
-        const [job] = await Store.getQueue();
-        expect(job.id).not.toBe(OLD);
-        expect(job).toMatchObject({ filter: 'informational', status: 'pending', appids: ['7', '8'] });
-        expect(await Store.getCursor(job.id)).toBe(0);
-        expect(data).not.toHaveProperty('ilap_curator_cursor_' + OLD);
-        expect(data).not.toHaveProperty('ilap_curator_skipped_' + OLD);
+        const queue = await Store.getQueue();
+        expect(queue).toHaveLength(1);
+        expect(queue[0]).toMatchObject({ curatorId: '123', filter: 'informational', status: 'pending', appids: ['7', '8'] });
+        expect(await Store.getCursor(queue[0].id)).toBe(0);
 
-        await d._drainJob(job);
-        expect(posts).toEqual(['7', '8']);   // the new list, from its first entry
+        await d._drainJob(queue[0]);
+        expect(posts).toEqual(['2', '3', '7', '8']);
+    });
+
+    test('a curator\'s two jobs share its lease: a second drainer cannot run the other one meanwhile', async () => {
+        const { Lease, data } = loadRealStore({});
+        expect(await Lease.acquireLock('123', 'tab', 'job_nr')).toBe(true);
+        expect(await Lease.acquireLock('123', 'sw', 'job_inf')).toBe(false);
+        // The lock names the job it drains: the queue applet shows only that one running.
+        expect(data.ilap_curator_lock_123).toMatchObject({ owner: 'tab', jobId: 'job_nr' });
+        expect(await Lease.renewLock('123', 'tab', 'job_nr')).toBe(true);
+        expect(data.ilap_curator_lock_123.jobId).toBe('job_nr');
+
+        await Lease.releaseLock('123', 'tab');
+        expect(await Lease.acquireLock('123', 'sw', 'job_inf')).toBe(true);
+        expect(data.ilap_curator_lock_123).toMatchObject({ owner: 'sw', jobId: 'job_inf' });
     });
 });
 
@@ -2464,7 +2518,7 @@ test.describe('CuratorQueueDrainer × Store — one game swiped in two tabs (uni
             },
             gate: { reserve: async () => ({ ok: true }) },
             // Steam's list as it stands: no lag, the worst case for the guard.
-            fetchUserdata: async () => new Map([...steam].map(a => [a, 0])),
+            fetchUserdata: async () => ignoredOf([...steam]),
             log: {
                 markUndone: async (appid) => { undoneAt.set(String(appid), Date.now()); },
                 lastUndoneAt: async (appid) => undoneAt.get(String(appid)) || 0,
@@ -2611,5 +2665,260 @@ test.describe('CuratorQueueDrainer — change of reason (unit)', () => {
         const out = await drainOnce(job, ignoredOf(['10'], 2));
         expect(out.unignores).toEqual(['10']);
         expect(out.ignores).toEqual([]);
+    });
+});
+
+test.describe('CuratorQueueDrainer — built-in list jobs (unit)', () => {
+    test('a list drains like a curator: skips what is ignored, logs and counts the rest', async () => {
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'j1', type: 'preset', curatorId: 'preset_ai_2025', presetKey: 'ai_2025',
+            status: 'pending', appids: ['10', '11', '12'],
+        };
+        let cursor = 0;
+        let removed = false;
+        const posts = [];
+        const appended = [];
+        const marked = [];
+        let counted = 0;
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            renewLock: async () => {},
+            removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
+            markPresetDone: async (j) => { marked.push(j.presetKey); },
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => ignoredOf(['11']),
+            stats: { bumpCount: async () => { counted++; } },
+            log: {
+                append: async (entry) => { appended.push(entry); },
+                markUndone: async () => {},
+                wasReIgnoredAfter: async () => false,
+            },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(posts).toEqual(['10', '12']);
+        expect(cursor).toBe(3);
+        expect(removed).toBe(true);
+        expect(appended).toEqual([
+            { appid: '10', source: 'curator', curatorId: 'preset_ai_2025' },
+            { appid: '12', source: 'curator', curatorId: 'preset_ai_2025' },
+        ]);
+        expect(counted).toBe(2);
+        expect(marked).toEqual(['ai_2025']);
+    });
+
+    // The picker skips a job whose cursor is at its end, so a pass that died
+    // between the last cursor write and the removal leaves it to _collectDrained.
+    test('a list left at its end by a dead pass is marked done when collected', async () => {
+        const Drainer = loadDrainerClass();
+        const marked = [];
+        const store = {
+            getCursor: async () => 1,
+            removeIfDrained: async () => true,
+            markPresetDone: async (j) => { marked.push(j.presetKey); },
+        };
+        const d = new Drainer({ store, ownerId: 't1' });
+        const removed = await d._collectDrained([
+            { id: 'p', type: 'preset', curatorId: 'preset_denuvo', presetKey: 'denuvo', status: 'pending', appids: ['1'] },
+            { id: 'c', type: 'curator', curatorId: '7', status: 'pending', appids: ['1'] },
+        ]);
+        expect(removed).toBe(2);
+        expect(marked).toEqual(['denuvo']);
+    });
+
+    test('a list that is not drained to its end is not marked done', async () => {
+        const Drainer = loadDrainerClass();
+        const marked = [];
+        const store = {
+            getCursor: async () => 1,
+            removeIfDrained: async () => false,     // a gesture grew it, or it is gone
+            markPresetDone: async (j) => { marked.push(j.presetKey); },
+        };
+        const d = new Drainer({ store, ownerId: 't1' });
+        await d._collectDrained([
+            { id: 'p', type: 'preset', curatorId: 'preset_denuvo', presetKey: 'denuvo', status: 'pending', appids: ['1'] },
+        ]);
+        expect(marked).toEqual([]);
+    });
+});
+
+// The wishlist guard: the automated ignores never take a
+// game the user wishlisted, a swipe on one game always goes through.
+test.describe('CuratorQueueDrainer wishlist guard (unit)', () => {
+
+    const withWishlist = (map, appids) => { map.wishlist = new Set(appids.map(String)); return map; };
+
+    // One job drained to its end: what was POSTed and which skips were counted.
+    async function drainOne(job, userdata) {
+        const Drainer = loadDrainerClass();
+        let cursor = 0;
+        let removed = false;
+        const posts = [];
+        const wishlisted = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{ ...job }]),
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                removeIfDrained: async () => { removed = true; return true; },
+                bumpWishlisted: async (id) => { wishlisted.push(id); },
+                markPresetDone: async () => {},
+            },
+            api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => userdata,
+            ownerId: 't1',
+        });
+        const result = await d._drainJob(job);
+        return { posts, wishlisted, cursor, result };
+    }
+
+    test('a curator or built-in list job skips a wishlisted game and counts it', async () => {
+        for (const extra of [{}, { type: 'preset', presetKey: 'vr' }]) {
+            const job = Object.assign({ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20', '30'] }, extra);
+            const { posts, wishlisted, cursor } = await drainOne(job, withWishlist(new Map(), ['20']));
+            expect(posts).toEqual(['10', '30']);
+            expect(wishlisted).toEqual(['j1']);
+            expect(cursor).toBe(3);
+        }
+    });
+
+    test('a swipe ignores a wishlisted game: pointing at one game is deliberate', async () => {
+        const job = { id: 'job_mi', type: 'mi', curatorId: 'mi', status: 'pending', appids: ['20'],
+            meta: { 20: { name: 'G', reason: 0 } } };
+        const { posts, wishlisted } = await drainOne(job, withWishlist(new Map(), ['20']));
+        expect(posts).toEqual(['20']);
+        expect(wishlisted).toEqual([]);
+    });
+
+    test('a failed userdata read stops a curator pass: the wishlist is unknown', async () => {
+        const job = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10'] };
+        const { posts, cursor, result } = await drainOne(job, null);
+        expect(posts).toEqual([]);
+        expect(cursor).toBe(0);
+        expect(result).toBe('stop');
+    });
+
+    test('a read with no wishlist stops it too, after the games already on the list', async () => {
+        // fetchIgnoredAppsStrict says null when Steam's answer has no rgWishlist.
+        const job = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20'] };
+        const userdata = ignoredOf(['10']);
+        userdata.wishlist = null;
+        const { posts, cursor, result } = await drainOne(job, userdata);
+        expect(posts).toEqual([]);
+        expect(cursor).toBe(1);
+        expect(result).toBe('stop');
+    });
+
+    test('a bundle\'s app in the MI job waits for the wishlist, the swipes before it go', async () => {
+        const job = { id: 'job_mi', type: 'mi', curatorId: 'mi', status: 'pending', appids: ['10', '20', '30'],
+            meta: { 10: { name: 'G', reason: 0 }, 20: { reason: 0, bundle: true }, 30: { name: 'H', reason: 0 } } };
+        for (const userdata of [null, Object.assign(ignoredOf([]), { wishlist: null })]) {
+            const { posts, cursor, result } = await drainOne(job, userdata);
+            expect(posts).toEqual(['10']);
+            expect(cursor).toBe(1);
+            expect(result).toBe('stop');
+        }
+    });
+});
+
+// A bundle job (Store.stageBundle) drains like a curator's list with the reason
+// of the gesture that staged it; its apps that overflowed into the MI job keep
+// a bundle's rules there.
+test.describe('CuratorQueueDrainer bundles (unit)', () => {
+
+    async function drain(job, userdata) {
+        const Drainer = loadDrainerClass();
+        let cursor = 0;
+        let removed = false;
+        const posts = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{ ...job }]),
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                removeIfDrained: async () => { removed = true; return true; },
+            },
+            api: { ignore: async (appid, reason) => { posts.push([appid, reason]); return { ok: true }; } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => userdata,
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        return posts;
+    }
+
+    test('a bundle job POSTs with its gesture reason and skips what is already ignored, any reason', async () => {
+        const job = { id: 'jb', type: 'bundle', curatorId: 'bundle_1', status: 'pending', appids: ['10', '20'],
+            meta: { 10: { reason: 2 }, 20: { reason: 2 } } };
+        expect(await drain(job, ignoredOf(['20'], 0))).toEqual([['10', 2]]);
+    });
+
+    test('a bundle job run to its end marks the bundle, after its last POST', async () => {
+        const Drainer = loadDrainerClass();
+        const job = { id: 'jb', type: 'bundle', curatorId: 'sub_9', status: 'pending', appids: ['10'], meta: {} };
+        let cursor = 0;
+        let removed = false;
+        const events = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{ ...job }]),
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                removeIfDrained: async () => { removed = true; return true; },
+                markBundleDone: async (j) => { events.push('mark ' + j.curatorId); },
+            },
+            api: { ignore: async (appid) => { events.push('post ' + appid); return { ok: true }; } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => ignoredOf([]),
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(events).toEqual(['post 10', 'mark sub_9']);
+    });
+
+    test('a landed rollback takes the mark off every bundle with that game', async () => {
+        const Drainer = loadDrainerClass();
+        const job = { id: 'job_mi_undo', type: 'miundo', curatorId: 'miundo', status: 'pending', appids: ['10'],
+            meta: { 10: { ts: 1 } } };
+        let cursor = 0;
+        let removed = false;
+        const unmarked = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{ ...job }]),
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                removeIfDrained: async () => { removed = true; return true; },
+                unmarkBundlesWith: async (appids) => { unmarked.push(...appids); },
+            },
+            api: { unignore: async () => ({ ok: true }) },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => ignoredOf(['10']),
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(unmarked).toEqual(['10']);
+    });
+
+    test('a bundle\'s app in the MI job takes any reason and skips the wishlist; a swipe does neither', async () => {
+        const job = { id: 'job_mi', type: 'mi', curatorId: 'mi', status: 'pending', appids: ['10', '20', '30', '40'],
+            meta: { 10: { reason: 2, bundle: true }, 20: { reason: 2, bundle: true },
+                30: { reason: 2 }, 40: { reason: 0 } } };
+        const userdata = ignoredOf(['10', '30'], 0);
+        userdata.wishlist = new Set(['20', '40']);
+        // 10: on the list already, kept as it is. 20: wishlisted, skipped.
+        // 30: a swipe with the other reason changes it. 40: a swipe on a wishlisted game goes through.
+        expect(await drain(job, userdata)).toEqual([['30', 2], ['40', 0]]);
     });
 });

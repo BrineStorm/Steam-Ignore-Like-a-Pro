@@ -18,6 +18,7 @@ var COMMON_ASSETS = [
     'assets',
     'styles',
     '_locales',
+    'data',
     'LICENSE'
 ];
 

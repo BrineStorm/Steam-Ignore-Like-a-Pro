@@ -17,6 +17,9 @@
     // can never collide with a real curator's numeric id.
     const UNDO_ID = 'undo';
 
+    // The time scope's units, as the menu offers them and the job's name shows them.
+    const UNIT_MS = Object.freeze({ h: 60 * 60 * 1000, d: 24 * 60 * 60 * 1000 });
+
     class UndoService {
         constructor({ store, log, maxJobs }) {
             this.store = store;   // curator Store (queue + cursor writers)
@@ -26,12 +29,13 @@
 
         // Undo the last `n` extension ignores (unique appids, newest first).
         stageLastN(n) {
-            return this._stage((log) => this.log.snapshotLastN(log, n));
+            return this._stage((log) => this.log.snapshotLastN(log, n), { n });
         }
 
-        // Undo the extension ignores of the last `windowMs` (e.g. 6 h, 2 d).
-        stageSince(windowMs) {
-            return this._stage((log) => this.log.snapshotSince(log, Date.now() - windowMs));
+        // Undo the extension ignores of the last `n` hours or days (`unit` 'h' or 'd').
+        stageSince(n, unit) {
+            const windowMs = n * UNIT_MS[unit];
+            return this._stage((log) => this.log.snapshotSince(log, Date.now() - windowMs), { n, unit });
         }
 
         // Outcomes the UI reacts to:
@@ -39,7 +43,9 @@
         //   { kind:'empty' }         — nothing undoable in the requested scope;
         //   { kind:'exists' }        — an undo job is already queued (one at a time);
         //   { kind:'full' }          — queue at the job cap.
-        async _stage(snapshot) {
+        // `scope` is what the user asked for, kept on the job for its name in the
+        // queue (popup_queue.js): { n } for a count, { n, unit } for a time.
+        async _stage(snapshot, scope) {
             const appids = snapshot(await this.log.getLog());
             if (appids.length === 0) return { kind: 'empty' };
             const snapshotTs = Date.now();
@@ -58,6 +64,7 @@
                     total: appids.length,
                     status: 'pending',
                     snapshotTs,          // the "last user intent wins" boundary
+                    scope,
                     addedAt: snapshotTs
                 });
                 return queue;

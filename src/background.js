@@ -152,17 +152,19 @@ importScripts(
             } catch (e) { resolve(); }
         })).catch(() => {});
     }
-    function saveStats(name, reason) {
+    function saveStats(name, reason, appid) {
         const source = Stats.miSourceLabel(reason);
         const safe = ILAP.Sanitizer.sanitizeName(name);
-        return writeStats([Stats.HISTORY_KEY, Stats.COUNT_KEY], (r) => Stats.nextState(r, safe, source));
+        return writeStats([Stats.HISTORY_KEY, Stats.COUNT_KEY], (r) => Stats.nextState(r, safe, source, appid));
     }
     // A drained swipe that changed an ignore's reason: shown, not counted.
-    function saveHistory(name, reason) {
+    function saveHistory(name, reason, appid) {
         const source = Stats.miSourceLabel(reason);
         const safe = ILAP.Sanitizer.sanitizeName(name);
-        return writeStats([Stats.HISTORY_KEY], (r) => Stats.historyState(r, safe, source));
+        return writeStats([Stats.HISTORY_KEY], (r) => Stats.historyState(r, safe, source, appid));
     }
+    // A queue job that ran to its end: one entry, shown, not counted.
+    const saveJob = (job) => writeStats([Stats.HISTORY_KEY], (r) => Stats.jobState(r, job));
     // Total only: +1 for a drained curator ignore, −1 for a confirmed rollback.
     const bumpCount = () => writeStats([Stats.COUNT_KEY], Stats.countState);
     const dropCount = () => writeStats([Stats.COUNT_KEY], Stats.uncountState);
@@ -216,7 +218,7 @@ importScripts(
         },
         fetchUserdata: Net.fetchIgnoredAppsStrict,
         probeLogin: probeLoginAndReap,
-        stats: { save: saveStats, saveHistory, bumpCount, dropCount, recordTotal },
+        stats: { save: saveStats, saveHistory, saveJob, bumpCount, dropCount, recordTotal },
         log: Log.drainerHooks(),
         ownerId: ILAP.newOwnerId('sw_'),
         standbyMs: 0,  // no in-memory standby tick; the alarm below is the retry

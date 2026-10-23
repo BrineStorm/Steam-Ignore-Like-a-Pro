@@ -108,7 +108,7 @@ function loadBackground(initial, opts) {
             if (url.startsWith(USERDATA_URL)) {
                 return Promise.resolve({
                     ok: true, status: 200,
-                    json: async () => ({ rgIgnoredApps: state.ignoredApps }),
+                    json: async () => ({ rgIgnoredApps: state.ignoredApps, rgWishlist: [] }),
                 });
             }
             if (url.startsWith(ACCOUNT_URL)) {

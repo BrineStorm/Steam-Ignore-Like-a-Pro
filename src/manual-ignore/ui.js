@@ -40,10 +40,15 @@
                 tooltipText = t('ignored_already_played_applied_by');
             }
 
-            overlay.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-            });
+            // A game's badge keeps its click from the link under it (the click is
+            // the un-ignore, main.js onBadge). A finished bundle's badge has no
+            // un-ignore, so its click opens the bundle like the rest of the capsule.
+            if (/^\d+$/.test(String(appid))) {
+                overlay.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+            }
 
             const safeIconUrl = Sanitizer.escapeHTML(iconUrl);
             const safeText = Sanitizer.escapeHTML(tooltipText);

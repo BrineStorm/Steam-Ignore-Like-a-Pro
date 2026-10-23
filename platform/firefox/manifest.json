@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extName__",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "__MSG_extDescription__",
   "default_locale": "en",
   "icons": {
@@ -56,6 +56,7 @@
         "src/manual-ignore/containers.js",
         "src/manual-ignore/gestures.js",
         "src/manual-ignore/ui.js",
+        "src/manual-ignore/bundle.js",
         "src/manual-ignore/main.js",
         
         "src/discovery-queue/ui.js",
@@ -78,6 +79,7 @@
 
         "ui/popup_markup.js",
         "ui/popup_settings.js",
+        "ui/popup_presets.js",
         "ui/popup_queue.js",
         "ui/popup_undo.js",
         "ui/popup_main.js",
@@ -93,7 +95,8 @@
       "resources": [
         "assets/icons/icon16.png",
         "assets/icons/icon48.png",
-        "ui/popup.css"
+        "ui/popup.css",
+        "data/presets.json"
       ],
       "matches": [
         "https://store.steampowered.com/*"

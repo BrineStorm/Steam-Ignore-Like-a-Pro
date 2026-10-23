@@ -5,7 +5,9 @@
     // Every ignore this extension performed, with a timestamp: the undo feature's
     // data (Steam's rgIgnoredApps has no dates).
     //   { appid, name?, ts, source, curatorId?, undoneAt?, skipped? }
-    // source ∈ 'mi' | 'eq' | 'dq' | 'curator'. `undoneAt`: rolled back, kept so a
+    // source ∈ 'mi' | 'eq' | 'dq' | 'curator'. A built-in list's and a bundle
+    // job's ignores are 'curator' too, with curatorId 'preset_<key>', or
+    // 'bundle_<id>' / 'sub_<id>'. `undoneAt`: rolled back, kept so a
     // later undo does not repeat it. `skipped` ('unavailable' | 'failed'): a drain
     // could not ignore it; inert for every undo selector.
 

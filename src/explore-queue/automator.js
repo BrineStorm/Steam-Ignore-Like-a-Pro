@@ -32,6 +32,7 @@
             }
             need(deps.notice, ['confirmOnce'], 'notice');         // src/queue-common/automation-notice.js
             need(deps.runs, ['open', 'isLive', 'close'], 'runs'); // explore-queue/utils.js RunLedger
+            need(deps.wishlist, ['has'], 'wishlist');             // has(appid) → true | false | null (read failed)
 
             this.settings = deps.settings;   // explore-queue/utils.js QueueSettings
             this.ui = deps.ui;
@@ -46,6 +47,7 @@
             this.reward = deps.reward;
             this.notice = deps.notice;
             this.runs = deps.runs;
+            this.wishlist = deps.wishlist;
 
             this.processedSession = new Set();
             this.nextTimeoutId = null;
@@ -279,6 +281,14 @@
             // Paced through the shared gate. A stop verdict tears the automation
             // down rather than leaving a "running" toast over a silent no-op.
             const stops = this._stops;
+            // A wishlisted game is never ignored by the run: it gets its own mark
+            // and waits for the user's Next, as a spared one does. A failed read
+            // counts as a failed ignore.
+            const onWishlist = await this.wishlist.has(appid);
+            if (onWishlist !== false) {
+                if (onWishlist === true && stops === this._stops) this.ui.applyVisuals('WISHLIST', mode);
+                return false;
+            }
             const slot = await this.gate.reserve();
             if (!slot.ok) {
                 this._stopAutomation();

@@ -47,6 +47,58 @@
         return `${bold}color:${COLORS[value] || opts.fallback || '#45A1FA'};`;
     }
 
-    window.ILAP_Filters = { FILTERS, labelKey, colorStyle, curatorIdFromPath };
+    // The same accent as a fill, for a filter's square (the queue applet's strip,
+    // the curator button and its menu, Recent). The combined filter is split
+    // corner to corner into its two colours, Not Recommended top left.
+    function fillStyle(value) {
+        if (value === 'all_but_recommended') {
+            return `background:linear-gradient(135deg, ${COLORS.not_recommended} 50%, ${COLORS.informational} 50%);`;
+        }
+        return `background:${COLORS[value] || '#45A1FA'};`;
+    }
+
+    // What a curator's queued jobs already cover. A curator has at most two jobs
+    // in the queue, one per review type, or one job of both ('all_but_recommended').
+    // They share the curator's drain lease (curator/lease.js), so they run one
+    // after the other.
+    const NR = 'not_recommended', INF = 'informational', BOTH = 'all_but_recommended';
+    const partsOf = (filter) => (filter === BOTH ? [NR, INF] : [filter]);
+
+    // This curator's curator jobs. A job with no type is a curator's (records
+    // from before job types), as in Store.jobType.
+    function curatorJobs(queue, curatorId) {
+        return (queue || []).filter(j => j.curatorId === curatorId && (j.type || 'curator') === 'curator');
+    }
+
+    // The review types this curator's curator jobs cover: a Set of NR / INF.
+    function coveredTypes(queue, curatorId) {
+        const types = new Set();
+        for (const j of curatorJobs(queue, curatorId)) {
+            for (const p of partsOf(j.filter)) if (p === NR || p === INF) types.add(p);
+        }
+        return types;
+    }
+
+    // The filter that stands for `types`: both → 'all_but_recommended', one → it,
+    // none → null.
+    function coverFilter(types) {
+        if (types.has(NR) && types.has(INF)) return BOTH;
+        return types.has(NR) ? NR : types.has(INF) ? INF : null;
+    }
+
+    // The job a pick of `filter` adds: `filter` itself with nothing queued, the
+    // one type still missing when the other is queued (so with Not Recommended
+    // queued, "All except Recommended" adds what "Informational only" adds), or
+    // null when the pick is covered already.
+    function filterToAdd(types, filter) {
+        const missing = partsOf(filter).filter(p => !types.has(p));
+        if (!missing.length) return null;
+        return types.size ? missing[0] : filter;
+    }
+
+    window.ILAP_Filters = {
+        FILTERS, labelKey, colorStyle, fillStyle, curatorIdFromPath,
+        curatorJobs, coveredTypes, coverFilter, filterToAdd
+    };
 
 })();

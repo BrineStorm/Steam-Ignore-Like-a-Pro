@@ -8,10 +8,22 @@
     // Pointer and modifier-click input turned into an intent: the right-button
     // gestures (swipe, circle/zigzag), the clicks, and the capsule they land on.
 
-    // A game link: the same literal ContextScanner and IgnoreManager spell.
+    // A game link: the same literal ContextScanner and IgnoreManager spell. A
+    // bundle or package link, for a gesture on a capsule that stands for a set
+    // of games (bundle.js).
     const SELECTORS = {
-        LINK: 'a[href*="/app/"]'
+        LINK: 'a[href*="/app/"]',
+        BUNDLE: 'a[href*="/bundle/"], a[href*="/sub/"]'
     };
+
+    // A bundle or package capsule: the link with its art inside, or null. The
+    // text links and the "Bundle info" / "Package info" buttons on a game's page
+    // lead to the same pages and are no gesture target (one of those is the
+    // game's own package).
+    function bundleCapsule(el) {
+        const link = el.closest(SELECTORS.BUNDLE);
+        return link && link.querySelector('img, video') ? link : null;
+    }
 
     const Settings = window.ILAP.Settings;
 
@@ -200,7 +212,7 @@
             if (!config.enabled) return;
             const bound = [config.defaultKey, config.platformKey, config.unignoreKey];
             if (!bound.some(k => Settings.GESTURES.includes(k))) return;
-            if (!this.startEl.closest(SELECTORS.LINK)) return;
+            if (!this.startEl.closest(SELECTORS.LINK) && !bundleCapsule(this.startEl)) return;
             e.preventDefault();
             e.stopPropagation();
             if (this.onMenuAtPress) this.onMenuAtPress();
@@ -242,12 +254,22 @@
 
         createIntent(startElement, reason) {
             const linkTarget = startElement.closest(SELECTORS.LINK);
-            if (!linkTarget) return null;
+            if (!linkTarget) return this._bundleIntent(startElement, reason);
 
             const match = linkTarget.getAttribute('href').match(/\/app\/(\d+)/);
             if (!match) return null;
 
             return { appid: match[1], reason: reason, linkElement: linkTarget };
+        }
+
+        // A bundle or package capsule: no appid, its store id instead.
+        _bundleIntent(startElement, reason) {
+            const link = bundleCapsule(startElement);
+            if (!link) return null;
+            // The same pattern IgnoreManager._refreshBundles badges by.
+            const match = (link.getAttribute('href') || '').match(/\/(bundle|sub)\/(\d+)([/?#]|$)/);
+            if (!match) return null;
+            return { bundle: { kind: match[1], id: match[2] }, reason: reason, linkElement: link };
         }
     }
 

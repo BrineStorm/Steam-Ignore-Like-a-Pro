@@ -10,7 +10,7 @@ const {
 // Phase-2 curator ignore-queue applet, popup/widget side. These tests drive the
 // `ui/popup_queue.js` view through the popup window (ui/popup.html) — no Steam
 // login or live page needed. They cover the SCAFFOLDING the user asked for:
-// hidden-when-empty restriction, the jobs-count chip, per-job pause/remove
+// the empty bar and its hint, the jobs-count chip, per-job pause/remove
 // buttons, the running indicator, category colours and accordion mutual
 // exclusion. Draining/enumeration is not wired yet, so nothing here ignores a
 // real game — every job is a hand-seeded storage entry.
@@ -53,6 +53,12 @@ async function readQueue(context) {
     return Array.isArray(res.ilap_curator_queue) ? res.ilap_curator_queue : [];
 }
 
+// Remove asks first: the trash, then the ✓ that takes Pause's place.
+async function removeRow(row) {
+    await row.locator('[data-act="remove"]').click();
+    await row.locator('[data-act="confirm"]').click();
+}
+
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
     // popup.html renders the full UI only in popup surface mode (widget mode
@@ -66,18 +72,32 @@ test.afterEach(async ({ context }) => {
 
 test.describe('Popup — ignore-queue applet', () => {
 
-    test('Applet is hidden when the queue is empty', async ({ page, context }) => {
+    test('An empty queue shows 0 and opens on a hint that points at the lists icon', async ({ page, context }) => {
+        // The bar stays for the built-in lists icon on it.
         await openPopup(page, context);
-        await expect(page.locator('#queue-accordion')).toBeHidden();
+        const acc = page.locator('#queue-accordion');
+        await expect(acc).toBeVisible();
+        await expect(acc).toHaveClass(/is-empty/);
+        await expect(page.locator('#queue-jobs-chip')).toHaveText('0');
+        await expect(page.locator('#preset-chip')).toBeVisible();
+        await page.locator('#queue-accordion summary').click();
+        await expect(acc).toHaveAttribute('open', '');
+        const hint = page.locator('.queue-empty-hint');
+        await expect(hint).toContainText("Add a curator's list on the curator's page");
+        await expect(hint.locator('.queue-empty-icon svg')).toBeVisible();
     });
 
-    test('Applet stays hidden when the queue is empty even with the master locked OFF', async ({ page, context }) => {
+    test('Master OFF: an empty bar offers no lists', async ({ page, context }) => {
         await setExtensionStorage(context, { ilap_master_enabled: false });
         await openPopup(page, context);
 
-        // UI is locked (wrapper dimmed) but the queue applet must NOT appear.
+        // UI is locked (wrapper dimmed); the bar stays, but a disabled extension
+        // takes no new jobs, for the same reason Pause is dead.
         await expect(page.locator('#ui-wrapper')).toHaveClass(/disabled/);
-        await expect(page.locator('#queue-accordion')).toBeHidden();
+        await expect(page.locator('#queue-accordion')).toHaveClass(/is-empty/);
+        await expect(page.locator('#queue-accordion')).toHaveClass(/master-off/);
+        await page.locator('#preset-chip').click();
+        await expect(page.locator('#preset-menu')).not.toHaveClass(/open/);
     });
 
     test('Master OFF: the queue survives the flip and stays manageable', async ({ page, context }) => {
@@ -105,7 +125,7 @@ test.describe('Popup — ignore-queue applet', () => {
         for (const row of await page.locator('.queue-act[data-act="pause"]').all()) {
             await expect(row).toBeDisabled();
         }
-        await page.locator('.queue-act-del').first().click();
+        await removeRow(page.locator('.queue-job').first());
         await expect.poll(async () => (await readQueue(context)).map(j => j.id)).toEqual([mi.id, miundo.id]);
     });
 
@@ -152,14 +172,144 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect(page.locator('#queue-jobs-chip')).toHaveText('2');
     });
 
-    test('A job row renders its curator name and filter label', async ({ page, context }) => {
+    test('A job row renders its curator name on one line, with no glyph in front', async ({ page, context }) => {
         await seedQueue(context, [makeJob({ curatorName: 'No AI', filter: 'not_recommended' })]);
         await openPopup(page, context);
         await page.locator('#queue-accordion summary').click();
 
         const row = page.locator('.queue-job').first();
         await expect(row.locator('.queue-job-name')).toHaveText('No AI');
-        await expect(row.locator('.queue-job-sub')).toContainText('Not Recommended only');
+        await expect(row.locator('.queue-job-glyph')).toHaveCount(0);   // only list jobs have one
+        await expect(row.locator('.queue-mini')).toBeVisible();
+        // A square in the filter's colour in front of the name (orange for Not
+        // Recommended), naming the filter on hover. The strip keeps a plain outline.
+        const bar = row.locator('.queue-job-filter');
+        await expect(bar).toHaveAttribute('style', /background:#ec976c/i);
+        await expect(row).not.toHaveAttribute('style', /./);
+        await bar.hover();
+        const tip = row.locator('.queue-filter-tip');
+        await expect(tip).toBeVisible();
+        await expect(tip).toHaveText(await page.evaluate(() => window.ILAP.t('filter_not_recommended')));
+    });
+
+    test('A double click on the filter square opens the curator in a new tab', async ({ page, context }) => {
+        await seedQueue(context, [makeJob({ curatorId: '4777282', curatorName: 'Open me' })]);
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+
+        // The curator page itself is not loaded: an empty stand-in answers it.
+        await context.route('https://store.steampowered.com/curator/4777282/**',
+            (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<html></html>' }));
+        const opened = context.waitForEvent('page');
+        await page.locator('.queue-job-filter').first().dblclick();
+        const tab = await opened;
+        await expect.poll(() => tab.url()).toMatch(/^https:\/\/store\.steampowered\.com\/curator\/4777282\//);
+        await tab.close();
+        // The tip under the square is not left selected by the double click.
+        expect(await page.evaluate(() => String(window.getSelection()))).toBe('');
+    });
+
+    test('A cut name shows whole on hover, in the same type; a name that fits does not', async ({ page, context }) => {
+        const long = 'A curator whose name is far too long for the column';
+        await seedQueue(context, [makeJob({ curatorName: long }), makeJob({ curatorName: 'Hi' })]);
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        const [cut, short] = [page.locator('.queue-job').nth(0), page.locator('.queue-job').nth(1)];
+
+        await cut.locator('.queue-job-name').hover();
+        const full = cut.locator('.queue-name-full');
+        await expect(full).toBeVisible();
+        await expect(full).toHaveText(long);
+        const font = (loc) => loc.evaluate(el => { const c = getComputedStyle(el); return c.fontSize + ' ' + c.fontWeight; });
+        expect(await font(full)).toBe(await font(cut.locator('.queue-job-name')));
+
+        await short.locator('.queue-job-name').hover();
+        await page.waitForTimeout(700);
+        await expect(short.locator('.queue-name-full')).toBeHidden();
+    });
+
+    test('Every strip starts its mini bar at the same place, whatever the name, the glyph or the skip count', async ({ page, context }) => {
+        // The middle strip is the widest a row gets: a name too long for its
+        // column, 100% and the ⚠ skip mark (its count of 128 in the tooltip).
+        // They must not squeeze its name column. The un-ignore job has its
+        // arrow in front, the built-in list its lists glyph.
+        const skipping = makeJob({ curatorName: 'A curator whose name is far too long for the column', total: 1000 });
+        await seedQueue(context, [
+            makeJob({ id: 'job_preset_ai_2026_1', type: 'preset', curatorId: 'preset_ai_2026', presetKey: 'ai_2026', curatorName: '' }),
+            skipping,
+            makeJob({ id: 'job_undo_1', type: 'undo', curatorId: 'undo', curatorName: '', total: 40, scope: { n: 40 } }),
+            makeJob({ curatorName: 'Hi' }),
+        ]);
+        await setExtensionStorage(context, {
+            ['ilap_curator_cursor_' + skipping.id]: 1000,
+            ['ilap_curator_skipped_' + skipping.id]: 128,
+        });
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        await expect(page.locator('.queue-job-pct').nth(1)).toHaveText('100%');
+        const xs = [];
+        for (const bar of await page.locator('.queue-mini').all()) xs.push(Math.round((await bar.boundingBox()).x));
+        expect(xs).toHaveLength(4);
+        expect(new Set(xs).size, `bars start at ${xs.join(', ')}`).toBe(1);
+        // The percent keeps the width of "100%", so a job reaching its end moves nothing.
+        const widths = await page.locator('.queue-job-pct').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().width)));
+        expect(new Set(widths).size, `percent widths ${widths.join(', ')}`).toBe(1);
+    });
+
+    test('The skip mark is the ⚠ alone, next to Pause, its count in its tooltip', async ({ page, context }) => {
+        // Running: a pending job shows its clock in this slot instead.
+        const job = makeJob({ curatorName: 'Skips', total: 100 });
+        await setExtensionStorage(context, Object.assign({ ilap_curator_queue: [job], ['ilap_curator_skipped_' + job.id]: 12 }, liveLease(job)));
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        const mark = page.locator('.queue-job-skip');
+        expect(await mark.evaluate(el => el.firstChild.textContent)).toBe('⚠');
+        await expect(mark.locator('.queue-skip-tip')).toHaveText(/12/);
+        const markBox = await mark.boundingBox();
+        const pauseBox = await page.locator('.queue-act.is-pause').boundingBox();
+        expect(pauseBox.x - (markBox.x + markBox.width)).toBeLessThan(10);
+    });
+
+    test('An un-ignore job has the green Undo arrow in front of its name', async ({ page, context }) => {
+        await seedQueue(context, [makeJob({ type: 'undo', curatorId: 'undo', curatorName: '', total: 40, scope: { n: 40 } })]);
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        await expect(page.locator('.queue-job-name')).toHaveText('Undo last 40');
+        await expect(page.locator('.queue-job-glyph path')).toHaveAttribute('fill', '#4fd64f');
+    });
+
+    test('A strip lightens on hover, fading in', async ({ page, context }) => {
+        await seedQueue(context, [makeJob({ curatorName: 'Hover me' })]);
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        const row = page.locator('.queue-job').first();
+        const bg = () => row.evaluate(el => getComputedStyle(el).backgroundColor);
+        const rest = await bg();
+        expect(await row.evaluate(el => getComputedStyle(el).transitionProperty)).toContain('background-color');
+        await row.locator('.queue-job-name').hover();
+        await expect.poll(bg).toBe('rgb(30, 44, 59)');
+        expect(rest).not.toBe('rgb(30, 44, 59)');
+    });
+
+    test('The mini bar stretches left over the name on hover, and the strip keeps its height', async ({ page, context }) => {
+        const job = makeJob({ curatorName: 'No AI', total: 4, appids: ['1', '2', '3', '4'], status: 'paused' });
+        await setExtensionStorage(context, { ilap_curator_queue: [job], ['ilap_curator_cursor_' + job.id]: 3 });
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        const row = page.locator('.queue-job').first();
+        const track = row.locator('.queue-mini-track');
+        const before = await track.boundingBox();
+        const rowBefore = await row.boundingBox();
+
+        await row.locator('.queue-mini').hover();
+        const name = await row.locator('.queue-job-name').boundingBox();
+        // Polled: the stretch is a .2s transition.
+        await expect.poll(async () => (await track.boundingBox()).x).toBeLessThanOrEqual(name.x + 1);   // over the name
+        const after = await track.boundingBox();
+        expect(after.x + after.width).toBeCloseTo(before.x + before.width, 0);   // grew to the left
+        expect((await row.boundingBox()).height).toBe(rowBefore.height);
+        // Paused: the progress made before the pause, in yellow.
+        await expect(row.locator('.queue-mini-fill')).toHaveAttribute('style', /width:75%.*#fff44f/i);
     });
 
     test('Chip count updates live as jobs are added/removed via storage', async ({ page, context }) => {
@@ -171,7 +321,8 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect(page.locator('#queue-jobs-chip')).toHaveText('2');
 
         await seedQueue(context, []);
-        await expect(page.locator('#queue-accordion')).toBeHidden();
+        await expect(page.locator('#queue-accordion')).toHaveClass(/is-empty/);
+        await expect(page.locator('#queue-jobs-chip')).toHaveText('0');
     });
 
     test('Pause button flips a drainable job to paused in storage', async ({ page, context }) => {
@@ -184,6 +335,32 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect.poll(async () => (await readQueue(context))[0].status).toBe('paused');
     });
 
+    test('Enter held on Pause flips the job once, its auto-repeat does nothing', async ({ page, context }) => {
+        await seedQueue(context, [makeJob({ status: 'pending' })]);
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        // Every stored status change, counted in the popup itself.
+        await page.evaluate(() => {
+            window.__flips = 0;
+            chrome.storage.onChanged.addListener((ch) => {
+                const c = ch.ilap_curator_queue;
+                if (c && c.oldValue && c.newValue && c.oldValue[0] && c.newValue[0]
+                    && c.oldValue[0].status !== c.newValue[0].status) window.__flips++;
+            });
+        });
+
+        await page.locator('.queue-act.is-pause').focus();
+        for (let i = 0; i < 8; i++) {
+            await page.keyboard.down('Enter');
+            await page.waitForTimeout(60);
+        }
+        await page.keyboard.up('Enter');
+        await page.waitForTimeout(500);
+
+        expect(await page.evaluate(() => window.__flips)).toBe(1);
+        expect((await readQueue(context))[0].status).toBe('paused');
+    });
+
     test('Resume (play) button flips a paused job back to pending (running is never stored)', async ({ page, context }) => {
         await seedQueue(context, [makeJob({ status: 'paused' })]);
         await openPopup(page, context);
@@ -194,28 +371,50 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect.poll(async () => (await readQueue(context))[0].status).toBe('pending');
     });
 
+    test('A removed job\'s strip folds away first, then the job leaves the queue', async ({ page, context }) => {
+        const drop = makeJob({ curatorId: '888', curatorName: 'Drop me', status: 'paused' });
+        const keep = makeJob({ curatorId: '777', curatorName: 'Keep me' });
+        await seedQueue(context, [drop, keep]);
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        const row = page.locator('.queue-job').first();
+        await row.locator('[data-act="remove"]').click();
+        // The ✕ that keeps the job is green (read with the pointer off it: it
+        // pops in under the pointer, and hover lightens it).
+        await page.mouse.move(5, 5);
+        await expect.poll(() => row.locator('[data-act="cancel"]').evaluate(el => getComputedStyle(el).color)).toBe('rgb(79, 214, 79)');
+        await row.locator('[data-act="confirm"]').click();
+        // The strip is folding: an animation runs on it, and the job is still stored.
+        const folding = await page.locator('.queue-job').first().evaluate(el => el.getAnimations().length);
+        expect(folding).toBeGreaterThan(0);
+        expect((await readQueue(context)).length).toBe(2);
+        await expect.poll(async () => (await readQueue(context)).map(j => j.curatorName)).toEqual(['Keep me']);
+        await expect(page.locator('.queue-job')).toHaveCount(1);
+    });
+
     test('Remove (trash) button deletes the job from the queue', async ({ page, context }) => {
         const keep = makeJob({ curatorId: '777', curatorName: 'Keep me' });
-        const drop = makeJob({ curatorId: '888', curatorName: 'Drop me' });
+        const drop = makeJob({ curatorId: '888', curatorName: 'Drop me', status: 'paused' });
         await seedQueue(context, [drop, keep]);
         await openPopup(page, context);
         await page.locator('#queue-accordion summary').click();
 
         // Remove the first row (Drop me).
-        await page.locator('.queue-act-del').first().click();
+        await removeRow(page.locator('.queue-job').first());
 
         await expect.poll(async () => (await readQueue(context)).map(j => j.curatorName)).toEqual(['Keep me']);
         await expect(page.locator('#queue-jobs-chip')).toHaveText('1');
     });
 
-    test('Removing the last job hides the applet again', async ({ page, context }) => {
-        await seedQueue(context, [makeJob()]);
+    test('Removing the last job empties the bar again', async ({ page, context }) => {
+        await seedQueue(context, [makeJob({ status: 'paused' })]);
         await openPopup(page, context);
         await page.locator('#queue-accordion summary').click();
 
-        await page.locator('.queue-act-del').first().click();
+        await removeRow(page.locator('.queue-job').first());
 
-        await expect(page.locator('#queue-accordion')).toBeHidden();
+        await expect(page.locator('#queue-accordion')).toHaveClass(/is-empty/);
+        await expect(page.locator('#queue-accordion')).not.toHaveAttribute('open', '');
         await expect.poll(async () => (await readQueue(context)).length).toBe(0);
     });
 
@@ -226,7 +425,7 @@ test.describe('Popup — ignore-queue applet', () => {
         // badges have to go with the job, or they lie until the tab reloads.
         const mi = makeJob({
             id: 'job_mi', type: 'mi', curatorId: 'mi', curatorName: '',
-            appids: ['10', '11', '12'], meta: {}, total: 3,
+            appids: ['10', '11', '12'], meta: {}, total: 3, status: 'paused',
         });
         await setExtensionStorage(context, {
             ilap_curator_queue: [mi],
@@ -234,7 +433,7 @@ test.describe('Popup — ignore-queue applet', () => {
         });
         await openPopup(page, context);
         await page.locator('#queue-accordion summary').click();
-        await page.locator('.queue-act-del').first().click();
+        await removeRow(page.locator('.queue-job').first());
 
         // '10' keeps its badge (honest); the undrained tail loses its own —
         // silently ('removed'), because the user asked for exactly this. Only
@@ -261,14 +460,46 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect(page.locator('#queue-accordion')).not.toHaveClass(/has-running/);
     });
 
-    test('Status label is coloured green for running (live lease) and yellow for paused', async ({ page, context }) => {
+    test('The mini bar is lime while running (live lease) and while pending, yellow when paused, on a pale track', async ({ page, context }) => {
         const running = makeJob();
         await setExtensionStorage(context, Object.assign({ ilap_curator_queue: [running] }, liveLease(running)));
         await openPopup(page, context);
-        await expect(page.locator('.queue-job-status')).toHaveAttribute('style', /#7ad13f/i);
+        await expect(page.locator('.queue-mini-fill')).toHaveAttribute('style', /#48ff00/i);
 
         await seedQueue(context, [makeJob({ status: 'paused' })]);
-        await expect(page.locator('.queue-job-status')).toHaveAttribute('style', /#ffd21a/i);
+        await expect(page.locator('.queue-mini-fill')).toHaveAttribute('style', /#fff44f/i);
+
+        await seedQueue(context, [makeJob({ status: 'pending' })]);
+        await expect(page.locator('.queue-mini-fill')).toHaveAttribute('style', /#48ff00/i);
+        await expect(page.locator('.queue-mini-line')).toHaveCSS('background-color', 'rgb(147, 169, 194)');
+    });
+
+    test('A pending job shows a white clock in the ⚠ slot with its tooltip; the ⚠ comes back once it runs', async ({ page, context }) => {
+        const running = makeJob();
+        const pending = makeJob({ status: 'pending' });
+        const paused = makeJob({ status: 'paused' });
+        const skips = { ['ilap_curator_skipped_' + pending.id]: 3 };
+        await setExtensionStorage(context, Object.assign({ ilap_curator_queue: [running, pending, paused] }, skips, liveLease(running)));
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        const row = (job) => page.locator(`.queue-job[data-job-id="${job.id}"]`);
+        await expect(row(running).locator('.queue-job-wait')).toHaveCount(0);
+        await expect(row(paused).locator('.queue-job-wait')).toHaveCount(0);
+        const clock = row(pending).locator('.queue-job-wait');
+        await expect(clock).toBeVisible();
+        await expect(clock).toHaveCSS('color', 'rgb(255, 255, 255)');
+        await expect(row(pending).locator('.queue-job-skip')).toHaveCount(1);
+        await expect(clock.locator('.queue-skip-tip')).toContainText('Waits for the active task to finish');
+        // The clock is larger than the ⚠ but takes its width, so the bar stays put.
+        const runningSkips = { ['ilap_curator_skipped_' + running.id]: 1 };
+        await setExtensionStorage(context, runningSkips);
+        await expect(row(running).locator('.queue-job-skip')).toHaveText(/^⚠/);
+        const barX = async (job) => Math.round((await row(job).locator('.queue-mini').boundingBox()).x);
+        expect(await barX(pending)).toBe(await barX(running));
+
+        await setExtensionStorage(context, Object.assign({ ilap_curator_queue: [pending] }, liveLease(pending)));
+        await expect(row(pending).locator('.queue-job-wait')).toHaveCount(0);
+        await expect(row(pending).locator('.queue-job-skip')).toHaveText(/^⚠/);
     });
 
     test('Progress count reads the drainer-owned cursor key', async ({ page, context }) => {
@@ -278,9 +509,9 @@ test.describe('Popup — ignore-queue applet', () => {
             ['ilap_curator_cursor_' + job.id]: 4,
         });
         await openPopup(page, context);
-        // The count carries the inline percent badge (.queue-job-pct).
-        await expect(page.locator('.queue-job-count')).toHaveText('4 / 10 40%');
+        // The strip shows the percent; the bar names the count for screen readers.
         await expect(page.locator('.queue-job-pct')).toHaveText('40%');
+        await expect(page.locator('.queue-mini')).toHaveAttribute('aria-label', /4 \/ 10/);
     });
 
     test('A burst of drain progress collapses into renders, and the LAST one lands', async ({ page, context }) => {
@@ -296,13 +527,13 @@ test.describe('Popup — ignore-queue applet', () => {
             ['ilap_curator_cursor_' + job.id]: 0,
         });
         await openPopup(page, context);
-        await expect(page.locator('.queue-job-count')).toHaveText('0 / 10 0%');
+        await expect(page.locator('.queue-job-pct')).toHaveText('0%');
 
         for (let i = 1; i <= 8; i++) {
             await setExtensionStorage(context, { ['ilap_curator_cursor_' + job.id]: i });
         }
 
-        await expect(page.locator('.queue-job-count')).toHaveText('8 / 10 80%');
+        await expect(page.locator('.queue-job-pct')).toHaveText('80%');
     });
 
     test('...and that burst costs far fewer rebuilds than it has writes', async ({ page, context }) => {
@@ -317,7 +548,7 @@ test.describe('Popup — ignore-queue applet', () => {
             ['ilap_curator_cursor_' + job.id]: 0,
         });
         await openPopup(page, context);
-        await expect(page.locator('.queue-job-count')).toHaveText('0 / 10 0%');
+        await expect(page.locator('.queue-job-pct')).toHaveText('0%');
 
         await page.evaluate(() => {
             window.__ilapRebuilds = 0;
@@ -329,7 +560,7 @@ test.describe('Popup — ignore-queue applet', () => {
         for (let i = 1; i <= WRITES; i++) {
             await setExtensionStorage(context, { ['ilap_curator_cursor_' + job.id]: i });
         }
-        await expect(page.locator('.queue-job-count')).toHaveText('8 / 10 80%');
+        await expect(page.locator('.queue-job-pct')).toHaveText('80%');
 
         const rebuilds = await page.evaluate(() => window.__ilapRebuilds);
         expect(rebuilds).toBeGreaterThan(0);
@@ -342,7 +573,8 @@ test.describe('Popup — ignore-queue applet', () => {
 
     test('A Manual-Ignore job renders highlighted with a remaining COUNT (no filter, no bar)', async ({ page, context }) => {
         // The MI job auto-fills while it drains, so a percent would jump backward
-        // on a fresh swipe — it shows a live "In queue: N" count instead, gets the
+        // on a fresh swipe — it shows a live remaining count instead ("In queue: N"
+        // in its tooltip), gets the
         // distinct .mi highlight, and (like undo) has no filter sub-line.
         const job = makeJob({
             id: 'job_mi', type: 'mi', curatorId: 'mi', curatorName: '',
@@ -358,11 +590,11 @@ test.describe('Popup — ignore-queue applet', () => {
         const row = page.locator('.queue-job.mi');
         await expect(row).toBeVisible();
         await expect(row.locator('.queue-job-name')).toHaveText('Manual ignores');
-        await expect(row.locator('.queue-job-count')).toHaveText('In queue: 3');
-        await expect(row.locator('.queue-job-sub')).toHaveCount(0);   // no filter line
+        await expect(row.locator('.queue-job-count')).toHaveText('3');
+        await expect(row.locator('.queue-job-count')).toHaveAttribute('aria-label', /In queue: 3/);
         await expect(row.locator('.queue-bar')).toHaveCount(0);       // no percent bar
         await expect(row.locator('.queue-job-pct')).toHaveCount(0);
-        // Still a normal job: pause/remove controls present.
+        // Still a normal job: Pause and Remove.
         await expect(row.locator('.queue-act[data-act="pause"]')).toBeVisible();
         await expect(row.locator('.queue-act[data-act="remove"]')).toBeVisible();
     });
@@ -386,10 +618,77 @@ test.describe('Popup — ignore-queue applet', () => {
         const row = page.locator('.queue-job.mi');
         await expect(row).toBeVisible();
         await expect(row.locator('.queue-job-name')).toHaveText('Manual un-ignores');
-        await expect(row.locator('.queue-job-count')).toHaveText('In queue: 3');
-        await expect(row.locator('.queue-job-sub')).toHaveCount(0);
+        await expect(row.locator('.queue-job-count')).toHaveText('3');
+        await expect(row.locator('.queue-job-count')).toHaveAttribute('aria-label', /In queue: 3/);
         await expect(row.locator('.queue-bar')).toHaveCount(0);
-        await expect(row.locator('.queue-act[data-act="remove"]')).toBeVisible();
+        await expect(row.locator('.queue-act[data-act="pause"]')).toBeVisible();
+    });
+
+    test('Remove stays in place whether the job runs or is paused, well apart from Pause', async ({ page, context }) => {
+        await seedQueue(context, [makeJob({ curatorName: 'Live' })]);
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        const row = page.locator('.queue-job').first();
+        const del = row.locator('[data-act="remove"]');
+        await expect(del).toBeVisible();
+        const before = await del.boundingBox();
+        const gap = async () => {
+            const play = await row.locator('[data-act="pause"]').boundingBox();
+            return (await del.boundingBox()).x - (play.x + play.width);
+        };
+        // 10px with the rule between them: room enough that a slip meant for
+        // Pause misses Remove, while a strip with 100% and the ⚠ still fits.
+        expect(await gap()).toBeGreaterThanOrEqual(10);
+
+        await row.locator('[data-act="pause"]').click();
+        await expect(row.locator('.queue-act.is-play')).toBeVisible();
+        await expect(del).toBeVisible();
+        expect(Math.round((await del.boundingBox()).x)).toBe(Math.round(before.x));
+        expect(await gap()).toBeGreaterThanOrEqual(10);
+    });
+
+    test('A running job can be removed too, after the same ✓', async ({ page, context }) => {
+        const running = makeJob({ curatorName: 'Running' });
+        await setExtensionStorage(context, Object.assign({ ilap_curator_queue: [running] }, liveLease(running)));
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        const row = page.locator('.queue-job').first();
+        await expect(row.locator('.queue-act.is-pause')).toBeVisible();
+        // A running job's strip carries the moving sheen.
+        await expect(row).toHaveClass(/\brunning\b/);
+        expect(await row.evaluate(el => getComputedStyle(el).animationName)).toBe('ilap-job-sheen');
+
+        await row.locator('[data-act="remove"]').click();
+        expect((await readQueue(context)).map(j => j.curatorName)).toEqual(['Running']);
+        await row.locator('[data-act="confirm"]').click();
+        await expect.poll(async () => (await readQueue(context)).length).toBe(0);
+    });
+
+    test('Remove asks first: ✓ in Pause\'s place removes, ✕ in Remove\'s place keeps the job', async ({ page, context }) => {
+        await seedQueue(context, [makeJob({ curatorName: 'Asked', status: 'paused' })]);
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+        const row = page.locator('.queue-job').first();
+        const slots = () => Promise.all(['pause', 'remove'].map(a => row.locator(`[data-act="${a}"]`).boundingBox()));
+        const [playBox, delBox] = await slots();
+
+        await row.locator('[data-act="remove"]').click();
+        const ok = row.locator('[data-act="confirm"]');
+        const no = row.locator('[data-act="cancel"]');
+        await expect(row.locator('[data-act="pause"], [data-act="remove"]')).toHaveCount(0);
+        // Polled: both pop in scaled down.
+        await expect.poll(async () => Math.round((await ok.boundingBox()).x)).toBe(Math.round(playBox.x));
+        await expect.poll(async () => Math.round((await no.boundingBox()).x)).toBe(Math.round(delBox.x));
+        // Nothing was removed by the trash alone.
+        expect((await readQueue(context)).map(j => j.curatorName)).toEqual(['Asked']);
+
+        await no.click();
+        await expect(row.locator('[data-act="remove"]')).toBeVisible();
+        await expect(ok).toHaveCount(0);
+        expect((await readQueue(context)).map(j => j.curatorName)).toEqual(['Asked']);
+
+        await removeRow(row);
+        await expect.poll(async () => (await readQueue(context)).length).toBe(0);
     });
 
     test('Both gesture jobs show side by side, each named for its own direction', async ({ page, context }) => {
@@ -407,13 +706,27 @@ test.describe('Popup — ignore-queue applet', () => {
             ['Manual ignores', 'Manual un-ignores']);
     });
 
+    test('Gesture jobs always show at the bottom, whatever their place in the queue', async ({ page, context }) => {
+        await seedQueue(context, [
+            makeJob({ id: 'job_mi', type: 'mi', curatorId: 'mi', curatorName: '', total: 2, appids: ['1', '2'] }),
+            makeJob({ curatorName: 'First curator' }),
+            makeJob({ id: 'job_mi_undo', type: 'miundo', curatorId: 'miundo', curatorName: '', total: 1, appids: ['3'] }),
+            makeJob({ curatorName: 'Second curator' }),
+        ]);
+        await openPopup(page, context);
+        await page.locator('#queue-accordion summary').click();
+
+        await expect(page.locator('.queue-job-name')).toHaveText(
+            ['First curator', 'Second curator', 'Manual ignores', 'Manual un-ignores']);
+    });
+
     test('Removing an un-ignore job with work left reports the stranded rollbacks', async ({ page, context }) => {
         // The mirror of the MI removal above: nothing on the page is wrong (the
         // games stay ignored), but the pending marks those gestures left have to
         // come off — silently, since the user dropped the job themselves.
         const job = makeJob({
             id: 'job_mi_undo', type: 'miundo', curatorId: 'miundo', curatorName: '',
-            total: 3, appids: ['20', '21', '22'],
+            total: 3, appids: ['20', '21', '22'], status: 'paused',
         });
         await setExtensionStorage(context, {
             ilap_curator_queue: [job],
@@ -421,7 +734,7 @@ test.describe('Popup — ignore-queue applet', () => {
         });
         await openPopup(page, context);
         await page.locator('#queue-accordion summary').click();
-        await page.locator('.queue-act-del').first().click();
+        await removeRow(page.locator('.queue-job').first());
 
         await expect.poll(async () =>
             (await getExtensionStorage(context, 'ilap_undo_failed')).ilap_undo_failed
@@ -435,7 +748,7 @@ test.describe('Popup — ignore-queue applet', () => {
         // What a downgrade leaves behind. The drainer skips it (it could be a
         // rollback); the applet must still show it, not break on it, and let the
         // user get rid of it — next to a normal job that renders as usual.
-        const unknown = makeJob({ type: 'from-a-newer-build', curatorId: 'newer', curatorName: 'Newer job' });
+        const unknown = makeJob({ type: 'from-a-newer-build', curatorId: 'newer', curatorName: 'Newer job', status: 'paused' });
         const normal = makeJob({ curatorName: 'Normal' });
         await seedQueue(context, [unknown, normal]);
         await openPopup(page, context);
@@ -445,27 +758,11 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect(rows).toHaveCount(2);
         const row = rows.first();
         await expect(row.locator('.queue-job-name')).toHaveText('Newer job');
-        await expect(row.locator('.queue-job-sub')).toHaveCount(0);   // no curator filter to name
         await expect(row).not.toHaveClass(/\bmi\b/);                // not drawn as a gesture job
         await expect(rows.nth(1).locator('.queue-job-name')).toHaveText('Normal');
 
-        await row.locator('.queue-act-del').click();
+        await removeRow(row);
         await expect.poll(async () => (await readQueue(context)).map(j => j.curatorName)).toEqual(['Normal']);
-    });
-
-    test('Filter label uses the Steam category colour (orange for Not Recommended)', async ({ page, context }) => {
-        await seedQueue(context, [makeJob({ filter: 'not_recommended' })]);
-        await openPopup(page, context);
-        await expect(page.locator('.queue-job-sub')).toHaveAttribute('style', /#ec976c/i);
-    });
-
-    test('"All except Recommended" filter label is rendered as a gradient', async ({ page, context }) => {
-        await seedQueue(context, [makeJob({ filter: 'all_but_recommended' })]);
-        await openPopup(page, context);
-
-        const sub = page.locator('.queue-job-sub');
-        await expect(sub).toContainText('All except Recommended');
-        await expect(sub).toHaveAttribute('style', /linear-gradient/i);
     });
 
     test('Queue applet sits ABOVE the Settings applet', async ({ page, context }) => {
@@ -546,6 +843,24 @@ test.describe('Popup — ignore-queue applet', () => {
             return { settingsOpen: s.open, queueOpen: q.open };
         });
         expect(states).toEqual({ settingsOpen: false, queueOpen: true });
+    });
+
+    // SETTINGS opens only once an open Queue has folded away (QUEUE_HANDOFF_MS in
+    // popup_main.js). A click on the Queue inside that window is the later intent.
+    test('A click on the Queue during the hand-off to SETTINGS wins: SETTINGS does not open over it', async ({ page, context }) => {
+        await seedQueue(context, [makeJob()]);
+        await openPopup(page, context);
+        await page.locator('#queue-accordion > summary').click();
+        await expect(page.locator('#queue-accordion')).toHaveJSProperty('open', true);
+
+        await page.evaluate(() => {
+            document.querySelector('#settings-accordion > summary').click();
+            document.querySelector('#queue-accordion > summary').click();
+        });
+        // Past the hand-off timer: what must not happen is SETTINGS opening late.
+        await page.waitForTimeout(600);
+        await expect(page.locator('#queue-accordion')).toHaveJSProperty('open', true);
+        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', false);
     });
 
     test('Closing SETTINGS on its own marks it .solo-collapse (animated close)', async ({ page, context }) => {

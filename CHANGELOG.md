@@ -7,6 +7,30 @@ which are the only place the version number lives.
 No release dates here on purpose. The store listings show them, and a date in a
 tracked file is one more thing that can quietly stop being true.
 
+## 1.3.3
+
+- **Built-in ignore lists.** Add a whole list to the ignore queue with the lists icon
+  on the Ignore Tasks Queue panel. The lists cover games with AI-generated content by
+  release year, Denuvo DRM, kernel-level anti-cheat, In-App Purchases and every VR
+  game. They are built from what Steam shows on each game's store page and come with
+  the extension.
+- **Ignore a whole bundle with one gesture.** Swipe over a bundle's capsule, then once
+  more to confirm, and every game and DLC in it goes to the ignore queue. The bundle
+  gets its IGNORED badge once the queue is through with it.
+- **Games on your wishlist are kept.** Curator lists, built-in lists, bundles and both
+  Discovery Queue helpers skip them, and the queue shows how many it skipped. A
+  gesture on a single game still ignores it.
+- **A curator's two review types queue as two jobs.** With one of them in the queue,
+  picking the other one or "All except Recommended" adds it as a job that waits its
+  turn. The curator page button shows what is queued as a colour square. In its menu
+  each queued filter has an "In queue" mark and a cross that takes it out of the queue.
+- **Recent history shows ignores and un-ignores together.** Each entry has an icon of
+  where it came from, a bulk undo shows up as one entry, and a click opens the game,
+  curator or bundle.
+- **Four new interface languages,** Simplified Chinese, Latin American Spanish,
+  Indonesian and Vietnamese, 23 in all.
+- Minor bug fixes, UI/UX improvements, refactoring and optimizations.
+
 ## 1.3.2
 
 - **The extension's tagline and description are translated** into all 19 interface

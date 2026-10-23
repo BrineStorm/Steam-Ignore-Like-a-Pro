@@ -153,6 +153,12 @@ test.describe('swipe resolution', () => {
 
 // Anything on the page that is not a capsule.
 const plainEl = () => ({ closest: () => null });
+// A bundle link: a capsule with its art inside, or a text link with none.
+const bundleEl = (withArt) => ({
+    closest: (sel) => (sel.includes('/bundle/')
+        ? { getAttribute: () => '/bundle/232/', querySelector: () => (withArt ? {} : null) }
+        : null),
+});
 
 // A detector that survives several gestures, so the menu-suppression latch can
 // be watched ACROSS them. `menu()` reports whether that contextmenu was
@@ -262,6 +268,17 @@ test.describe('a context menu that opens at press (macOS, Linux)', () => {
         d.down(0, plainEl());
         expect(d.menu()).toBe(false);
         expect(d.hints()).toBe(0);
+    });
+
+    test('on a bundle capsule it goes, on a bundle text link it stays', () => {
+        // Only a link with art in it takes the gesture (_bundleIntent), so the
+        // "Bundle info" button and the text links keep their menu.
+        const d = detectorHarness({});
+        d.down(0, bundleEl(true));
+        expect(d.menu()).toBe(true);
+        d.up(0);
+        d.down(0, bundleEl(false));
+        expect(d.menu()).toBe(false);
     });
 
     test('with every action on a click or off it stays: nothing needs the button held', () => {

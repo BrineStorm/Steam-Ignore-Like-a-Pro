@@ -14,8 +14,6 @@
 
     const Log = window.ILAP.IgnoreLog;
 
-    const HOUR_MS = 60 * 60 * 1000;
-    const DAY_MS = 24 * HOUR_MS;
     const MSG_HIDE_MS = 2600;
 
     // Held stepper: first auto-repeat after HOLD_DELAY_MS, then one every
@@ -119,8 +117,8 @@
                 if (!e.isTrusted) return;
                 const n = parseInt(this.timeInput.value, 10);
                 if (n > 0) {
-                    const unit = this.unitH.classList.contains('selected') ? HOUR_MS : DAY_MS;
-                    this._stage(this.service.stageSince(n * unit));
+                    const unit = this.unitH.classList.contains('selected') ? 'h' : 'd';
+                    this._stage(this.service.stageSince(n, unit));
                 }
             });
         }

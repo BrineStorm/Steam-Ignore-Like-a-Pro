@@ -53,7 +53,7 @@ const PROVIDERS = [
     [/Curator\.CuratorQueueDrainer\b/, 'src/curator/drainer.js'],
     // The content script's own Steam layer. sw-handoff.js calls getSessionID at
     // TOP LEVEL, so a reorder here is a boot throw, not a late undefined.
-    [/ILAP\.(getSessionID|apiIgnoreGame|apiUnignoreGame|SteamAuth|OwnIgnorePosts|saveStats|bumpIgnoredCount|dropIgnoredCount|recordIgnoredTotal|fetchIgnoredApps|classifyRefusal|SessionStateService|ResourceService)\b/,
+    [/ILAP\.(getSessionID|apiIgnoreGame|apiUnignoreGame|SteamAuth|OwnIgnorePosts|saveStats|saveJobHistory|bumpIgnoredCount|dropIgnoredCount|recordIgnoredTotal|fetchIgnoredApps|fetchWishlist|isWishlisted|classifyRefusal|SessionStateService|ResourceService)\b/,
         'src/utils.js'],
     [/ILAP\.(getGameName|resolveGameName)\b/, 'src/game-name.js'],
     [/ILAP\.UndoService\b/, 'src/undo-service.js'],
@@ -67,6 +67,7 @@ const PROVIDERS = [
     [/Discovery\.UI\b/, 'src/discovery-queue/ui.js'],
     [/ILAP_Icons\b/, 'ui/icons.js'],
     [/ILAP_PopupMarkup\b/, 'ui/popup_markup.js'],
+    [/ILAP_Presets\b/, 'ui/popup_presets.js'],
     [/ILAP_Queue\b/, 'ui/popup_queue.js'],
     [/ILAP_Settings\b/, 'ui/popup_settings.js'],
     [/ILAP_Undo\b/, 'ui/popup_undo.js'],

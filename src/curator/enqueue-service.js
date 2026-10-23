@@ -14,45 +14,25 @@
             this.maxJobs = maxJobs;
         }
 
-        // Add a job, or re-target this curator's job to another filter.
-        // { kind:'added'|'switched'|'full', jobId?, name?, paused? }, or null when
-        // the job already has this filter. `paused` (switched only): the job was
-        // paused, and resolve() is to keep it so.
+        // Add a job for what a pick of `filter` lacks (ILAP_Filters.filterToAdd):
+        // with one review type queued, the other one goes in as a job of its own,
+        // pending behind it. { kind:'added'|'full', jobId?, name?, filter? }, or
+        // null when the queue covers the pick already. `filter` is the added job's.
         async stage(id, name, filter) {
+            const Filters = window.ILAP_Filters;
             let outcome = null;
-            let retired = null;
             await this.store.mutateQueue((queue) => {
-                const idx = queue.findIndex(j => j.curatorId === id);
-
-                if (idx >= 0) {
-                    const prev = queue[idx];
-                    if (prev.filter === filter) return null; // already this type — no-op
-                    // A new filter is a new appid set: re-resolve from scratch, under
-                    // a NEW id. A drainer mid-iteration on the old list then finds
-                    // its job gone and stops; with the id kept it would POST an entry
-                    // of the old list and write its cursor over the new list's 0.
-                    // The drainer's dedupe skips what is already ignored.
-                    const jobId = 'job_' + id + '_' + Date.now();
-                    retired = prev.id;
-                    outcome = {
-                        kind: 'switched', jobId, name: prev.curatorName,
-                        paused: prev.status === 'paused'
-                    };
-                    queue[idx] = Object.assign({}, prev, {
-                        id: jobId, filter, status: 'enumerating', appids: [], total: 0
-                    });
-                    return queue;
-                }
-
+                const adding = Filters.filterToAdd(Filters.coveredTypes(queue, id), filter);
+                if (!adding) return null;
                 if (this.store.cappedCount(queue) >= this.maxJobs) { outcome = { kind: 'full' }; return null; }
                 const jobId = 'job_' + id + '_' + Date.now();
-                outcome = { kind: 'added', jobId, name };
+                outcome = { kind: 'added', jobId, name, filter: adding };
                 queue.push({
                     id: jobId,
                     type: this.store.JOB_TYPE.CURATOR,
                     curatorId: id,
                     curatorName: name,
-                    filter,
+                    filter: adding,
                     appids: [],   // resolved by resolve()
                     total: 0,     // drain progress lives in the per-job cursor key
                     status: 'enumerating',
@@ -60,16 +40,13 @@
                 });
                 return queue;
             });
-            // The old list's cursor and skip count, which would otherwise outlive it.
-            if (retired) await this.store.dropProgress(retired);
             return outcome;
         }
 
         // Fill a staged job's appids (from the retention cache when fresh) and make
         // it drainable. { ok:true }; { error:true } when no list could be built and
         // the job was dropped; undefined when the user removed it meanwhile.
-        // `keepPaused`: stage() switched a paused job, which stays paused.
-        async resolve(id, jobId, name, filter, keepPaused) {
+        async resolve(id, jobId, name, filter) {
             const Enum = this.enumerator, Store = this.store;
             try {
                 let apps;
@@ -104,15 +81,13 @@
                     await Store.removeJob(jobId);
                     return { error: true };
                 }
-                // A new list restarts progress. Safe here: this id has had no list
-                // until now (a switch takes a new id), so no drainer has advanced
-                // its cursor.
+                // A new list starts at 0. Safe here: this id has had no list until
+                // now, so no drainer has advanced its cursor.
                 await Store.setCursor(jobId, 0);
-                // A pause survives: one made while enumerating, or one the job
-                // carried into a filter switch.
+                // A pause made while enumerating survives.
                 await Store.updateJob(jobId, (j) => ({
                     appids, total: appids.length,
-                    status: (j.status === 'paused' || keepPaused) ? 'paused' : 'pending'
+                    status: j.status === 'paused' ? 'paused' : 'pending'
                 }));
                 // `partial` only when it is true: the complete case keeps the
                 // plain { ok: true } this has always answered with.
@@ -124,31 +99,15 @@
             }
         }
 
-        // --- the curator droplist's job actions ------------------------------
-        // The applet's Pause/Remove, keyed by curatorId (the page knows its curator,
-        // not the job). A stale menu is a null no-op: the job is re-read.
-
-        // paused ↔ pending. { kind: 'paused' | 'resumed' }, or null with no job.
-        async togglePause(id) {
-            let outcome = null;
-            await this.store.mutateQueue((queue) => {
-                const idx = queue.findIndex(j => j.curatorId === id);
-                if (idx < 0) return null;
-                const resuming = queue[idx].status === 'paused';
-                outcome = { kind: resuming ? 'resumed' : 'paused' };
-                queue[idx] = Object.assign({}, queue[idx], { status: resuming ? 'pending' : 'paused' });
-                return queue;
-            });
-            return outcome;
-        }
-
-        // Through Store.removeJob, so the job's progress keys go with it.
-        // { kind: 'removed' }, or null with no job.
-        async remove(id) {
-            const job = (await this.store.getQueue()).find(j => j.curatorId === id);
-            if (!job) return null;
-            await this.store.removeJob(job.id);
-            return { kind: 'removed' };
+        // The cross on a queued row of the curator droplist: this curator's job
+        // of `filter` leaves the queue, through Store.removeJob so its progress
+        // keys go with it. { kind: 'removed' }, or null when it is gone already
+        // (removed from another window while the menu was open).
+        async removeQueued(id, filter) {
+            const jobs = window.ILAP_Filters.curatorJobs(await this.store.getQueue(), id)
+                .filter(j => j.filter === filter);
+            for (const j of jobs) await this.store.removeJob(j.id);
+            return jobs.length ? { kind: 'removed' } : null;
         }
     }
 

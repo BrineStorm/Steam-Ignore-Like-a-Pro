@@ -242,7 +242,15 @@
         const I = window.ILAP;
         // Adapters (DIP): the automator never calls the global facade itself.
         // Lenient read: a transient failure is an empty Set, one spent attempt.
-        const userdataAdapter = { fetchIgnored: () => I.fetchIgnoredApps() };
+        // The wishlist read is paced in the ignores' stream like every read
+        // outside a drain pass (IgnoreGate.paceRead).
+        const userdataAdapter = {
+            fetchIgnored: () => I.fetchIgnoredApps(),
+            fetchWishlist: async () => {
+                await I.IgnoreGate.paceRead();
+                return I.fetchWishlist();
+            }
+        };
         // Stats and the undo log ride one adapter call. Nothing awaits either:
         // saveStats swallows its own rejection, and the log append needs its own
         // catch for the same reason (serialChain hands the CALLER its rejection).
@@ -251,7 +259,7 @@
         // per ignore is all it would produce.
         const statsAdapter = {
             save: (name, appid) => {
-                I.saveStats(name, I.StatsLogic.SOURCE.DQ);
+                I.saveStats(name, I.StatsLogic.SOURCE.DQ, appid);
                 I.IgnoreLog.append({ appid, name, source: 'dq' })
                     .catch((e) => console.warn('[ILAP] ignore-log append failed:', e));
             }

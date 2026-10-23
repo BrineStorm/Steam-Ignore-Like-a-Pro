@@ -25,6 +25,10 @@
     // Strict: null on any failure, because the undo drainer reads "not in the
     // map" as "already rolled back" and must tell a failure from an empty map.
     // The lenient flavour is caller policy (utils.js).
+    // The same read has the wishlist, so the map has it as `wishlist`, a Set of
+    // appid strings: the automated sources never ignore a wishlisted game. null
+    // when the answer has no list: a changed shape must not read as an empty
+    // wishlist, or every automated source would ignore wishlisted games.
     const USERDATA_URL = 'https://store.steampowered.com/dynamicstore/userdata/';
     // It lags an ignore POST, and a remove=1, by seconds: a read this soon after
     // one may not show it yet. The drainer's dedupe and the ignored-total poll
@@ -38,7 +42,9 @@
             if (!res.ok) return null;
             const data = await res.json();
             const ignored = data && data.rgIgnoredApps;
-            return new Map(ignored ? Object.keys(ignored).map(k => [String(k), Number(ignored[k])]) : []);
+            const map = new Map(ignored ? Object.keys(ignored).map(k => [String(k), Number(ignored[k])]) : []);
+            map.wishlist = data && Array.isArray(data.rgWishlist) ? new Set(data.rgWishlist.map(String)) : null;
+            return map;
         } catch (e) {
             return null;
         }

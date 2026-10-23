@@ -11,8 +11,9 @@ const { interceptIgnoreApi } = require('./_helpers.js');
 // into chrome.storage.local and kicks off enumeration (read-only ajax). The
 // drainer then runs — so we intercept the ignore endpoint (interceptIgnoreApi):
 // no real game is ever ignored. Covers injection + logo, the drop-out filter
-// menu, staging a job, the already-added state, switch-in-place, and the 3-job
-// cap restriction.
+// menu, staging a job, the already-added state (the square of what is queued,
+// its tip, the "In queue" and locked rows), the other review type added as a
+// job of its own, and the 3-job cap restriction.
 
 // Known public anti-AI curators. Steam redirects the
 // bare /curator/<id>/ to the full slug URL; curatorId() matches either form.
@@ -35,7 +36,7 @@ const FAKE_APPIDS = Array.from({ length: 150 }, (_, i) => String(9000001 + i));
 
 function makeJob(curatorId, filter = 'not_recommended') {
     return {
-        id: 'job_' + curatorId + '_' + Date.now() + '_' + curatorId,
+        id: 'job_' + curatorId + '_' + filter + '_' + Date.now(),
         curatorId: String(curatorId),
         curatorName: 'Curator ' + curatorId,
         curatorUrl: 'https://store.steampowered.com/curator/' + curatorId + '/',
@@ -140,45 +141,131 @@ test.describe('Curator — enqueue button', () => {
         await expect(page.locator('.ilap-toast')).toContainText(/added to queue/i);
     });
 
-    test('An already-queued curator shows the "Added" state and an Active tag on its filter', async ({ page, context }) => {
+    // The square before "Added": its fill, the filter its tip names, and whether
+    // it shows at all. Gradient = both review types.
+    const squareOf = (page) => page.evaluate((btn) => {
+        const sq = document.querySelector(btn + ' .ilap-cur-sq');
+        const cs = getComputedStyle(sq);
+        return { shown: !sq.hidden, color: cs.backgroundColor, gradient: cs.backgroundImage.includes('gradient') };
+    }, BTN);
+    const YELLOW = 'rgb(241, 222, 116)';   // filters.js COLORS.informational
+    // Each row's state in the open menu: 'queued' (highlighted), 'locked', or '',
+    // and '+tag' for the "In queue" pill.
+    const rowStates = (page) => page.evaluate(() => {
+        const out = {};
+        for (const r of document.querySelectorAll('.ilap-curator-menu .ilap-curator-opt')) {
+            const state = r.classList.contains('active') ? 'queued' : r.classList.contains('locked') ? 'locked' : '';
+            out[r.dataset.value] = state + (r.querySelector('.ilap-opt-pill') ? '+tag' : '');
+        }
+        return out;
+    });
+
+    test('An already-queued curator shows "Added" with its filter\'s square, tip and "In queue" row', async ({ page, context }) => {
         await setExtensionStorage(context, { ilap_curator_queue: [makeJob(CURATOR_ID, 'informational')] });
         await openCurator(page);
 
-        // Button label reflects the queued state.
         await expect(page.locator(`${BTN} .ilap-cur-label`)).toHaveText(/added to ignore queue/i);
+        expect(await squareOf(page)).toMatchObject({ shown: true, color: YELLOW, gradient: false });
 
-        // The queued filter is marked Active; others offer a Switch hint.
+        // The square's tip names the filter, as the queue applet's does.
+        await page.locator(`${BTN} .ilap-cur-sq`).hover();
+        await expect(page.locator('.ilap-cur-tip.show')).toHaveText(/informational only/i);
+
+        // The queued filter wears the pill and its cross; the other type and "All
+        // except Recommended" can still be picked.
         await page.locator(BTN).click();
-        const active = page.locator('.ilap-curator-menu.open .ilap-curator-opt.active');
-        await expect(active).toHaveAttribute('data-value', 'informational');
-        await expect(active.locator('.ilap-opt-tag.is-active')).toContainText(/active/i);
-        await expect(page.locator('.ilap-curator-menu.open [data-value="not_recommended"] .ilap-opt-tag.is-switch')).toHaveCount(1);
+        expect(await rowStates(page)).toEqual({
+            not_recommended: '', informational: 'queued+tag', all_but_recommended: ''
+        });
+        await expect(page.locator('.ilap-curator-menu.open .ilap-opt-pill')).toHaveText(/in queue/i);
+        await expect(page.locator('.ilap-curator-menu.open [data-act="remove"]')).toHaveCount(1);
+        // Pause lives in the queue applet only.
+        await expect(page.locator('.ilap-curator-menu.open [data-act="pause"]')).toHaveCount(0);
     });
 
-    test('Switching the filter in place updates the job without adding a new one', async ({ page, context }) => {
-        await setExtensionStorage(context, { ilap_curator_queue: [makeJob(CURATOR_ID, 'not_recommended')] });
+    test('The cross on a queued row removes that job and frees what it locked; the menu stays open', async ({ page, context }) => {
+        const nr = makeJob(CURATOR_ID, 'not_recommended');
+        const inf = makeJob(CURATOR_ID, 'informational');
+        await setExtensionStorage(context, { ilap_curator_queue: [nr, inf] });
         await openCurator(page);
 
         await page.locator(BTN).click();
-        await page.locator('.ilap-curator-menu.open [data-value="informational"]').click();
+        await page.locator('.ilap-curator-menu.open [data-value="not_recommended"] [data-act="remove"]').click();
 
-        const queue = await readQueue(context);
-        expect(queue).toHaveLength(1);
-        expect(queue[0].curatorId).toBe(CURATOR_ID);
-        expect(queue[0].filter).toBe('informational');
-
-        await expect(page.locator('.ilap-toast')).toContainText(/switched to/i);
+        await expect.poll(async () => (await readQueue(context)).map(j => j.id)).toEqual([inf.id]);
+        await expect(page.locator('.ilap-curator-menu.open')).toBeVisible();
+        await expect.poll(() => rowStates(page)).toEqual({
+            not_recommended: '', informational: 'queued+tag', all_but_recommended: ''
+        });
+        await expect.poll(async () => (await squareOf(page)).color).toBe(YELLOW);
     });
 
-    test('Added state: the droplist carries Pause/Resume — toggling flips the stored job intent', async ({ page, context }) => {
+    test('"All except Recommended" with one type queued adds the other type as a job of its own', async ({ page, context }) => {
+        const first = makeJob(CURATOR_ID, 'not_recommended');
+        await setExtensionStorage(context, { ilap_curator_queue: [first] });
+        await openCurator(page);
+
+        await page.locator(BTN).click();
+        await page.locator('.ilap-curator-menu.open [data-value="all_but_recommended"]').click();
+
+        // The first job is left as it was; the Informational half waits behind it.
+        await expect.poll(async () => (await readQueue(context)).length).toBe(2);
+        const queue = await readQueue(context);
+        expect(queue[0]).toMatchObject({ id: first.id, filter: 'not_recommended' });
+        expect(queue[1]).toMatchObject({ curatorId: CURATOR_ID, filter: 'informational' });
+        await expect(page.locator('.ilap-toast')).toContainText(/added to queue/i);
+
+        // Both types queued: the square turns to the gradient, everything is in the queue.
+        await expect.poll(async () => (await squareOf(page)).gradient).toBe(true);
+        await page.locator(BTN).click();
+        expect(await rowStates(page)).toEqual({
+            not_recommended: 'queued+tag', informational: 'queued+tag', all_but_recommended: 'locked'
+        });
+    });
+
+    test('A job of both locks the two others: a click on one changes nothing and keeps the menu open', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_curator_queue: [makeJob(CURATOR_ID, 'all_but_recommended')] });
+        await openCurator(page);
+        expect(await squareOf(page)).toMatchObject({ shown: true, gradient: true });
+
+        await page.locator(BTN).click();
+        expect(await rowStates(page)).toEqual({
+            not_recommended: 'locked', informational: 'locked', all_but_recommended: 'queued+tag'
+        });
+        await page.locator('.ilap-curator-menu.open [data-value="informational"]').click();
+        await expect(page.locator('.ilap-curator-menu.open')).toBeVisible();
+        expect(await readQueue(context)).toHaveLength(1);
+    });
+
+    test('A job removed or finished elsewhere: the square and the locks follow the queue', async ({ page, context }) => {
+        const nr = makeJob(CURATOR_ID, 'not_recommended');
+        const inf = makeJob(CURATOR_ID, 'informational');
+        await setExtensionStorage(context, { ilap_curator_queue: [nr, inf] });
+        await openCurator(page);
+        expect(await squareOf(page)).toMatchObject({ shown: true, gradient: true });
+
+        // The menu stays open through it: another window's write redraws it in place.
+        await page.locator(BTN).click();
+
+        // Not Recommended leaves the queue: the gradient goes yellow, and "All
+        // except Recommended" is free again.
+        await setExtensionStorage(context, { ilap_curator_queue: [inf] });
+        await expect.poll(async () => (await squareOf(page)).color).toBe(YELLOW);
+        expect((await squareOf(page)).gradient).toBe(false);
+        expect(await rowStates(page)).toEqual({
+            not_recommended: '', informational: 'queued+tag', all_but_recommended: ''
+        });
+
+        // And the last one: the button is back to Add, with no square.
+        await setExtensionStorage(context, { ilap_curator_queue: [] });
+        await expect(page.locator(`${BTN} .ilap-cur-label`)).toHaveText(/add to ignore queue/i);
+        expect((await squareOf(page)).shown).toBe(false);
+        await expect(page.locator('.ilap-curator-menu.open .ilap-opt-pill')).toHaveCount(0);
+    });
+
+    test('Re-renders do not grow the button (the width ratchet)', async ({ page, context }) => {
         await setExtensionStorage(context, { ilap_curator_queue: [makeJob(CURATOR_ID, 'informational')] });
         await openCurator(page);
-
-        // Post-add variant: the filter options gain the job-action rows.
-        await page.locator(BTN).click();
-        const menu = page.locator('.ilap-curator-menu.open');
-        await expect(menu.locator('[data-act="pause"]')).toContainText(/pause/i);
-        await expect(menu.locator('[data-act="remove"]')).toBeVisible();
         // Measured only once Steam's webfont has settled: the label is the
         // button's width, and a measurement taken while it is still laid out in
         // the fallback face compares two different fonts.
@@ -186,76 +273,45 @@ test.describe('Curator — enqueue button', () => {
         const w0 = (await page.locator(BTN).boundingBox()).width;
         const label0 = await page.locator(`${BTN} .ilap-cur-label`).textContent();
 
-        // Pause flips the stored intent (paused — same write as the applet).
-        await menu.locator('[data-act="pause"]').click();
-        await expect.poll(async () => (await readQueue(context))[0].status).toBe('paused');
+        // Open → queue write → close, twice: every sync re-measures the menu.
+        for (const status of ['paused', 'pending']) {
+            await page.locator(BTN).click();
+            const job = Object.assign(makeJob(CURATOR_ID, 'informational'), { status });
+            await setExtensionStorage(context, { ilap_curator_queue: [job] });
+            await expect.poll(async () => (await readQueue(context))[0].status).toBe(status);
+            await page.locator(BTN).click();
+        }
 
-        // Reopen: the same row now offers Resume; clicking returns to pending.
-        await page.locator(BTN).click();
-        await expect(menu.locator('[data-act="pause"]')).toContainText(/resume/i);
-        await menu.locator('[data-act="pause"]').click();
-        await expect.poll(async () => (await readQueue(context))[0].status).toBe('pending');
-
-        // Back in the starting state, the button must not have GROWN: every
-        // open→sync cycle used to feed the menu's min-width (button-derived,
-        // +2px of borders) back into the button, ratcheting both wider on each
-        // toggle. Direction, not exact equality: a full run once produced
-        // 276.00006 → 275.00006 here, and the two product explanations were
-        // both measured and DISPROVEN — the control is not a flex item (its
-        // parent .curator_report is display:block, so flex-shrink would be a
-        // no-op), and its box is identical idle / hovered / focused / with the
-        // menu open (212px, padding 13/13, border 0/0). Whatever moved that
-        // pixel is in Steam's own rendering, not in this control, and the
-        // ratchet this test exists for made the button GROW. The floor still
-        // catches a collapse.
+        // Every open→sync cycle used to feed the menu's min-width (button-derived,
+        // +2px of borders) back into the button, ratcheting both wider. Direction,
+        // not exact equality: a full run once produced 276.00006 → 275.00006 here,
+        // a pixel moved by Steam's own rendering, not by this control. The floor
+        // still catches a collapse.
         await expect.poll(async () => (await page.locator(BTN).boundingBox()).width)
             .toBeLessThanOrEqual(w0);
         expect((await page.locator(BTN).boundingBox()).width).toBeGreaterThan(w0 - 4);
-        // And the label is the button's width: a re-render that came back with a
-        // different string (the add-variant, or the same one spaced differently)
-        // would move the box for a reason that has nothing to do with the menu.
         expect(await page.locator(`${BTN} .ilap-cur-label`).textContent()).toBe(label0);
     });
 
-    test('Added state: Remove in the droplist drops the job and the button returns to the Add state', async ({ page, context }) => {
-        await setExtensionStorage(context, { ilap_curator_queue: [makeJob(CURATOR_ID, 'informational')] });
+    test('Cross-window sync: an OPEN droplist redraws live when the queue changes elsewhere', async ({ page, context }) => {
         await openCurator(page);
 
-        await page.locator(BTN).click();
-        await page.locator('.ilap-curator-menu.open [data-act="remove"]').click();
-
-        await expect.poll(async () => await readQueue(context)).toHaveLength(0);
-        // The button falls back to the add-variant everywhere the queue is watched.
-        await expect(page.locator(`${BTN} .ilap-cur-label`)).toHaveText(/add to ignore queue/i);
-    });
-
-    test('Cross-window sync: an OPEN droplist swaps add-/added-variant live when the queue changes elsewhere', async ({ page, context }) => {
-        await openCurator(page);
-
-        // Open the menu in its add-variant (filters only, no job actions).
+        // Open the menu with nothing queued: three free filters.
         await page.locator(BTN).click();
         const menu = page.locator('.ilap-curator-menu.open');
         await expect(menu.locator('.ilap-curator-opt')).toHaveCount(3);
-        await expect(menu.locator('[data-act]')).toHaveCount(0);
+        await expect(menu.locator('.ilap-opt-pill')).toHaveCount(0);
 
-        // Another window stages a job for this curator (external storage write):
-        // the OPEN menu re-renders in place to the post-add variant — no window
-        // can keep showing the add-droplist next to another's added-droplist.
-        await setExtensionStorage(context, { ilap_curator_queue: [makeJob(CURATOR_ID, 'informational')] });
-        await expect(menu.locator('[data-act="pause"]')).toBeVisible();
-        await expect(menu.locator('[data-act="remove"]')).toBeVisible();
-        await expect(menu.locator('.ilap-curator-opt.active')).toHaveAttribute('data-value', 'informational');
+        // Another window stages a job of both for this curator: the OPEN menu
+        // re-renders in place, its row queued and the two others locked.
+        await setExtensionStorage(context, { ilap_curator_queue: [makeJob(CURATOR_ID, 'all_but_recommended')] });
+        await expect(menu.locator('.ilap-curator-opt.active')).toHaveAttribute('data-value', 'all_but_recommended');
+        await expect(menu.locator('.ilap-curator-opt.locked')).toHaveCount(2);
 
-        // A pause landed elsewhere (the applet in another window): the open
-        // menu's action row flips to Resume without reopening.
-        const paused = Object.assign(makeJob(CURATOR_ID, 'informational'), { status: 'paused' });
-        await setExtensionStorage(context, { ilap_curator_queue: [paused] });
-        await expect(menu.locator('[data-act="pause"]')).toContainText(/resume/i);
-
-        // And the job removed elsewhere: the same open menu drops the action rows.
+        // And the job removed elsewhere: the same open menu drops every tag.
         await setExtensionStorage(context, { ilap_curator_queue: [] });
-        await expect(menu.locator('[data-act]')).toHaveCount(0);
-        await expect(menu.locator('.ilap-curator-opt.active')).toHaveCount(0);
+        await expect(menu.locator('.ilap-opt-pill')).toHaveCount(0);
+        await expect(menu.locator('.ilap-curator-opt.active, .ilap-curator-opt.locked')).toHaveCount(0);
     });
 
     test('3-job cap: a 4th curator is refused with a "queue full" toast', async ({ page, context }) => {

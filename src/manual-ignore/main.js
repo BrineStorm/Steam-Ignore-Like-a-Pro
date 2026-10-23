@@ -18,6 +18,10 @@
     // true once the menu-at-press hint has been shown (App._hintMenuAtPress).
     const PRESS_MENU_HINT_KEY = 'ilap_press_menu_hint';
 
+    // A finished bundle's key, and the links its capsules use (bundle.js).
+    const BUNDLE_KEY_RE = /^(bundle|sub)_\d+$/;
+    const BUNDLE_LINKS = 'a[href*="/bundle/"], a[href*="/sub/"]';
+
     class IgnoreManager {
         constructor(deps) {
             // Every hook is required: a missing login gate or master check would
@@ -87,6 +91,9 @@
             // Their mark is Steam's own flag, tinted, not a badge of ours, so they
             // stay out of the session map (no badge click, no solo un-ignore).
             this.tinted = new Map();
+            // Bundles whose ignore job ran to its end ('<bundle|sub>_<id>'), from
+            // ilap_ignored_bundles: their capsules carry the IGNORED badge too.
+            this.bundleMarks = new Set();
             this.SESSION_KEY = 'ilap_session_map_v2';
 
             this._loadSession();
@@ -277,9 +284,23 @@
             });
         }
 
+        // The finished bundles, as stored. A mark that went (a rollback of one of
+        // its games) takes its badges with it.
+        setBundleMarks(keys) {
+            const next = new Set((keys || []).filter(k => BUNDLE_KEY_RE.test(k)));
+            for (const key of this.bundleMarks) if (!next.has(key)) this.renderer.unrender(key);
+            this.bundleMarks = next;
+            this.refreshAll();
+        }
+
+        isBundleMarked(key) {
+            return this.bundleMarks.has(key);
+        }
+
         refreshAll() {
             // Guarded here rather than at the three call sites.
             if (!this.isEnabled()) return;
+            if (this.bundleMarks.size) this._refreshBundles();
             if (this.sessionMap.size === 0 && this.tinted.size === 0) return;
             // One document pass against the session map and the tints, not one
             // per appid: this runs on every mutation batch of the storefront.
@@ -298,13 +319,27 @@
             if (this.pending.size) this.syncPending();
         }
 
+        // A finished bundle's capsules, badged under its key in place of an appid.
+        // Only a link with art in it, as only such a link takes the gesture
+        // (gestures.js _bundleIntent).
+        _refreshBundles() {
+            for (const link of document.querySelectorAll(BUNDLE_LINKS)) {
+                if (!link.querySelector || !link.querySelector('img, video')) continue;
+                const m = (link.getAttribute('href') || '').match(/\/(bundle|sub)\/(\d+)([/?#]|$)/);
+                if (!m) continue;
+                const key = m[1] + '_' + m[2];
+                if (this.bundleMarks.has(key)) this.renderer.render(link, key, 0);
+            }
+        }
+
         syncMasks() {
-            this.renderer.syncMasks(Array.from(this.sessionMap.keys()));
+            this.renderer.syncMasks(Array.from(this.sessionMap.keys()).concat(Array.from(this.bundleMarks)));
         }
 
         // Master toggle off: unrender every mark this tab painted (badge, blur,
         // veil). The session map stays — it is the model a re-enable repaints from.
         hideBadges() {
+            for (const key of this.bundleMarks) this.renderer.unrender(key);
             for (const appid of this.sessionMap.keys()) this.renderer.unrender(appid);
             for (const appid of this.tinted.keys()) this.renderer.untintSteamFlag(appid);
         }
@@ -392,6 +427,18 @@
                 isEnabled: () => this.configService.get().enabled
             }));
 
+            // A gesture on a bundle capsule: no badge, a card instead (bundle.js).
+            const Store = window.ILAP.Curator.Store;
+            this.bundles = new MI.BundleRequests({
+                read: (ref) => MI.fetchBundle(ref),
+                stage: (spec) => Store.stageBundle(spec),
+                // Already ignored as a whole: a swipe on it changes nothing.
+                isDone: (key) => this.ignoreManager.isBundleMarked(key),
+                isLoggedIn: async () => (await window.ILAP.SteamAuth.hasLiveSession()) === true,
+                // showToast escapes; the text is plain.
+                toast: (key, params) => window.ILAP.showToast(window.ILAP.t(key, params), 6000),
+            });
+
             this.eventParser = new MI.EventParser(this.configService);
             this.swipeDetector = new MI.SwipeGestureDetector(this.configService);
         }
@@ -417,8 +464,12 @@
             // will not land, so only the pending marks come off. Each pulse's
             // reason decides whether a card goes with it.
             const Store = window.ILAP.Curator.Store;
+            const applyMarks = (marks) => this.ignoreManager.setBundleMarks(Object.keys(marks || {}));
+            applyMarks(await Store.getBundleMarks());
             chrome.storage.onChanged.addListener((changes, area) => {
                 if (area !== 'local') return;
+                const b = changes[Store.IGNORED_BUNDLES_KEY];
+                if (b) applyMarks(b.newValue);
                 const p = changes[Store.UNIGNORE_PULSE_KEY];
                 const pulsed = p && p.newValue && p.newValue.appids;
                 if (pulsed) {
@@ -454,6 +505,12 @@
         // leaves this page's script running with no storage behind it — would
         // otherwise leave an unhandled rejection per swipe.
         _dispatch(intent, action) {
+            // A bundle has nothing of ours to un-ignore: only an ignore gesture counts.
+            if (intent.bundle) {
+                if (action === 'unignore') return;
+                this.bundles.request(intent).catch((e) => console.warn('[ILAP] bundle gesture failed:', e));
+                return;
+            }
             const handler = action === 'unignore'
                 ? this.ignoreManager.processUnignoreRequest(intent)
                 : this.ignoreManager.processIgnoreRequest(intent);
@@ -494,7 +551,9 @@
                 if (!e.isTrusted) return;
                 if (!this.configService.get().enabled) return;
                 const badge = e.target.closest('.ilap-ignored-overlay');
-                if (!badge || !badge.dataset.ilapAppid) return;
+                // A bundle's badge ('bundle_<id>') has nothing to un-ignore: its
+                // click and its menu go to the capsule's link.
+                if (!badge || !/^\d+$/.test(badge.dataset.ilapAppid || '')) return;
                 e.preventDefault();
                 e.stopPropagation();
                 this._dispatch({ appid: badge.dataset.ilapAppid }, 'unignore');

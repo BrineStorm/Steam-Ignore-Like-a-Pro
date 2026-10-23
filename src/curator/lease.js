@@ -6,7 +6,9 @@
     // a tab or the service worker — drains a job at a time. The holder renews it;
     // if the holder dies the lease expires and a standby drainer takes over. A
     // live lease is also the queue applet's "running" signal, so running is
-    // never stored in the job record.
+    // never stored in the job record. Keyed by curator, so a curator's two jobs
+    // (one per review type) drain one after the other. The lock names the job it
+    // is draining (`jobId`), which is the one the applet shows as running.
 
     window.ILAP = window.ILAP || {};
     window.ILAP.Curator = window.ILAP.Curator || {};
@@ -24,11 +26,11 @@
     const set = (obj) => new Promise(resolve => chrome.storage.local.set(obj, resolve));
     const remove = (key) => new Promise(resolve => chrome.storage.local.remove(key, resolve));
 
-    async function acquireLock(curatorId, owner) {
+    async function acquireLock(curatorId, owner, jobId) {
         const key = LOCK_PREFIX + curatorId;
         const now = Date.now();
         if (!lockFree(await get(key), owner, now)) return false;
-        await set({ [key]: { owner, expiresAt: now + LEASE_MS } });
+        await set({ [key]: { owner, jobId, expiresAt: now + LEASE_MS } });
         // No compare-and-swap: confirm the write survived a short random settle,
         // so two drainers racing for it rarely both win.
         await new Promise(r => setTimeout(r, 30 + Math.floor(Math.random() * 50)));
@@ -36,12 +38,12 @@
         return !!after && after.owner === owner;
     }
 
-    async function renewLock(curatorId, owner) {
+    async function renewLock(curatorId, owner, jobId) {
         const key = LOCK_PREFIX + curatorId;
         const now = Date.now();
         const existing = await get(key);
         if (existing && existing.owner !== owner && (existing.expiresAt || 0) > now) return false;
-        await set({ [key]: { owner, expiresAt: now + LEASE_MS } });
+        await set({ [key]: { owner, jobId, expiresAt: now + LEASE_MS } });
         return true;
     }
 

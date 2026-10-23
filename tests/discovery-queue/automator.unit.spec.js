@@ -33,7 +33,7 @@ function loadAutomator(warns, setTimeoutImpl) {
 }
 
 const noopAdapters = () => ({
-    userdata: { fetchIgnored: async () => new Set() },
+    userdata: { fetchIgnored: async () => new Set(), fetchWishlist: async () => new Set() },
     stats: { save: () => {} },
     nameExtractor: { get: () => 'Unknown Game' },
     gate: { reserve: async () => ({ ok: true }) },
@@ -564,6 +564,7 @@ test.describe('DQ userdata confirm fallback pacing (unit)', () => {
         let reads = 0;
         const userdata = {
             fetchIgnored: async () => new Set(fetchResults[Math.min(reads++, fetchResults.length - 1)] || []),
+            fetchWishlist: async () => new Set(),
         };
         const a = new Automator(Object.assign(noopAdapters(), { userdata }));
         return { a, delays, readCount: () => reads };
@@ -588,5 +589,57 @@ test.describe('DQ userdata confirm fallback pacing (unit)', () => {
         expect(await a._verifyIgnoredViaUserdata('123')).toBe(true);
         expect(readCount()).toBe(2);
         expect(delays).toEqual([600, 1200]);
+    });
+});
+
+// The wishlist guard: the loop passes a wishlisted game by, one read per
+// served queue, and a failed read stops the run.
+test.describe('DQ wishlist guard (unit)', () => {
+    function slideFor(appid) {
+        const link = { querySelector: () => null, textContent: 'Game', getAttribute: () => `/app/${appid}/` };
+        const ignoreBtn = { getAttribute: () => null, classList: [] };
+        const nextBtn = { next: true };
+        const ignorePath = { getAttribute: (n) => (n === 'd' ? 'M600,96c0-1' : null), closest: () => ignoreBtn };
+        const nextPath = { getAttribute: (n) => (n === 'd' ? 'M16.0855 0' : null), closest: () => nextBtn };
+        const slide = {
+            querySelector: (sel) => (sel.includes('/app/') && !sel.includes('#app_reviews_hash') ? link : null),
+            querySelectorAll: (sel) => (sel === 'path' ? [ignorePath] : sel.includes('/app/') ? [link] : []),
+        };
+        const dialog = {
+            querySelector: (sel) => (sel.includes('_3q6eNRFBrPSFSGEn8uRFZ3') ? { children: [{}, {}, slide] } : null),
+            querySelectorAll: (sel) => (sel === 'path' ? [nextPath] : []),
+        };
+        return { dialog, ignoreBtn, nextBtn };
+    }
+
+    function make(fetchWishlist) {
+        const { Automator } = loadAutomator();
+        let reads = 0;
+        const a = new Automator(Object.assign(noopAdapters(), {
+            userdata: { fetchIgnored: async () => new Set(), fetchWishlist: async () => { reads++; return fetchWishlist(); } },
+        }));
+        const clicks = [];
+        a._clickWithDelay = (el) => { clicks.push(el); return Promise.resolve(); };
+        a._confirmIgnored = async () => true;
+        a.isRunning = true;
+        return { a, clicks, reads: () => reads };
+    }
+
+    test('a wishlisted game is passed by with Next, never the ignore click; one read per queue', async () => {
+        const { a, clicks, reads } = make(async () => new Set(['620']));
+        const wished = slideFor('620');
+        expect(await a._processCurrentSlide(wished.dialog)).toBe(true);
+        expect(clicks).toEqual([wished.nextBtn]);
+        const other = slideFor('730');
+        expect(await a._processCurrentSlide(other.dialog)).toBe(true);
+        expect(clicks.slice(1)).toEqual([other.ignoreBtn, other.nextBtn]);
+        expect(reads()).toBe(1);
+        expect(a.processedCount).toBe(1);
+    });
+
+    test('a failed wishlist read stops the run before any click', async () => {
+        const { a, clicks } = make(async () => null);
+        expect(await a._processCurrentSlide(slideFor('620').dialog)).toBe(false);
+        expect(clicks).toEqual([]);
     });
 });

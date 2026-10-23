@@ -32,7 +32,7 @@ test.afterEach(async ({ context }) => {
 
 test.describe('Manual Ignore — stats reach the popup history', () => {
 
-    test('After ignore: popup shows Last Ignored and history dropdown lists the game name', async ({ page, context }) => {
+    test('After ignore: popup shows the game in Last Ignored, with no dropdown for a single entry', async ({ page, context }) => {
         // 1) Drive a real ignore from the search page. The ignore POST and the
         //    userdata read are intercepted, but saveStats / getGameName are NOT
         //    — they hit chrome.storage.local and the real DOM-based name
@@ -82,16 +82,12 @@ test.describe('Manual Ignore — stats reach the popup history', () => {
         await expect(popup.locator('#count-link')).toHaveText('1');
         await expect(popup.locator(SEL.lastGame)).toHaveText(recordedName);
 
-        // Hover trigger reveals .history-tooltip via CSS :hover. Playwright's
-        // .hover() dispatches a real mousemove which trips the rule.
+        // The box shows the newest entry and the list goes on from the next one,
+        // so with a single ignore there is no list to drop down.
         const trigger = popup.locator(SEL.historyTrigger);
+        await expect(trigger).toHaveClass(/no-more/);
         await trigger.hover();
-        const list = popup.locator(SEL.historyList);
-        await expect(list).toBeVisible({ timeout: 2000 });
-        await expect(list).toContainText(recordedName);
-
-        // The single ignored game should be the only history entry.
-        await expect(list.locator('.history-entry')).toHaveCount(1);
+        await expect(popup.locator(SEL.historyList)).toBeHidden();
 
         await popup.close();
     });
@@ -125,9 +121,8 @@ test.describe('Manual Ignore — stats reach the popup history', () => {
         const extId = await getExtensionId(context);
         const popup = await context.newPage();
         await popup.goto(popupUrl(extId));
-        await popup.locator(SEL.historyTrigger).hover();
-        await expect(popup.locator(SEL.historyList))
-            .toContainText(stored.ilap_ignored_history[0].name);
+        await expect(popup.locator(SEL.lastGame))
+            .toHaveText(stored.ilap_ignored_history[0].name);
         await popup.close();
     });
 });

@@ -7,17 +7,16 @@ const { withVocab } = require('./_store-vocab.js');
 // EnqueueService (src/curator/enqueue-service.js) as a Node unit — no browser.
 // This is the logic that had ZERO coverage while it lived as free functions in
 // curator/main.js reaching into the Store/Enumerator singletons: staging outcomes
-// (add / switch / no-op / full) and resolution (cache-vs-enumerate, the
-// mid-enumeration removal bail, and the enumerate-failure fallback).
+// (add / the other review type / no-op / full) and resolution (cache-vs-enumerate,
+// the mid-enumeration removal bail, and the enumerate-failure fallback).
 
 function loadService() {
-    const code = fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'curator', 'enqueue-service.js'),
-        'utf8'
-    );
     const sandbox = { window: {} };
     vm.createContext(sandbox);
-    vm.runInContext(code, sandbox);
+    // The coverage rules (coveredTypes / filterToAdd) live in filters.js.
+    for (const file of ['filters.js', 'enqueue-service.js']) {
+        vm.runInContext(fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'curator', file), 'utf8'), sandbox);
+    }
     return sandbox.window.ILAP.Curator.EnqueueService;
 }
 const EnqueueService = loadService();
@@ -27,7 +26,7 @@ function makeStore(initialQueue = []) {
     const state = {
         queue: initialQueue.map(j => Object.assign({}, j)),
         cache: null, cacheFresh: false,
-        cursors: {}, removed: [], updates: [], dropped: []
+        cursors: {}, removed: [], updates: []
     };
     const store = {
         state,
@@ -45,7 +44,6 @@ function makeStore(initialQueue = []) {
             state.queue = state.queue.filter(j => j.id !== jobId);
         },
         async setCursor(jobId, n) { state.cursors[jobId] = n; },
-        async dropProgress(jobId) { state.dropped.push(jobId); },
         // Mirrors the real Store: `patch` may be an object or a (job)=>partial fn,
         // and a vanished job is a no-op.
         async updateJob(jobId, patch) {
@@ -95,35 +93,69 @@ test.describe('EnqueueService.stage (unit)', () => {
         expect(store.state.queue[0].status).toBe('pending'); // untouched
     });
 
-    test('switching filter re-targets the job under a NEW id and drops the old progress', async () => {
-        // A new id is what makes a drainer mid-iteration on the old list stop;
-        // the old cursor and skip count go with the old id.
-        const store = makeStore([{ id: 'j1', curatorId: '123', curatorName: 'Cur',
-            filter: 'not_recommended', status: 'pending', appids: [1, 2], total: 2 }]);
-        const svc = build(store, makeEnum([]));
-        const outcome = await svc.stage('123', 'Cur', 'informational');
-        expect(outcome).toMatchObject({ kind: 'switched', name: 'Cur', paused: false });
-        expect(outcome.jobId).not.toBe('j1');
-        expect(store.state.queue).toHaveLength(1);
-        expect(store.state.queue[0]).toMatchObject({
-            id: outcome.jobId, curatorId: '123',
-            filter: 'informational', status: 'enumerating', appids: [], total: 0
+    // A curator has one job per review type, or one of both. With one type
+    // queued, the other one goes in as a job of its own, pending behind it.
+    const nr = { id: 'j1', curatorId: '123', curatorName: 'Cur', filter: 'not_recommended',
+        status: 'pending', appids: [1, 2], total: 2 };
+
+    test('with one type queued, the other one is added as a job of its own', async () => {
+        const store = makeStore([nr]);
+        const outcome = await build(store, makeEnum([])).stage('123', 'Cur', 'informational');
+        expect(outcome).toMatchObject({ kind: 'added', filter: 'informational' });
+        expect(store.state.queue).toHaveLength(2);
+        expect(store.state.queue[0]).toMatchObject(nr);   // the first job untouched
+        expect(store.state.queue[1]).toMatchObject({
+            id: outcome.jobId, curatorId: '123', filter: 'informational', status: 'enumerating'
         });
-        expect(store.state.dropped).toEqual(['j1']);
     });
 
-    test('a paused job keeps its pause through a filter switch', async () => {
-        const store = makeStore([{ id: 'j1', curatorId: '123', curatorName: 'Cur',
-            filter: 'not_recommended', status: 'paused', appids: [1, 2], total: 2 }]);
-        store.state.cache = { apps: [{ appid: 12, type: 'informational' }] }; store.state.cacheFresh = true;
-        const svc = build(store, makeEnum([]));
-        const outcome = await svc.stage('123', 'Cur', 'informational');
-        expect(outcome).toMatchObject({ kind: 'switched', paused: true });
-        expect(store.state.queue[0].status).toBe('enumerating');
+    test('"All except Recommended" with one type queued adds the other type, as its own pick would', async () => {
+        const store = makeStore([nr]);
+        const outcome = await build(store, makeEnum([])).stage('123', 'Cur', 'all_but_recommended');
+        expect(outcome).toMatchObject({ kind: 'added', filter: 'informational' });
+        expect(store.state.queue.map(j => j.filter)).toEqual(['not_recommended', 'informational']);
 
-        const res = await svc.resolve('123', outcome.jobId, outcome.name, 'informational', outcome.paused);
-        expect(res).toEqual({ ok: true });
-        expect(store.state.queue[0]).toMatchObject({ status: 'paused', appids: [12], total: 1 });
+        const inf = makeStore([Object.assign({}, nr, { filter: 'informational' })]);
+        expect(await build(inf, makeEnum([])).stage('123', 'Cur', 'all_but_recommended'))
+            .toMatchObject({ kind: 'added', filter: 'not_recommended' });
+    });
+
+    test('a covered pick is a no-op: both types queued, or a job of both', async () => {
+        const both = makeStore([nr, Object.assign({}, nr, { id: 'j2', filter: 'informational' })]);
+        for (const f of ['not_recommended', 'informational', 'all_but_recommended']) {
+            expect(await build(both, makeEnum([])).stage('123', 'Cur', f)).toBeNull();
+        }
+        expect(both.state.queue).toHaveLength(2);
+
+        const all = makeStore([Object.assign({}, nr, { filter: 'all_but_recommended' })]);
+        for (const f of ['not_recommended', 'informational', 'all_but_recommended']) {
+            expect(await build(all, makeEnum([])).stage('123', 'Cur', f)).toBeNull();
+        }
+        expect(all.state.queue).toHaveLength(1);
+    });
+
+    test('a nothing-queued "All except Recommended" pick is one job of both', async () => {
+        const store = makeStore();
+        expect(await build(store, makeEnum([])).stage('123', 'Cur', 'all_but_recommended'))
+            .toMatchObject({ kind: 'added', filter: 'all_but_recommended' });
+        expect(store.state.queue).toHaveLength(1);
+    });
+
+    test('the second type takes a job slot like any job', async () => {
+        const store = makeStore([nr,
+            { id: 'b', curatorId: '2', filter: 'all_but_recommended' },
+            { id: 'c', curatorId: '3', filter: 'all_but_recommended' }]);
+        expect(await build(store, makeEnum([])).stage('123', 'Cur', 'informational')).toEqual({ kind: 'full' });
+        expect(store.state.queue).toHaveLength(3);
+    });
+
+    test('another curator\'s jobs and other job types cover nothing here', async () => {
+        const store = makeStore([
+            Object.assign({}, nr, { curatorId: '999', filter: 'all_but_recommended' }),
+            { id: 'job_mi', type: 'mi', curatorId: 'mi', appids: ['1'] }
+        ]);
+        expect(await build(store, makeEnum([])).stage('123', 'Cur', 'informational'))
+            .toMatchObject({ kind: 'added', filter: 'informational' });
     });
 
     test('reports kind:full for a new curator once the cap is reached', async () => {
@@ -215,7 +247,7 @@ test.describe('EnqueueService.resolve (unit)', () => {
     });
 
     test('a pause landed mid-enumeration survives resolve (status stays paused)', async () => {
-        // The droplist/applet Pause is clickable while the job is still
+        // The applet's Pause is clickable while the job is still
         // 'enumerating' — resolve must not clobber that intent back to pending.
         const store = makeStore([seedJob({ status: 'paused' })]);
         store.state.cache = { apps }; store.state.cacheFresh = true;
@@ -238,45 +270,31 @@ test.describe('EnqueueService.resolve (unit)', () => {
     });
 });
 
-// Post-add droplist actions (curator-page button parity with the queue applet's
-// Pause/Remove): keyed by curatorId, routed through the same serialized Store
-// writers, and a null no-op when the job vanished from another window while
-// the droplist was open (the stale-menu cross-window race).
-test.describe('EnqueueService job actions (unit)', () => {
-    test('togglePause pauses a drainable job (kind:paused)', async () => {
-        const store = makeStore([{ id: 'j1', curatorId: '123', filter: 'not_recommended', status: 'pending' }]);
-        const outcome = await build(store, makeEnum([])).togglePause('123');
-        expect(outcome).toEqual({ kind: 'paused' });
-        expect(store.state.queue[0].status).toBe('paused');
+// The cross on a queued row of the curator droplist.
+test.describe('EnqueueService.removeQueued (unit)', () => {
+    const nr = { id: 'j1', curatorId: '123', filter: 'not_recommended', status: 'pending' };
+    const inf = { id: 'j2', curatorId: '123', filter: 'informational', status: 'pending' };
+
+    test('removes this curator\'s job of that filter through Store.removeJob, and only it', async () => {
+        const other = { id: 'j3', curatorId: '999', filter: 'not_recommended', status: 'pending' };
+        const store = makeStore([nr, inf, other]);
+        expect(await build(store, makeEnum([])).removeQueued('123', 'not_recommended')).toEqual({ kind: 'removed' });
+        expect(store.state.removed).toEqual(['j1']);   // via removeJob: progress keys go with it
+        expect(store.state.queue.map(j => j.id)).toEqual(['j2', 'j3']);
     });
 
-    test('togglePause resumes a paused job back to pending (kind:resumed)', async () => {
-        const store = makeStore([{ id: 'j1', curatorId: '123', filter: 'not_recommended', status: 'paused' }]);
-        const outcome = await build(store, makeEnum([])).togglePause('123');
-        expect(outcome).toEqual({ kind: 'resumed' });
-        expect(store.state.queue[0].status).toBe('pending');
-    });
-
-    test('togglePause with no job queued for this curator is a null no-op', async () => {
-        const store = makeStore([{ id: 'j1', curatorId: '999', filter: 'not_recommended', status: 'pending' }]);
-        const outcome = await build(store, makeEnum([])).togglePause('123');
-        expect(outcome).toBeNull();
-        expect(store.state.queue[0].status).toBe('pending'); // untouched
-    });
-
-    test('remove drops the job through Store.removeJob (cursor-key cleanup path)', async () => {
-        const store = makeStore([{ id: 'j1', curatorId: '123', filter: 'not_recommended', status: 'pending' }]);
-        const outcome = await build(store, makeEnum([])).remove('123');
-        expect(outcome).toEqual({ kind: 'removed' });
-        expect(store.state.removed).toEqual(['j1']); // via removeJob, not a raw filter
-        expect(store.state.queue).toHaveLength(0);
-    });
-
-    test('remove with no job queued for this curator is a null no-op', async () => {
-        const store = makeStore([{ id: 'j1', curatorId: '999', filter: 'not_recommended', status: 'pending' }]);
-        const outcome = await build(store, makeEnum([])).remove('123');
-        expect(outcome).toBeNull();
+    test('a job removed elsewhere meanwhile is a null no-op', async () => {
+        const store = makeStore([inf]);
+        expect(await build(store, makeEnum([])).removeQueued('123', 'not_recommended')).toBeNull();
         expect(store.state.removed).toHaveLength(0);
-        expect(store.state.queue).toHaveLength(1); // untouched
+    });
+
+    test('with the first type removed, the other type can be added again', async () => {
+        const store = makeStore([nr, inf]);
+        const svc = build(store, makeEnum([]));
+        expect(await svc.stage('123', 'Cur', 'all_but_recommended')).toBeNull();   // covered
+        await svc.removeQueued('123', 'not_recommended');
+        expect(await svc.stage('123', 'Cur', 'all_but_recommended'))
+            .toMatchObject({ kind: 'added', filter: 'not_recommended' });
     });
 });

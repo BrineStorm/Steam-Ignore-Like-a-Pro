@@ -41,6 +41,19 @@
         return new Set(ignored ? ignored.keys() : []);
     }
 
+    // The wishlist from the same read, a Set of appid strings, or null when the
+    // read failed or had no list: the queue helpers skip a wishlisted game, and
+    // must not take a failure for an empty list.
+    async function fetchWishlist() {
+        const ignored = await Net.fetchIgnoredAppsStrict();
+        return ignored ? ignored.wishlist : null;
+    }
+    // One game: true, false, or null when the read failed.
+    async function isWishlisted(appid) {
+        const wishlist = await fetchWishlist();
+        return wishlist ? wishlist.has(String(appid)) : null;
+    }
+
     // Login state from two signals: the store header (free, but frozen at page
     // load) and a live probe (steam-net.js).
     const SteamAuth = {
@@ -133,15 +146,20 @@
         // read the same count and lose an increment.
         _serial: window.ILAP.serialChain(),
 
-        save(gameName, source) {
+        save(gameName, source, appid) {
             const safeName = sanitizeName(gameName);
-            return this._write((result) => StatsLogic.nextState(result, safeName, source));
+            return this._write((result) => StatsLogic.nextState(result, safeName, source, appid));
         },
 
         // Shown but not counted: a swipe that changed an ignore's reason.
-        saveHistory(gameName, source) {
+        saveHistory(gameName, source, appid) {
             const safeName = sanitizeName(gameName);
-            return this._write((result) => StatsLogic.historyState(result, safeName, source));
+            return this._write((result) => StatsLogic.historyState(result, safeName, source, appid));
+        },
+
+        // Shown but not counted: a queue job that ran to its end (StatsLogic.jobState).
+        saveJob(job) {
+            return this._write((result) => StatsLogic.jobState(result, job));
         },
 
         // Counted but not shown: a drained curator ignore.
@@ -202,12 +220,15 @@
     window.ILAP.apiIgnoreGame = SteamAPI.ignore;
     window.ILAP.apiUnignoreGame = SteamAPI.unignore;
     window.ILAP.fetchIgnoredApps = fetchIgnoredApps;
+    window.ILAP.fetchWishlist = fetchWishlist;
+    window.ILAP.isWishlisted = isWishlisted;
     window.ILAP.fetchIgnoredAppsStrict = Net.fetchIgnoredAppsStrict;
     window.ILAP.classifyRefusal = Net.classifyRefusal;
     window.ILAP.SteamAuth = SteamAuth;
     window.ILAP.OwnIgnorePosts = OwnIgnorePosts;
-    window.ILAP.saveStats = (name, source) => StatsManager.save(name, source);
-    window.ILAP.saveHistory = (name, source) => StatsManager.saveHistory(name, source);
+    window.ILAP.saveStats = (name, source, appid) => StatsManager.save(name, source, appid);
+    window.ILAP.saveHistory = (name, source, appid) => StatsManager.saveHistory(name, source, appid);
+    window.ILAP.saveJobHistory = (job) => StatsManager.saveJob(job);
     window.ILAP.bumpIgnoredCount = () => StatsManager.bumpCount();
     window.ILAP.dropIgnoredCount = () => StatsManager.dropCount();
     window.ILAP.recordIgnoredTotal = (size) => StatsManager.recordTotal(size);

@@ -14,6 +14,10 @@
     // ui/popup_settings.js (the reasoning is there).
     const { dispatchPick, isSelfPick, isPageReachable } = window.ILAP_Settings;
 
+    // How long an open queue takes to fold away before SETTINGS opens in its
+    // place. Matches #queue-accordion.solo-collapse.handoff in popup.css.
+    const QUEUE_HANDOFF_MS = 280;
+
     // Master toggle off, for every direct child of `parent` the markup does not
     // mark `data-master-exempt`. What survives a disabled extension:
     //   • the IGNORE QUEUE applet, at full strength, so staged work can still be dropped;
@@ -40,24 +44,46 @@
     };
 
     // Compact chip label: primary subtag only (pt-BR -> PT, zh-TW -> ZH).
-    const langCode = (lang) => String(lang || 'en').split('-')[0].toUpperCase();
+    // es-419 is the one exception: ES is already Spain's chip.
+    const langCode = (lang) => lang === 'es-419' ? 'LA'
+        : String(lang || 'en').split('-')[0].toUpperCase();
 
     // The one mouse glyph, for both shortcut hints: the swipe chip (right button
     // lit, sized for a .kbd-key row) and the modifier hint (left button lit,
     // trailing the Ctrl+Click chips). Same body and wheel either way — which
     // button is lit, the class the CSS hooks and the rendered size are the only
-    // differences, so they are arguments rather than a second drawing.
-    const LIT = '#45A1FA';
-    const UNLIT = '#171a21';
-    const mouseSvg = (isRight, cls, w, h) => `
+    // differences, so they are arguments rather than a second drawing. Each
+    // part is lit from above (a gradient down it, a gloss over the buttons) so
+    // the mouse reads as a body. The two buttons are the two halves of the
+    // body's top, cut by its outline, so the lit one and the dark one are the
+    // same size. The body has softly rounded top corners and a round bottom.
+    // The ids take the hint's slot, like the swoosh's.
+    const BODY = 'M6 28 C6 22 10 18 16 18 L32 18 C38 18 42 22 42 28 L42 46 C42 57 33 64 24 64 C15 64 6 57 6 46 Z';
+    const mouseSvg = (isRight, cls, w, h, slot) => {
+        const id = (part) => `mouse-${slot}-${part}`;
+        const lit = `url(#${id('lit')})`, unlit = `url(#${id('unlit')})`;
+        return `
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 14 48 54" width="${w}" height="${h}" fill="none" class="${cls}" aria-hidden="true">
-          <rect x="4" y="18" width="40" height="46" rx="20" ry="20" fill="#1b2838" stroke="#3d4a5d" stroke-width="2"/>
-          <path d="M4 28 C4 22 8 18 14 18 L23 18 L23 38 L4 38 Z" fill="${isRight ? UNLIT : LIT}"/>
-          <line x1="24" y1="18" x2="24" y2="38" stroke="#3d4a5d" stroke-width="2"/>
-          <path d="M25 18 L34 18 C40 18 44 22 44 28 L44 38 L25 38 Z" fill="${isRight ? LIT : UNLIT}"/>
-          <rect x="21" y="22" width="6" height="12" rx="3" fill="#ffffff" opacity="0.85"/>
-          <path d="M4 42 L4 46 C4 57 14 64 24 64 C34 64 44 57 44 46 L44 42 Z" fill="${UNLIT}"/>
+          <defs>
+            <clipPath id="${id('shape')}"><path d="${BODY}"/></clipPath>
+            <linearGradient id="${id('lit')}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a6d6ff"/><stop offset=".5" stop-color="#45A1FA"/><stop offset="1" stop-color="#2163ad"/></linearGradient>
+            <linearGradient id="${id('unlit')}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a4555"/><stop offset="1" stop-color="#161b23"/></linearGradient>
+            <linearGradient id="${id('palm')}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#232a35"/><stop offset="1" stop-color="#06080b"/></linearGradient>
+            <linearGradient id="${id('wheel')}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#9aabbd"/><stop offset=".5" stop-color="#ffffff"/><stop offset="1" stop-color="#8496aa"/></linearGradient>
+            <linearGradient id="${id('gloss')}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".35"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></linearGradient>
+          </defs>
+          <g clip-path="url(#${id('shape')})">
+            <rect x="4" y="18" width="20" height="22" fill="${isRight ? unlit : lit}"/>
+            <rect x="24" y="18" width="20" height="22" fill="${isRight ? lit : unlit}"/>
+            <rect x="4" y="40" width="40" height="24" fill="url(#${id('palm')})"/>
+            <rect x="4" y="18" width="40" height="11" fill="url(#${id('gloss')})"/>
+            <path d="M9 47 C10 55 16 60 24 61" stroke="#ffffff" stroke-opacity=".12" stroke-width="1.5" stroke-linecap="round"/>
+          </g>
+          <path d="M24 18 V40 M6 40 H42" stroke="#0a1017" stroke-width="1.6"/>
+          <rect x="21" y="22" width="6" height="12" rx="3" fill="url(#${id('wheel')})" stroke="#0a1017" stroke-width=".8"/>
+          <path d="${BODY}" stroke="#4a5b71" stroke-width="2"/>
         </svg>`;
+    };
 
     // The swipe and circle glyphs (ui/icons.js), at the hint row's size; the ring
     // sits in the swoosh's slot.
@@ -66,15 +92,93 @@
     const ringSvg = (slot) => window.ILAP_Icons.ring(
         { gradientId: 'ring-' + slot, cls: 'sw-arrow', size: 17 });
 
+    // A history entry's source as a glyph, in the hint card's colours: Manual
+    // Ignore's two reasons as a stick fading in toward their default swipe
+    // direction like the card's swoosh (red right, blue left, popup.css
+    // .hist-stick), the two queue automators as the Undo button's turning
+    // arrow, in the lime of a job that is ignoring, fading in from its tail. An unknown or legacy source draws nothing and keeps its slot.
+    const histStick = (cls) => `<span class="hist-stick ${cls}" aria-hidden="true"></span>`;
+    // Drawn as the arc in six 45° pieces, each more opaque than the last: a
+    // linear gradient cannot follow a ring, it would fade one side backwards.
+    // The ring runs counter-clockwise from 9 o'clock to 12, where the head sits.
+    const HIST_LOOP = (() => {
+        const pt = (deg) => {
+            const r = deg * Math.PI / 180;
+            return `${(12 + 7 * Math.cos(r)).toFixed(2)} ${(14 + 7 * Math.sin(r)).toFixed(2)}`;
+        };
+        let arcs = '';
+        for (let i = 0; i < 6; i++) {
+            const from = 180 - 45 * i;
+            arcs += `<path d="M${pt(from)} A7 7 0 0 0 ${pt(from - 45)}" fill="none" stroke="#48ff00" stroke-width="2.2" opacity="${(0.15 + 0.17 * i).toFixed(2)}"/>`;
+        }
+        return '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' + arcs
+            + '<path d="M12.6 2.2 6.4 7l6.2 4.8z" fill="#48ff00"/></svg>';
+    })();
+    // A finished job's entry has its glyph from the queue: a built-in list as
+    // the lists glyph, a curator as a square in its filter's colour, an undo as
+    // the list with the green Undo arrow, a bundle as its two capsules.
+    function sourceIcon(entry) {
+        const S = window.ILAP.StatsLogic.SOURCE;
+        const source = entry && entry.source;
+        if (source === S.MI_DEFAULT) return histStick('is-ignore');
+        if (source === S.MI_PLAYED) return histStick('is-played');
+        if (source === S.DQ || source === S.EQ) return HIST_LOOP;
+        if (source === S.PRESET) return `<span class="hist-glyph">${window.ILAP_Icons.LIST}</span>`;
+        if (source === S.BUNDLE) return `<span class="hist-glyph">${window.ILAP_Icons.BUNDLE}</span>`;
+        if (source === S.CURATOR) return `<span class="hist-square" style="${window.ILAP_Filters.fillStyle(entry.filter)}"></span>`;
+        if (source === S.UNDO) return `<span class="hist-glyph">${window.ILAP_Icons.UNIGNORE}</span>`;
+        return '';
+    }
+
+    // An entry's text, unescaped. A game shows its name; a finished job is
+    // drawn in this language with its kind in front, so it never reads as a game.
+    function historyLabel(entry) {
+        const S = window.ILAP.StatsLogic.SOURCE;
+        if (entry.source === S.PRESET) return t('history_list', { name: window.ILAP_Presets.label(entry.presetKey) });
+        if (entry.source === S.CURATOR) return t('history_curator', { name: entry.name });
+        if (entry.source === S.BUNDLE) return t('history_bundle', { name: entry.name });
+        if (entry.source === S.UNDO) {
+            const scope = entry.scope;
+            if (!scope || !(Number(scope.n) > 0)) return t('history_unignore');
+            const key = scope.unit === 'h' ? 'history_unignore_hours' : scope.unit === 'd' ? 'history_unignore_days' : 'history_unignore_last';
+            return t(key, { n: Number(scope.n) });
+        }
+        return String(entry.name || '');
+    }
+
+    // The same text as escaped HTML. A finished job's kind ("Ignore:",
+    // "Curator:", "Un-ignore", up to the first colon in every language) is set
+    // in grey before the rest. A game's name is left whole.
+    function historyLabelHtml(entry) {
+        const S = window.ILAP.StatsLogic.SOURCE;
+        const text = historyLabel(entry);
+        if (![S.PRESET, S.CURATOR, S.BUNDLE, S.UNDO].includes(entry.source)) return Sanitizer.escapeHTML(text);
+        const m = text.match(/^[^:：]*[:：]/);
+        const kind = m ? m[0] : text;
+        return `<span class="hist-kind">${Sanitizer.escapeHTML(kind)}</span>${Sanitizer.escapeHTML(text.slice(kind.length))}`;
+    }
+
+    // The link an entry opens, as data attributes: its game, else its curator,
+    // else its bundle. Numeric ids only, since the URL is built from them
+    // (openHistoryEntry).
+    const BUNDLE_PATH = /^(bundle|sub)\/\d+$/;
+    function historyLink(entry) {
+        if (/^\d+$/.test(String(entry.appid))) return { appid: String(entry.appid) };
+        if (/^\d+$/.test(String(entry.curatorId))) return { curatorId: String(entry.curatorId) };
+        if (BUNDLE_PATH.test(String(entry.bundle))) return { bundle: String(entry.bundle) };
+        return {};
+    }
+
     // Build "Hold [mouse] & Swipe [swoosh]" from the localized label, dropping its
     // trailing text arrow in favour of the SVG motion glyph. `motion`: true/false
-    // = swoosh right/left, 'circle' = the loop.
+    // = swoosh right/left, 'circle' = the loop. The mouse goes after the first
+    // word, so a two-word verb is joined by a no-break space (tr "Basılı tut").
     function gestureChip(labelKey, motion, slot) {
         const stripped = t(labelKey).replace(/\s*[→←➜]\s*$/, '').trim();
         const sp = stripped.indexOf(' ');
         const first = sp === -1 ? stripped : stripped.slice(0, sp);
         const rest = sp === -1 ? '' : stripped.slice(sp + 1);
-        let inner = `${Sanitizer.escapeHTML(first)}${mouseSvg(true, 'mouse-ico', 15, 21)}`;
+        let inner = `${Sanitizer.escapeHTML(first)}${mouseSvg(true, 'mouse-ico', 15, 21, slot)}`;
         if (rest) inner += Sanitizer.escapeHTML(rest);
         inner += motion === 'circle' ? ringSvg(slot) : swooshSvg(motion, slot);
         return `<span class="kbd-key" style="margin-left:0;">${inner}</span>`;
@@ -92,7 +196,7 @@
 
         const safeKeyName = Sanitizer.escapeHTML(names[key] || key);
         const safeLeftClick = Sanitizer.escapeHTML(t('left_click'));
-        return `<span class="kbd-key" style="margin-left:0;">${safeKeyName}</span> <span style="margin: 0 4px;">+</span> <span class="kbd-key">${safeLeftClick}</span> ${mouseSvg(false, 'mouse-icon', 16, 18)}`;
+        return `<span class="kbd-key" style="margin-left:0;">${safeKeyName}</span> <span style="margin: 0 4px;">+</span> <span class="kbd-key">${safeLeftClick}</span> ${mouseSvg(false, 'mouse-icon', 16, 18, slot)}`;
     }
 
     // When Steam's list was last read: the time alone today, with the date before.
@@ -140,7 +244,7 @@
 
         const Stats = window.ILAP.StatsLogic;
         renderTotal(root, data);
-        root.getElementById('last-game').textContent = data[Stats.LAST_KEY] || t('none');
+        const lastName = data[Stats.LAST_KEY];
 
         const defKey = Settings.normalizeShortcut(data[K.SHORTCUT]) || Settings.DEFAULTS.SHORTCUT;
         const platKey = Settings.normalizeShortcut(data[K.PLATFORM]) || Settings.DEFAULTS.PLATFORM;
@@ -157,7 +261,7 @@
 
         if (platKey !== 'off') {
             hintHtml += `
-                <div class="hint-line" style="margin-top: 8px;">
+                <div class="hint-line">
                     <span class="hint-label" style="color: #3ca8fc;">${safeAlreadyPlayedLabel}</span>
                     ${getShortcutHintHtml(platKey, 'plat')}
                 </div>
@@ -170,13 +274,36 @@
         }
 
         const history = data[Stats.HISTORY_KEY] || [];
+        // The closed box shows the newest entry, with its icon, while that
+        // entry is the name it shows. The list then goes on from the next one,
+        // so the box and the list show four different games.
+        const boxed = !!history[0] && history[0].name === lastName;
+        root.getElementById('last-game').innerHTML = boxed ? historyLabelHtml(history[0]) : Sanitizer.escapeHTML(lastName || t('none'));
+        // The box opens its entry's page too, like the list's entries.
+        const lastRow = root.getElementById('last-ignored-row');
+        if (lastRow) {
+            delete lastRow.dataset.appid;
+            delete lastRow.dataset.curatorId;
+            delete lastRow.dataset.bundle;
+            Object.assign(lastRow.dataset, boxed ? historyLink(history[0]) : {});
+        }
+        const lastSrc = root.getElementById('last-src');
+        if (lastSrc) lastSrc.innerHTML = boxed ? sourceIcon(history[0]) : '';
+        const listed = history.slice(boxed ? 1 : 0, boxed ? 4 : 3);
+        // Nothing past the box: no list to drop down, and no chevron promising one.
+        const trigger = root.querySelector('.history-trigger');
+        if (trigger) trigger.classList.toggle('no-more', boxed && listed.length === 0);
         const historyDiv = root.getElementById('history-list');
         if (historyDiv) {
-            if (history.length > 0) {
-                // innerHTML needs sanitization
-                historyDiv.innerHTML = history.slice(0, 3).map(i => {
-                    const safeGameName = Sanitizer.escapeHTML(i.name);
-                    return `<div class="history-entry">• ${safeGameName}</div>`;
+            if (listed.length > 0) {
+                // innerHTML needs sanitization. An entry that knows its game
+                // or its curator opens that store page on a click (openHistoryEntry).
+                historyDiv.innerHTML = listed.map(i => {
+                    const safeName = historyLabelHtml(i);
+                    const to = historyLink(i);
+                    const link = to.appid ? ` data-appid="${to.appid}"` : to.curatorId ? ` data-curator-id="${to.curatorId}"`
+                        : to.bundle ? ` data-bundle="${to.bundle}"` : '';
+                    return `<div class="history-entry"${link}><span class="hist-bullet" aria-hidden="true">•</span><span class="hist-name">${safeName}</span><span class="hist-src">${sourceIcon(i)}</span></div>`;
                 }).join('');
             } else {
                 const safeEmpty = Sanitizer.escapeHTML(t('no_recent_history'));
@@ -208,7 +335,7 @@
         chip.innerHTML = window.ILAP.i18n.getLanguages()
             .filter(l => l.translated)
             .map(l => {
-                const label = l.beta ? `${l.name} (beta)` : l.name;
+                const label = l.beta ? `${l.name}` : l.name;
                 return `<option value="${Sanitizer.escapeHTML(l.code)}">${Sanitizer.escapeHTML(label)}</option>`;
             })
             .join('');
@@ -278,11 +405,28 @@
             const jobs = Array.isArray(res[Store.QUEUE_KEY]) ? res[Store.QUEUE_KEY] : [];
             const jobKeys = [];
             for (const j of jobs) {
-                jobKeys.push(Store.CURSOR_PREFIX + j.id, Store.SKIPPED_PREFIX + j.id, Lease.LOCK_PREFIX + j.curatorId);
+                jobKeys.push(Store.CURSOR_PREFIX + j.id, Store.SKIPPED_PREFIX + j.id, Store.WISHLISTED_PREFIX + j.id,
+                    Lease.LOCK_PREFIX + j.curatorId);
             }
             if (jobKeys.length === 0) { cb(res); return; }
             chrome.storage.local.get(jobKeys, (more) => cb(Object.assign(res, more)));
         });
+    }
+
+    // A click on a history entry, or on the box above the list, opens its
+    // game's (or its curator's) store page in a new tab. The URL is built from
+    // the entry's numeric id, and only a real click counts: in the widget this
+    // list sits in an open shadow root on a Steam page (the same rule as the
+    // queue's curator square, popup_queue.js).
+    function openHistoryEntry(e) {
+        if (!e.isTrusted) return;
+        const entry = e.target.closest('.history-entry, #last-ignored-row');
+        if (!entry) return;
+        const { appid, curatorId, bundle } = entry.dataset;
+        const url = /^\d+$/.test(appid || '') ? 'https://store.steampowered.com/app/' + appid + '/'
+            : /^\d+$/.test(curatorId || '') ? 'https://store.steampowered.com/curator/' + curatorId + '/'
+            : BUNDLE_PATH.test(bundle || '') ? 'https://store.steampowered.com/' + bundle + '/' : null;
+        if (url) window.open(url, '_blank', 'noopener');
     }
 
     // Wire the popup UI against a query root: `document` for the browser popup
@@ -295,6 +439,9 @@
         const isVisible = (opts && opts.isVisible) || (() => true);
         const settings = window.ILAP_Settings.create(root, { applyMasterInert });
         const queue = window.ILAP_Queue.create(root);
+        // Add in the lists menu flies the list into the queue's job count, which
+        // holds its old number until it lands.
+        const presets = window.ILAP_Presets.create(root, { holdCount: () => queue.holdCount() });
         const Log = window.ILAP.IgnoreLog;
         const Store = window.ILAP.Curator.Store;
         const Lease = window.ILAP.Curator.Lease;
@@ -302,6 +449,10 @@
         const undoService = new window.ILAP.UndoService({ store: Store, log: Log, maxJobs: Store.MAX_JOBS });
         const undo = window.ILAP_Undo.create(root, undoService);
         const renderUndo = () => Log.getLog().then((log) => undo.render(log));
+        const historyList = root.getElementById('history-list');
+        if (historyList) historyList.addEventListener('click', openHistoryEntry);
+        const lastRow = root.getElementById('last-ignored-row');
+        if (lastRow) lastRow.addEventListener('click', openHistoryEntry);
         // Mid-drain the log changes 1-3 times a second, and each re-read is every
         // chunk: one trailing re-read per second is plenty for a count.
         let undoTimer = null;
@@ -401,10 +552,13 @@
             // see wireExclusiveDetails in popup_settings.js for why in-frame). The
             // `toggle` handlers above still own persistence + lazy settings.init()
             // (and the lang-chip open path), so those keep working. The language chip
-            // sits in the SETTINGS summary and owns its own click.
+            // sits in the SETTINGS summary and owns its own click, the lists icon
+            // the same in the queue's.
             const wireExclusive = window.ILAP_Settings.wireExclusiveDetails;
-            wireExclusive(accordion, queueAcc, '.lang-chip');
-            wireExclusive(queueAcc, accordion, '.lang-chip');
+            // SETTINGS opens only once an open queue has folded away (the
+            // .handoff duration in popup.css).
+            wireExclusive(accordion, queueAcc, '.lang-chip', QUEUE_HANDOFF_MS);
+            wireExclusive(queueAcc, accordion, '.lang-chip, .preset-chip');
 
             // Real user input only: in the on-page widget this panel lives in an
             // open shadow root, where page script could otherwise forge a
@@ -434,7 +588,12 @@
             //    and the count only — rebuilding every other panel's markup for a
             //    moving number is pure waste;
             //  - the ignore log: the undo applet, throttled.
+            // Apart from those, the queue and the lists' done marks redraw an open
+            // lists menu.
             const keys = Object.keys(changes || {});
+            if (keys.some(k => k === Store.QUEUE_KEY || k.indexOf(Store.PRESET_DONE_PREFIX) === 0)) {
+                presets.refresh();
+            }
             const fullKeys = uiKeys().filter(k => k !== Stats.COUNT_KEY && k !== Stats.TOTAL_KEY);
             const isQueueKey = (k) => k === Store.QUEUE_KEY
                 || k === Store.PULSE_KEY
@@ -443,9 +602,11 @@
                 || k === Stats.TOTAL_KEY
                 || k.indexOf(Store.CURSOR_PREFIX) === 0
                 || k.indexOf(Store.SKIPPED_PREFIX) === 0
+                || k.indexOf(Store.WISHLISTED_PREFIX) === 0
                 || k.indexOf(Lease.LOCK_PREFIX) === 0;
             const isProgressKey = (k) => k.indexOf(Store.CURSOR_PREFIX) === 0
-                || k.indexOf(Store.SKIPPED_PREFIX) === 0;
+                || k.indexOf(Store.SKIPPED_PREFIX) === 0
+                || k.indexOf(Store.WISHLISTED_PREFIX) === 0;
             if (keys.some(k => fullKeys.includes(k))) {
                 readAll((current) => renderAll(current, !!changes[K.LANG]));
                 return;

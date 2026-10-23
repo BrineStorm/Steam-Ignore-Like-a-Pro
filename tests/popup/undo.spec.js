@@ -75,6 +75,24 @@ test.describe('Popup — undo applet', () => {
         const job = res.ilap_curator_queue[0];
         expect(job.type).toBe('undo');
         expect(job.appids.sort()).toEqual(['1', '2']);   // both log entries, clamped to the log
+        expect(job.scope).toEqual({ n: 2 });             // what was asked, for the job's name
+    });
+
+    test('A job staged by time is named for its window in the queue', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_ignore_log: [logEntry(1), logEntry(2)] });
+        await openPopup(page, context);
+
+        await page.locator('#undo-btn').click();
+        await page.locator('#undo-time').fill('2');
+        await page.locator('#undo-unit-d').click();
+        await page.locator('#undo-go-time').click();
+
+        await expect.poll(async () => {
+            const res = await getExtensionStorage(context, 'ilap_curator_queue');
+            return (res.ilap_curator_queue || [])[0];
+        }).toMatchObject({ type: 'undo', scope: { n: 2, unit: 'd' } });
+        await page.locator('#queue-accordion summary').click();
+        await expect(page.locator('.queue-job .queue-job-name')).toHaveText('Undo last 2 d');
     });
 
     test('The -[ ]+ stepper counts up and down and never goes negative', async ({ page, context }) => {
@@ -256,29 +274,30 @@ test.describe('Popup — undo applet', () => {
     });
 
     test('A staged undo job renders localized, without a filter line, and can be removed', async ({ page, context }) => {
-        const job = undoJob();
+        const job = undoJob({ status: 'paused' });   // Remove shows on a paused job
         await setExtensionStorage(context, { ilap_curator_queue: [job] });
         await openPopup(page, context);
 
         await expect(page.locator('#queue-accordion')).toBeVisible();
         await page.locator('#queue-accordion summary').click();
 
+        // Staged before the job kept its scope: the plain name.
         const row = page.locator('.queue-job').first();
         await expect(row.locator('.queue-job-name')).toHaveText('Undo ignores');
-        await expect(row.locator('.queue-job-sub')).toHaveCount(0);   // no curator filter line
-        await expect(row.locator('.queue-job-count')).toContainText('0 / 3');
+        await expect(row.locator('.queue-mini')).toHaveAttribute('aria-label', /0 \/ 3/);
 
         await row.locator('[data-act="remove"]').click();
-        await expect(page.locator('#queue-accordion')).toBeHidden();
+        await row.locator('[data-act="confirm"]').click();   // Remove asks first
+        await expect(page.locator('#queue-accordion')).toHaveClass(/is-empty/);
         const res = await getExtensionStorage(context, 'ilap_curator_queue');
         expect(res.ilap_curator_queue).toEqual([]);
     });
 
-    test('When the last job finishes while the queue is open, the applet collapses smoothly, then hides', async ({ page, context }) => {
+    test('When the last job finishes while the queue is open, the applet collapses smoothly, then empties', async ({ page, context }) => {
         // Open with one job, then drain to empty (what the drainer does on
         // completion: removeJob → queue becomes []). The applet must animate the
         // solo collapse instead of snapping shut, so it briefly carries the
-        // .solo-collapse class before it finally hides.
+        // .solo-collapse class before it settles as an empty bar.
         await setExtensionStorage(context, { ilap_curator_queue: [undoJob()] });
         await openPopup(page, context);
         await page.locator('#queue-accordion summary').click();
@@ -296,9 +315,9 @@ test.describe('Popup — undo applet', () => {
 
         await setExtensionStorage(context, { ilap_curator_queue: [] });
 
-        // Settles hidden once the animation ends, and it got there via the smooth
+        // Settles empty once the animation ends, and it got there via the smooth
         // solo-collapse rather than a hard snap.
-        await expect(page.locator('#queue-accordion')).toBeHidden();
+        await expect(page.locator('#queue-accordion')).toHaveClass(/is-empty/);
         expect(await page.evaluate(() => window.__soloSeen)).toBe(true);
         await expect(page.locator('#queue-accordion')).not.toHaveClass(/solo-collapse/);
     });

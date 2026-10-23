@@ -34,15 +34,15 @@ function loadAutomatorClass() {
 // are the gate verdict and the ignore-API result (ignoreRes overrides the
 // plain ok/fail shape when a test needs the rateLimited flavour), the sale-reward
 // verdict and the notice's answer.
-function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore, reward, confirm }) {
+function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore, reward, confirm, wishlisted }) {
     const calls = { ignores: 0, toastRemoved: 0, visualsCleared: 0, statsSaved: [], rateReports: [],
         locked: 0, lockPending: [], intents: [], runIds: [], openRuns: new Set(), closedRuns: [],
-        prompts: 0 };
+        prompts: 0, visuals: [] };
     const a = new Automator({
         settings: { read: async () => ({}), subscribe: () => {}, disableQueue: async () => {} },
         ui: {
             clearStartPrompt: () => {},
-            applyVisuals: () => {},
+            applyVisuals: (type) => { calls.visuals.push(type); },
             removeToast: () => { calls.toastRemoved++; },
             clearVisuals: () => { calls.visualsCleared++; },
             showAdvanceLock: (btn, pending) => { calls.locked++; calls.lockPending.push(pending); },
@@ -82,6 +82,7 @@ function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore
             isLive: async (id) => calls.openRuns.has(id),
             close: async (id) => { calls.openRuns.delete(id); calls.closedRuns.push(id); },
         },
+        wishlist: { has: wishlisted || (async () => false) },
     });
     return { a, calls };
 }
@@ -95,11 +96,11 @@ test.describe('ExploreAutomator (unit)', () => {
             settings: a.settings, ui: a.ui, api: a.api, gate: a.gate, stats: a.stats,
             navGuard: a.nav, nameExtractor: a.nameExtractor, context: a.context,
             analyzer: a.analyzer, decisionEngine: a.decisionEngine, reward: a.reward, notice: a.notice,
-            runs: a.runs,
+            runs: a.runs, wishlist: a.wishlist,
         });
         expect(() => new Automator(deps())).not.toThrow();
         for (const name of ['ui', 'navGuard', 'context', 'analyzer', 'decisionEngine', 'gate', 'reward', 'notice',
-            'runs']) {
+            'runs', 'wishlist']) {
             const broken = Object.assign(deps(), { [name]: {} });
             expect(() => new Automator(broken), name).toThrow(`needs deps.${name}`);
         }
@@ -115,6 +116,29 @@ test.describe('ExploreAutomator (unit)', () => {
         expect(a.processedSession.has('123')).toBe(false);
         expect(calls.ignores).toBe(0);       // stop verdict → no POST
         expect(calls.toastRemoved).toBe(1);  // teardown, not a silent no-op
+    });
+
+    test('a wishlisted game is never ignored: no slot, no POST, its own mark', async () => {
+        const Automator = loadAutomatorClass();
+        let reserved = 0;
+        const { a, calls } = makeAutomator(Automator, {
+            reserve: async () => { reserved++; return { ok: true }; }, ignoreOk: true,
+            wishlisted: async () => true,
+        });
+        await a._executeLogic('123');
+        expect(reserved).toBe(0);
+        expect(calls.ignores).toBe(0);
+        expect(calls.visuals).toEqual(['WISHLIST']);
+        expect(a.processedSession.has('123')).toBe(false);
+    });
+
+    test('a failed wishlist read is a failed ignore: no POST, no mark', async () => {
+        const Automator = loadAutomatorClass();
+        const { a, calls } = makeAutomator(Automator, { gateOk: true, ignoreOk: true, wishlisted: async () => null });
+        await a._executeLogic('123');
+        expect(calls.ignores).toBe(0);
+        expect(calls.visuals).toEqual([]);
+        expect(a.processedSession.has('123')).toBe(false);
     });
 
     test('a failed ignore POST leaves the appid UN-marked', async () => {
@@ -180,7 +204,8 @@ test.describe('ExploreAutomator (unit)', () => {
         a._scheduleNextClick = () => { scheduled++; };
 
         const pending = a._executeLogic('123');
-        await Promise.resolve();
+        // The wishlist read comes first: wait until reserve() is waiting.
+        while (!release) await Promise.resolve();
         a._stopAutomation();
         release();
         await pending;

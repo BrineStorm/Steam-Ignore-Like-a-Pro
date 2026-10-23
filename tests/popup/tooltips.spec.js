@@ -2,6 +2,7 @@ const { test, expect } = require('../_fixtures.js');
 const {
     getExtensionId,
     setExtensionStorage,
+    getExtensionStorage,
     clearExtensionStorage,
     popupUrl,
 } = require('../_extension.js');
@@ -47,7 +48,7 @@ const unhover = (page) => page.mouse.move(2, 2);
 // tip 2s (see the dedicated tests below). What THESE walks measure is geometry,
 // not patience, so they drop the delay rather than paying it 19 times per locale list.
 const dropTipDelay = (page) => page.addStyleTag({
-    content: '#undo-tip, #lang-tip, .dq-next-tip, #count-tip { transition-delay: 0s !important; }',
+    content: '#undo-tip, #lang-tip, #preset-tip, .dq-next-tip, #count-tip { transition-delay: 0s !important; }',
 });
 
 // Hover a trigger until ITS tooltip is actually up. The retry is not "wait a bit
@@ -191,6 +192,28 @@ test.describe('Popup — our own tooltips fit the panel', () => {
         }
     });
 
+    test('the built-in lists tooltip is ours, not the browser title, and fits in every locale', async ({ page, context }) => {
+        test.setTimeout(3 * 60 * 1000);
+        await openPopup(page, context);
+        await dropTipDelay(page);
+
+        // The native bubble is gone: nothing on the icon has a `title`.
+        await expect(page.locator('#preset-chip')).not.toHaveAttribute('title', /./);
+
+        const locales = await shippedLocales(page);
+
+        for (const code of locales) {
+            await useLocale(page, context, code);
+
+            const expected = await page.evaluate(() => window.ILAP.t('presets_title'));
+            await expect(page.locator('#preset-tip')).toHaveText(expected);
+
+            await hoverForTip(page, '#preset-chip', '#preset-tip', code);
+            await expectFits(page, '#preset-tip', code);
+            await unhover(page);
+        }
+    });
+
     test('the DQ master tooltip is ours, not the browser title, and fits in every locale', async ({ page, context }) => {
         test.setTimeout(3 * 60 * 1000);
         await openPopup(page, context);
@@ -229,6 +252,10 @@ test.describe('Popup — our own tooltips fit the panel', () => {
         await page.locator('#settings-accordion > summary').click();
         await page.locator('#dq-section summary .section-title').click();
         await expect(page.locator('#dq-section')).toHaveJSProperty('open', true);
+        // A locale switch rebuilds the section from the stored open flag, which
+        // the async `toggle` event writes. Switching before it lands rebuilt the
+        // section collapsed for the rest of the walk.
+        await expect.poll(async () => (await getExtensionStorage(context, 'ilap_dq_open')).ilap_dq_open).toBe(true);
 
         // The native bubble is gone: nothing on the row carries a `title`.
         await expect(page.locator('.dq-next-row')).not.toHaveAttribute('title', /./);
@@ -264,6 +291,15 @@ test.describe('Popup — our own tooltips fit the panel', () => {
         }
     });
 
+    test('the built-in lists tip waits 2s before it appears', async ({ page, context }) => {
+        await openPopup(page, context);
+        await unhover(page);
+        await page.locator('#preset-chip').hover();
+        await page.waitForTimeout(1000);
+        await expect(page.locator('#preset-tip'), '#preset-tip must still be down after 1s').toBeHidden();
+        await expect(page.locator('#preset-tip')).toBeVisible({ timeout: 3500 });
+    });
+
     test('the Auto-advance tip waits 2s before it appears', async ({ page, context }) => {
         // It hangs over the Ignore Mode block, where a cursor crossing the row
         // is usually headed.
@@ -271,6 +307,12 @@ test.describe('Popup — our own tooltips fit the panel', () => {
         await page.locator('#settings-accordion > summary').click();
         await page.locator('#dq-section summary .section-title').click();
         await expect(page.locator('#dq-section')).toHaveJSProperty('open', true);
+        // SETTINGS and the subcategory open with a height transition: hover only
+        // once the row has stopped moving, or it slides out from under the pointer.
+        // A transition cut short (the gear's hover growth, once the pointer
+        // leaves SETTINGS) rejects its `finished`, which is just as settled.
+        await page.locator('#settings-accordion').evaluate((el) =>
+            Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {}))));
 
         await unhover(page);
         await page.locator('.dq-next-row').hover();

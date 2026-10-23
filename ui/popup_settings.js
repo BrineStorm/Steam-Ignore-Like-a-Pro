@@ -23,15 +23,38 @@
     // concurrent collapse triggered by opening the sibling stays unmarked so it
     // snaps shut together. `skipSelector` names an in-summary control that owns its
     // own click (the language chip / the DQ master switch) and must not toggle it.
-    const wireExclusiveDetails = (section, sibling, skipSelector) => {
+    // `handoffMs`: instead of snapping an open sibling shut, fold it away smoothly
+    // (.solo-collapse.handoff) and open this section only once it has folded, so
+    // the two heights never add up on screen.
+    const wireExclusiveDetails = (section, sibling, skipSelector, handoffMs) => {
         if (!section) return;
         const summary = section.querySelector(':scope > summary');
         if (!summary) return;
+        let handoff = null;
         summary.addEventListener('click', (e) => {
             if (skipSelector && e.target.closest(skipSelector)) return;
             e.preventDefault();
+            // A second click during a hand-off cancels it: nothing opens.
+            if (handoff) {
+                clearTimeout(handoff);
+                handoff = null;
+                return;
+            }
             const willOpen = !section.open;
             section.classList.toggle('solo-collapse', !willOpen);
+            if (willOpen && sibling && sibling.open && handoffMs) {
+                sibling.classList.add('solo-collapse', 'handoff');
+                sibling.open = false;
+                handoff = setTimeout(() => {
+                    handoff = null;
+                    sibling.classList.remove('handoff');
+                    // The sibling was opened again meanwhile: the later click
+                    // wins, and the two are never open together.
+                    if (sibling.open) return;
+                    section.open = true;
+                }, handoffMs);
+                return;
+            }
             if (willOpen && sibling) sibling.open = false;
             section.open = willOpen;
         });

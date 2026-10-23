@@ -44,11 +44,17 @@
         // keeps running with no storage behind it — and one unhandled rejection
         // per ignore is all it would produce.
         const statsAdapter = { save: (name, appid) => {
-            window.ILAP.saveStats(name, window.ILAP.StatsLogic.SOURCE.EQ);
+            window.ILAP.saveStats(name, window.ILAP.StatsLogic.SOURCE.EQ, appid);
             window.ILAP.IgnoreLog.append({ appid, name, source: 'eq' })
                 .catch((e) => console.warn('[ILAP] ignore-log append failed:', e));
         } };
         const nameExtractorAdapter = { get: (appid, el) => window.ILAP.getGameName(appid, el) };
+        // A userdata read outside a drain pass: paced in the ignores' stream
+        // (IgnoreGate.paceRead), so a 429 penalty holds it back too.
+        const wishlistAdapter = { has: async (appid) => {
+            await window.ILAP.IgnoreGate.paceRead();
+            return window.ILAP.isWishlisted(appid);
+        } };
 
         // 6. Automator DI Assembly
         const automator = new Explore.AutomatorClass({
@@ -64,7 +70,8 @@
             decisionEngine: Explore.DecisionEngine,
             reward: window.ILAP.SaleReward,
             notice: window.ILAP.AutomationNotice,
-            runs: runs
+            runs: runs,
+            wishlist: wishlistAdapter
         });
 
         // 7. Run

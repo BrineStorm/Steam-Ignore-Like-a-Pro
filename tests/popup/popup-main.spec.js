@@ -154,6 +154,152 @@ test.describe('Popup — main view', () => {
         await expect(page.locator('#history-list')).not.toContainText('Game4');
     });
 
+    test('The list goes on from the game in the Recent box: four different games, bullet left, source right', async ({ page, context }) => {
+        const history = ['Game1', 'Game2', 'Game3', 'Game4', 'Game5'].map(name => ({ name, source: 'Default Ignore' }));
+        await setExtensionStorage(context, { ilap_ignored_history: history, ilap_last_ignored_name: 'Game1' });
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+
+        await expect(page.locator('#last-game')).toHaveText('Game1');
+        await expect(page.locator('#history-list .hist-name')).toHaveText(['Game2', 'Game3', 'Game4']);
+        const entry = page.locator('#history-list .history-entry').first();
+        await expect(entry.locator(':scope > *')).toHaveClass([/hist-bullet/, /hist-name/, /hist-src/]);
+
+        // Only the box's game: no list to drop down.
+        await setExtensionStorage(context, { ilap_ignored_history: history.slice(0, 1) });
+        await expect(page.locator('.history-trigger')).toHaveClass(/no-more/);
+        await expect(page.locator('#history-list')).toBeHidden();
+        await expect(page.locator('.last-chevron')).toBeHidden();
+    });
+
+    test('Finished jobs show in the history with their kind in front and their own glyph', async ({ page, context }) => {
+        await setExtensionStorage(context, {
+            ilap_ignored_history: [
+                { name: 'vr', source: 'Built-in List', presetKey: 'vr' },
+                { name: 'No AI Games', source: 'Curator', filter: 'not_recommended', curatorId: '101' },
+                { name: 'undo', source: 'Undo', scope: { n: 40 } },
+                { name: 'Portal 2', source: 'Played Elsewhere', appid: '620' },
+            ],
+            ilap_last_ignored_name: 'vr',
+        });
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+
+        await expect(page.locator('#last-game')).toHaveText(/^Ignore: /);
+        await expect(page.locator('#last-src .hist-glyph svg')).toHaveCount(1);
+        await expect(page.locator('#history-list .hist-name')).toHaveText(['Curator: No AI Games', 'Un-ignore: last 40', 'Portal 2']);
+        const entries = page.locator('#history-list .history-entry');
+        await expect(entries.nth(0)).toHaveAttribute('data-curator-id', '101');
+        await expect(entries.nth(0).locator('.hist-square')).toHaveCount(1);
+        await expect(entries.nth(1)).not.toHaveAttribute('data-curator-id', /.*/);
+
+        await page.locator('.history-trigger').hover();
+        const opened = context.waitForEvent('page');
+        await entries.nth(0).click();
+        const tab = await opened;
+        expect(tab.url()).toMatch(/^https:\/\/store\.steampowered\.com\/curator\/101\/?/);
+        await tab.close();
+    });
+
+    test('One curator run with two filters shows twice, told apart by the filter square, the box opening it too', async ({ page, context }) => {
+        await setExtensionStorage(context, {
+            ilap_ignored_history: [
+                { name: 'No AI Games', source: 'Curator', filter: 'not_recommended', curatorId: '101' },
+                { name: 'No AI Games', source: 'Curator', filter: 'informational', curatorId: '101' },
+                { name: 'vr', source: 'Built-in List', presetKey: 'vr' },
+            ],
+            ilap_last_ignored_name: 'No AI Games',
+        });
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+
+        await expect(page.locator('#last-game')).toHaveText('Curator: No AI Games');
+        await expect(page.locator('#history-list .hist-name')).toHaveText(['Curator: No AI Games', 'Ignore: Every VR game']);
+        // The kind is grey in both. The square beside each has its filter's colour.
+        const colour = (loc, prop) => loc.evaluate((el, p) => getComputedStyle(el)[p], prop);
+        expect(await colour(page.locator('#last-game .hist-kind'), 'color')).toBe('rgb(143, 152, 160)');
+        expect(await colour(page.locator('#history-list .hist-kind').first(), 'color')).toBe('rgb(143, 152, 160)');
+        expect(await colour(page.locator('#last-src .hist-square'), 'backgroundColor')).toBe('rgb(236, 151, 108)');
+        expect(await colour(page.locator('#history-list .hist-square').first(), 'backgroundColor')).toBe('rgb(241, 222, 116)');
+
+        const opened = context.waitForEvent('page');
+        await page.locator('#last-ignored-row').click();
+        const tab = await opened;
+        expect(tab.url()).toMatch(/^https:\/\/store\.steampowered\.com\/curator\/101\/?/);
+        await tab.close();
+    });
+
+    test('A history entry with an appid opens its store page; one without does nothing', async ({ page, context }) => {
+        await setExtensionStorage(context, {
+            ilap_ignored_history: [
+                { name: 'Portal 2', source: 'Queue', appid: '620' },
+                { name: 'Old entry', source: 'Queue' },
+            ],
+        });
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        await page.locator('.history-trigger').hover();
+
+        const entries = page.locator('#history-list .history-entry');
+        await expect(entries.nth(0)).toHaveAttribute('data-appid', '620');
+        await expect(entries.nth(1)).not.toHaveAttribute('data-appid', /.*/);
+
+        const opened = context.waitForEvent('page');
+        await entries.nth(0).click();
+        const tab = await opened;
+        expect(tab.url()).toMatch(/^https:\/\/store\.steampowered\.com\/app\/620\/?/);
+        await tab.close();
+
+        // The new tab took the pointer off the list: back to the popup, hover again.
+        await page.bringToFront();
+        await page.mouse.move(0, 0);
+        await page.locator('.history-trigger').hover();
+        const before = context.pages().length;
+        await entries.nth(1).click();
+        await page.waitForTimeout(300);
+        expect(context.pages().length).toBe(before);
+    });
+
+    test('A finished job\'s kind reads in grey and the whole entry fits two lines', async ({ page, context }) => {
+        const long = 'Games that use generative AI for art, voice acting, writing or code, and the studios behind them';
+        await setExtensionStorage(context, {
+            ilap_lang: 'fr',
+            ilap_ignored_history: [
+                { name: 'Portal 2', source: 'Queue', appid: '620' },
+                { name: long, source: 'Curator', filter: 'all_but_recommended', curatorId: '102' },
+                { name: 'vr', source: 'Built-in List', presetKey: 'vr' },
+            ],
+            ilap_last_ignored_name: 'Portal 2',
+        });
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        const names = page.locator('#history-list .hist-name');
+        await expect(names.first().locator('.hist-kind')).toHaveText('Groupe de curation :');
+        await expect(names.nth(1).locator('.hist-kind')).toHaveText('Ignorer :');
+        for (const kind of await page.locator('#history-list .hist-kind').all()) {
+            expect(await kind.evaluate(el => getComputedStyle(el).color)).toBe('rgb(143, 152, 160)');
+        }
+        await page.locator('.history-trigger').hover();
+        const lines = await names.first().evaluate(el => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)));
+        expect(lines).toBe(2);
+    });
+
+    test('The bars\' titles light up on hover, the gear turns and grows, the stack\'s bars drop in', async ({ page, context }) => {
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        const title = page.locator('#settings-accordion > summary .summary-title > span');
+        const colour = () => title.evaluate(el => getComputedStyle(el).color);
+        expect(await colour()).toBe('rgb(221, 226, 231)');
+        await page.locator('#settings-accordion > summary').hover();
+        await expect.poll(colour).toBe('rgb(255, 255, 255)');
+        await expect.poll(() => page.locator('.gear-ico').evaluate(el => getComputedStyle(el).transform))
+            .toMatch(/^matrix\((0\.88|0\.884)/);
+
+        await page.locator('#queue-accordion > summary .summary-title').hover();
+        const dropping = await page.locator('.queue-ico rect').evaluateAll(els => els.map(el => el.getAnimations().length));
+        expect(dropping).toEqual([1, 1, 1]);
+    });
+
     test('History entry escapes HTML in game names (XSS safety)', async ({ page, context }) => {
         await setExtensionStorage(context, {
             ilap_ignored_history: [{ name: '<img src=x onerror=alert(1)>', source: 'Manual' }],

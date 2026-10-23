@@ -715,3 +715,140 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         expect(data()[Store.UNDO_FAILED_KEY]).toBeUndefined();
     });
 });
+
+test.describe('Built-in list jobs (unit)', () => {
+    test('a list is staged drainable at once, as strings, counted against MAX_JOBS', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        const out = await Store.stagePreset('ai_2025', [10, 11], 'abcd1234');
+        expect(out.kind).toBe('added');
+        const [job] = data().ilap_curator_queue;
+        expect(job).toMatchObject({
+            id: out.jobId, type: 'preset', curatorId: 'preset_ai_2025', presetKey: 'ai_2025',
+            presetRev: 'abcd1234', appids: ['10', '11'], total: 2, status: 'pending',
+        });
+        expect(Store.jobTraits(job)).toEqual({ undo: false, gesture: false });
+        expect(Store.cappedCount(data().ilap_curator_queue)).toBe(1);
+    });
+
+    test('the same list twice is refused while it is queued', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.stagePreset('denuvo', [10], 'r1');
+        expect(await Store.stagePreset('denuvo', [10], 'r1')).toEqual({ kind: 'queued' });
+        expect(data().ilap_curator_queue).toHaveLength(1);
+    });
+
+    test('a list waits for a free slot like a curator', async () => {
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [
+                { id: 'a', type: 'curator', curatorId: '1', appids: ['1'] },
+                { id: 'b', type: 'curator', curatorId: '2', appids: ['2'] },
+                { id: 'c', type: 'preset', curatorId: 'preset_ai_2026', appids: ['3'] },
+            ],
+        });
+        expect(await Store.stagePreset('ai_2025', [10], 'r1')).toEqual({ kind: 'full' });
+        expect(data().ilap_curator_queue).toHaveLength(3);
+    });
+
+    test('an empty list stages nothing', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        expect(await Store.stagePreset('ai_2019', [], 'r1')).toEqual({ kind: 'empty' });
+        expect(data().ilap_curator_queue).toBeUndefined();
+    });
+
+    test('markPresetDone writes the list\'s rev under its key', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.markPresetDone({ presetKey: 'ai_2025', presetRev: 'abcd1234' });
+        expect(data()[Store.PRESET_DONE_PREFIX + 'ai_2025']).toBe('abcd1234');
+    });
+
+    test('blockedPresets: a queued list and one done at the shipped rev, not one done at an older rev', async () => {
+        const { Store } = loadStoreWithChrome({
+            ilap_curator_queue: [{ id: 'a', type: 'preset', curatorId: 'preset_denuvo', appids: ['1'] }],
+            ilap_preset_done_ai_2025: 'r1',
+            ilap_preset_done_ai_2024: 'old',
+        });
+        const blocked = await Store.blockedPresets({ denuvo: 'd1', ai_2025: 'r1', ai_2024: 'r2', ai_2023: 'r3' });
+        expect([...blocked].sort()).toEqual(['ai_2025', 'denuvo']);
+    });
+
+    test('removing a list job, drained or by the user, marks nothing by itself', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        const first = await Store.stagePreset('ai_2025', [10, 11], 'abcd1234');
+        expect(await Store.removeIfDrained(first.jobId, 2)).toBe(true);
+        const second = await Store.stagePreset('denuvo', [10], 'r1');
+        await Store.removeJob(second.jobId);
+        expect(Object.keys(data()).filter(k => k.startsWith(Store.PRESET_DONE_PREFIX))).toEqual([]);
+    });
+});
+
+// A bundle staged by a gesture (Store.stageBundle): its own job while a job slot
+// is free, the MI job as the overflow, all of it or none.
+test.describe('Curator storage — bundles (unit)', () => {
+    const apps = (...ids) => ids.map(id => ({ appid: id, name: 'G' + id }));
+
+    test('a bundle becomes its own job with the gesture reason per app; the same bundle twice is queued', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        const out = await Store.stageBundle({ kind: 'bundle', id: '232', name: 'Valve Pack', apps: apps('10', '20', '10'), reason: 2 });
+        expect(out.kind).toBe('added');
+        const [job] = data()[Store.QUEUE_KEY];
+        expect(job).toMatchObject({ type: 'bundle', curatorId: 'bundle_232', curatorName: 'Valve Pack',
+            appids: ['10', '20'], total: 2, status: 'pending' });
+        expect(job.meta).toEqual({ 10: { reason: 2 }, 20: { reason: 2 } });
+        expect((await Store.stageBundle({ kind: 'bundle', id: '232', name: 'Valve Pack', apps: apps('10') })).kind).toBe('queued');
+        expect((await Store.stageBundle({ kind: 'sub', id: '1', name: '', apps: [] })).kind).toBe('empty');
+    });
+
+    test('with every job slot taken the apps go into the MI job, marked as a bundle\'s', async () => {
+        const full = [1, 2, 3].map(i => ({ id: 'j' + i, curatorId: 'c' + i, status: 'pending', appids: ['1'] }));
+        const { Store, data } = loadStoreWithChrome({ ilap_curator_queue: full });
+        const out = await Store.stageBundle({ kind: 'sub', id: '5', name: 'S', apps: apps('30', '40'), reason: 0 });
+        expect(out.kind).toBe('merged');
+        const mi = data()[Store.QUEUE_KEY].find(j => j.type === 'mi');
+        expect(mi.appids).toEqual(['30', '40']);
+        expect(mi.meta['30']).toMatchObject({ name: 'G30', reason: 0, bundle: true });
+    });
+
+    test('a bundle merged into the MI job leaves a swipe already waiting there as it was', async () => {
+        const full = [1, 2, 3].map(i => ({ id: 'j' + i, curatorId: 'c' + i, status: 'pending', appids: ['1'] }));
+        const { Store, data } = loadStoreWithChrome({ ilap_curator_queue: full });
+        await Store.enqueueMi({ appid: '30', name: 'Swiped', reason: 2, ts: 111 });
+        const out = await Store.stageBundle({ kind: 'sub', id: '5', name: 'S', apps: apps('30', '40'), reason: 0 });
+        expect(out.kind).toBe('merged');
+        const mi = data()[Store.QUEUE_KEY].find(j => j.type === 'mi');
+        expect(mi.appids).toEqual(['30', '40']);
+        expect(mi.meta['30']).toEqual({ name: 'Swiped', reason: 2, ts: 111 });
+        expect(mi.meta['40']).toMatchObject({ reason: 0, bundle: true });
+    });
+
+    test('a bundle bigger than the MI job has room for is refused as a whole', async () => {
+        const full = [1, 2, 3].map(i => ({ id: 'j' + i, curatorId: 'c' + i, status: 'pending', appids: ['1'] }));
+        const waiting = Array.from({ length: 199 }, (_, i) => String(1000 + i));
+        const mi = { id: 'job_mi', type: 'mi', curatorId: 'mi', status: 'pending', appids: waiting, meta: {}, total: 199 };
+        const { Store, data } = loadStoreWithChrome({ ilap_curator_queue: full.concat([mi]) });
+        const out = await Store.stageBundle({ kind: 'sub', id: '5', name: 'S', apps: apps('30', '40'), reason: 0 });
+        expect(out.kind).toBe('full');
+        expect(data()[Store.QUEUE_KEY].find(j => j.type === 'mi').appids).toHaveLength(199);
+        // One more single swipe still fits: the cap is unchanged for a swipe.
+        expect((await Store.enqueueMi({ appid: '30', name: 'G', reason: 0 })).kind).toBe('added');
+    });
+});
+
+// The IGNORED badge on a finished bundle's capsules (Store.markBundleDone) and
+// the rollback that takes it off (unmarkBundlesWith).
+test.describe('Curator storage — bundle marks (unit)', () => {
+
+    test('a finished bundle is marked with its apps; a rollback of one of them takes the mark off', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.markBundleDone({ curatorId: 'bundle_232', appids: ['10', '20'] });
+        await Store.markBundleDone({ curatorId: 'sub_7', appids: [30] });
+        // Only a bundle's key is a mark: a curator or a list job writes nothing.
+        await Store.markBundleDone({ curatorId: '1234', appids: ['1'] });
+        expect(Object.keys(data()[Store.IGNORED_BUNDLES_KEY]).sort()).toEqual(['bundle_232', 'sub_7']);
+        expect(data()[Store.IGNORED_BUNDLES_KEY].sub_7.appids).toEqual(['30']);
+
+        await Store.unmarkBundlesWith(['20']);
+        expect(Object.keys(await Store.getBundleMarks())).toEqual(['sub_7']);
+        await Store.unmarkBundlesWith(['999']);
+        expect(Object.keys(await Store.getBundleMarks())).toEqual(['sub_7']);
+    });
+});

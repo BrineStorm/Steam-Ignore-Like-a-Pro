@@ -121,7 +121,7 @@ function loadController() {
     const ILAP = sandbox.window.ILAP;
     const newController = (over) => new ILAP.Discovery.Controller(Object.assign({
         automator: new ILAP.Discovery.Automator({
-            userdata: { fetchIgnored: async () => new Set() },
+            userdata: { fetchIgnored: async () => new Set(), fetchWishlist: async () => new Set() },
             stats: { save: () => {} },
             nameExtractor: { get: () => 'Unknown Game' },
             gate: { reserve: async () => ({ ok: true }) },

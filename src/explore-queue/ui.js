@@ -76,6 +76,12 @@
                 </span>
             </div>
         `,
+        WISHLIST: ({ safeIconUrl }) => `
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
+                <span style="color: #45A1FA;">${Sanitizer.escapeHTML(t('wishlist_kept'))}</span>
+            </div>
+        `,
         DEFAULT: ({ safeIconUrl, safeBadgeLabel }) => `
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
                 <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
@@ -326,7 +332,8 @@
             const theme = { 
                 'IGNORE': this.colors.RED_BG, 
                 'SPARE': this.colors.BLUE_BG,
-                'NO_REVIEWS': this.colors.BLUE_BG 
+                'NO_REVIEWS': this.colors.BLUE_BG,
+                'WISHLIST': this.colors.BLUE_BG
             };
             const color = theme[type] || this.colors.BLUE_BG;
 
@@ -356,7 +363,7 @@
             // plate reads as a corner tag rather than a banner across the middle.
             badge.style.cssText = `position: absolute; top: -8px; left: 66%; transform: translateX(-50%); background: ${badgeBg}; color: white; font-size: 8px; font-weight: 800; padding: 1px 6px; border-radius: 3px; z-index: 100; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; cursor: help;`;
             // Past-tense labels: the action has already happened on this card.
-            const BADGE_LABELS = { 'NO_REVIEWS': 'NO REVIEWS', 'SPARE': 'SPARED', 'IGNORE': 'IGNORED' };
+            const BADGE_LABELS = { 'NO_REVIEWS': 'NO REVIEWS', 'SPARE': 'SPARED', 'IGNORE': 'IGNORED', 'WISHLIST': 'ON WISHLIST' };
             badge.textContent = BADGE_LABELS[type] || type;
 
             const tooltip = document.createElement('div');

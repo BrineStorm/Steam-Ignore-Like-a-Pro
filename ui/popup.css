@@ -11,7 +11,7 @@
     --muted: #8f98a0;
     --accent: #45A1FA;
     --toggle: #2f6fd0;
-    --danger: #ff6b6b;
+    --danger: #ee1c25;
     --chip: #0a0f16;
 }
 
@@ -88,8 +88,12 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
 /* === HEADER === */
+/* A band across the whole panel, ruled off from the stats under it: the
+   negative margins cancel #popup-root's padding. */
 h3 {
-    margin: 0 0 10px 0; color: #fff; font-size: 15px; font-weight: 700;
+    margin: -16px -16px 8px; padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    color: #fff; font-size: 15px; font-weight: 700;
     display: flex; justify-content: space-between; align-items: center;
 }
 .header-title-wrapper { display: flex; align-items: center; gap: 10px; }
@@ -167,23 +171,52 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
 
 .stat-label { color: #fff; }
 
-#last-game {
-    background: var(--inset); border: 1px solid var(--border);
-    padding: 9px 10px; border-radius: 8px; font-size: 14px;
-    display: block; width: 100%; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis; color: var(--text);
+/* The Last-Ignored box, drawn as a closed droplist over the history below it:
+   name, source icon, chevron. Hovering it shows the history, and the chevron
+   turns up for as long as the history does. */
+#last-ignored-row {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    background: var(--inset); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 12px 6px 10px;
 }
+#last-game {
+    flex: 1; min-width: 0; font-size: 13px; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.last-chevron {
+    width: 6px; height: 6px; flex-shrink: 0;
+    border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+    transform: translateY(-2px) rotate(45deg); transition: transform .2s ease;
+}
+.history-trigger:hover .last-chevron { transform: translateY(2px) rotate(-135deg); }
+/* The list hangs 4px below the box. A pointer crossing that gap would leave
+   the trigger, and the list would start fading out and back in. This strip
+   bridges it while the trigger is hovered. */
+.history-trigger:hover::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 6px; }
+/* Only the box's game so far: nothing to drop down (popup_main.js). */
+.history-trigger.no-more .last-chevron, .history-trigger.no-more .history-tooltip { display: none; }
+/* A history entry's source glyph (popup_main.js sourceIcon), on the right of
+   its name in a fixed slot, so every glyph sits in one column. */
+.hist-src { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 17px; flex-shrink: 0; }
+.hist-src svg { display: block; }
+/* Manual Ignore's sources: a stick that fades in toward the swipe, with the
+   stops of the hint card's swoosh (ui/icons.js swoosh). Both tilt the same
+   30° up to the right, the red one bright at its upper right end, the blue
+   one at its lower left end. */
+.hist-stick { display: block; width: 19px; height: 3.5px; border-radius: 2px; transform: rotate(-30deg); }
+.hist-stick.is-ignore { background: linear-gradient(to right, rgba(238,28,37,0), rgba(238,28,37,.85) 50%, #ee1c25); }
+.hist-stick.is-played { background: linear-gradient(to left, rgba(60,168,252,0), rgba(60,168,252,.85) 50%, #3ca8fc); }
+#last-ignored-row .hist-src:empty { display: none; }
 
 /* === UNDO (un-ignore the last X) === */
-#last-ignored-row { display: flex; align-items: stretch; gap: 6px; width: 100%; }
 /* The button lives in the "Total Ignored" row, left of the number: its own height
    (the row no longer stretches it) and a gap on the right before #count-link. */
 #undo-btn {
     display: inline-flex; align-items: center; justify-content: center;
-    width: 28px; height: 24px; padding: 0; margin-right: 8px;
+    width: 28px; height: 26px; padding: 0; margin-right: 10px;
     cursor: pointer; flex-shrink: 0;
-    background: var(--panel); color: var(--muted);
-    border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 7px;
     transition: background-color .15s ease, border-color .15s ease, color .15s ease;
 }
 #undo-btn:hover:not(:disabled) { background: #22303f; color: #fff; border-color: #3f5169; }
@@ -297,14 +330,14 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
 .undo-msg.ok { color: #7ad13f; }
 
 /* === HISTORY TOOLTIP === */
-.history-trigger { position: relative; display: block; width: 100%; cursor: help; }
+.history-trigger { position: relative; display: block; width: 100%; cursor: default; }
 
 .history-tooltip {
     visibility: hidden; position: absolute; top: 100%; margin-top: 4px; left: 0; right: 0;
-    background: var(--inset); border: 1px solid var(--accent);
-    padding: 8px 8px 16px 8px;
-    font-size: 11px;
-    z-index: 999; box-shadow: 0 4px 15px rgba(0,0,0,0.8); color: var(--text); border-radius: 8px; opacity: 0;
+    background: #131f2c; border: 1px solid var(--border);
+    padding: 4px 4px 12px 4px;
+    font-size: 12px;
+    z-index: 999; box-shadow: 0 8px 20px rgba(0,0,0,0.6); color: var(--text); border-radius: 8px; opacity: 0;
 
     /* Both caps are budgets against the window the tooltip is drawn in, not taste:
        it hangs from a fixed anchor 137px down the panel, and anything past the
@@ -330,8 +363,34 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     padding-bottom: 8px; /* Remove extra padding when fully visible */
 }
 
-.history-entry { padding: 6px 4px; border-bottom: 1px solid #2a3f5a; line-height: 1.3; }
-.history-entry:last-child { border-bottom: none; margin-bottom: 6px; }
+/* A bullet, the name, then its source glyph on the right. A long name wraps
+   under itself, between the two. The bullet stays on the first line, the
+   glyph centres on the whole entry. */
+.history-entry { display: flex; align-items: flex-start; gap: 8px; padding: 5px 6px; border-radius: 6px; line-height: 1.3; cursor: default; }
+.hist-bullet { flex-shrink: 0; color: var(--muted); }
+.history-entry:hover { background: #1d2b3b; color: #fff; }
+.history-entry:last-child { margin-bottom: 6px; }
+.history-entry .hist-src { align-self: center; }
+/* At most two lines: three of Steam's longest titles (125–139 characters)
+   still fit the tooltip's cap without scrolling (tests/popup/popup-height.spec.js). */
+.hist-name {
+    flex: 1; min-width: 0; overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+/* A finished job's kind before its name (popup_main.js historyLabelHtml). */
+.hist-kind { color: var(--muted); }
+/* An entry that knows its game, curator or bundle opens that store page
+   (popup_main.js openHistoryEntry). */
+.history-entry:is([data-appid], [data-curator-id], [data-bundle]),
+#last-ignored-row:is([data-appid], [data-curator-id], [data-bundle]) { cursor: pointer; }
+/* A finished job's glyph (popup_main.js sourceIcon): the lists glyph in grey,
+   the un-ignore glyph (wider, in its own slot width), a curator's filter
+   colour as a square. */
+.hist-glyph { display: inline-flex; color: var(--muted); }
+.hist-glyph svg { width: 15px; height: 15px; display: block; }
+.hist-glyph svg.ico-wide { width: 24px; height: 12px; }
+.hist-src:has(.ico-wide) { width: 24px; }
+.hist-square { display: block; width: 14px; height: 14px; border-radius: 3px; }
 
 /* Remove the extra margin when settings are open */
 #popup-root:has(#settings-accordion[open]) .history-entry:last-child {
@@ -340,25 +399,30 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
 
 /* === GESTURE CARD (DYNAMIC HINT) === */
 .hint {
-    margin-top: 10px; font-size: 12px; background: var(--panel);
+    margin-top: 10px; font-size: 12px; background: #1a2939;
     border: 1px solid var(--border); border-left: 3px solid var(--accent);
-    padding: 10px; border-radius: 0 8px 8px 0;
-    display: flex; flex-direction: column; gap: 8px;
+    padding: 7px 10px; border-radius: 4px 8px 8px 4px;
+    display: flex; flex-direction: column; gap: 6px;
 }
 .hint-line { display: flex; align-items: center; }
 
 /* first row ("Ignore:") is red; the "Already played:" row gets an inline blue override from JS */
-.hint-label { flex: 1; font-weight: 700; color: var(--danger); font-size: 13px; }
+/* Label and chip share one line in every locale: a wrapped label is taller than
+   the chip and grows the card. The tightest are de and tr "Already played". */
+.hint-label { flex: 1; font-weight: 700; color: var(--danger); font-size: 12px; }
 
 .kbd-key {
-    display: inline-flex; align-items: center; gap: 5px;
-    background-color: var(--chip); color: #fff; border: 1px solid #000;
-    border-radius: 7px;
-    padding: 6px 11px; margin: 0 4px; font-size: 12px;
+    display: inline-flex; align-items: center; gap: 4px;
+    background-color: #070b10; color: #fff; border: 1px solid #000;
+    border-radius: 6px;
+    padding: 3px 7px; margin: 0 4px; font-size: 12px;
     font-weight: 700; box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
     white-space: nowrap;
 }
+.hint-line > .kbd-key:last-child { margin-right: 0; }
 .kbd-key .mouse-ico, .kbd-key .sw-arrow { display: inline-block; vertical-align: middle; flex-shrink: 0; }
+/* The mouse stands off its chip by a soft shadow under it. */
+:is(.mouse-ico, .mouse-icon) { filter: drop-shadow(0 1px 1px rgba(0,0,0,.7)); }
 
 .mouse-icon { margin-left: 6px; vertical-align: middle; position: relative; top: -1px; }
 
@@ -366,12 +430,60 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
 details { margin-top: 10px; border: none; border-top: 1px solid var(--border); background: transparent; }
 summary { padding: 7px 10px 3px 0; cursor: pointer; font-size: 12px; color: #3ca8fc; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; list-style: none; }
 summary::-webkit-details-marker { display: none; }
-summary::after {
-    content: ''; display: inline-block; width: 0; height: 0;
-    border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid var(--muted);
-    transition: transform 0.2s ease-in-out; margin-left: 10px;
+/* The two top-level bars are bands across the whole panel (the negative
+   margins cancel #popup-root's padding), stacked flush under one another and
+   ruled off by their own top borders. Tight vertical padding: with both on
+   screen the tallest state has to fit the 600px window. Their bodies take the
+   panel's padding back (#queue-list, #settings-placeholder). */
+#queue-accordion, #settings-accordion { margin: 10px -16px 0; }
+#settings-accordion { margin-top: 0; }
+#queue-accordion > summary, #settings-accordion > summary {
+    padding: 5px 16px; color: #fff; letter-spacing: .6px;
+    background: rgba(255, 255, 255, .025);
 }
-details[open] > summary::after { transform: rotate(90deg); }
+#queue-accordion > summary::after, #settings-accordion > summary::after { margin-left: 10px; }
+/* Their titles: a drawn glyph in front (the gear, the stack of tasks), in the
+   accent blue against the title. The title's word sits a shade under white
+   and turns white on hover. */
+.summary-title { display: flex; align-items: center; gap: 8px; min-width: 0; margin-right: 6px; }
+.summary-ico { flex-shrink: 0; display: block; color: #3ca8fc; }
+.summary-title > span { color: #dde2e7; transition: color .2s ease; }
+:is(#queue-accordion, #settings-accordion) > summary:hover .summary-title > span { color: #fff; }
+/* The stack of tasks, drawn a size up from the gear. On hover its three bars
+   drop into place one onto another, the bottom one first, landing with a
+   small bounce. They fall from above the glyph, so it does not clip them.
+   The negative margin keeps it in the gear's 13px slot, so both titles start
+   at the same x. */
+.queue-ico { width: 16px; height: 16px; margin: -1.5px; overflow: visible; }
+#queue-accordion > summary:hover .queue-ico rect { animation: ilap-queue-drop .36s ease-out backwards; }
+#queue-accordion > summary:hover .queue-ico rect:nth-child(2) { animation-delay: .1s; }
+#queue-accordion > summary:hover .queue-ico rect:nth-child(1) { animation-delay: .2s; }
+@keyframes ilap-queue-drop {
+    0% { transform: translateY(-9px); opacity: 0; }
+    65% { transform: translateY(1px); opacity: 1; }
+    100% { transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { #queue-accordion > summary:hover .queue-ico rect { animation: none; } }
+/* The gear turns by one tooth (8 teeth, 45°) on hover and stays turned while
+   SETTINGS is open, so it looks the same at rest either way. Hover also grows
+   it a little, and it settles back to size when the pointer leaves. */
+.gear-ico { transition: transform .35s ease-in-out; }
+#settings-accordion[open] > summary .gear-ico { transform: rotate(45deg); }
+#settings-accordion > summary:hover .gear-ico { transform: rotate(45deg) scale(1.25); }
+@media (prefers-reduced-motion: reduce) { .gear-ico { transition: none; } }
+/* The chevron: a bordered corner turned to point. A subcategory's points right
+   (›) and turns down open. A top-level bar's points down (∨) and turns up open.
+   The translate keeps the drawn corner on
+   the row's centre line as it turns. */
+summary::after {
+    content: ''; display: inline-block; width: 6px; height: 6px; flex-shrink: 0;
+    border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+    transform: translateX(-2px) rotate(-45deg);
+    transition: transform 0.2s ease-in-out; margin-left: 10px; margin-right: 2px;
+}
+details[open] > summary::after { transform: translateY(-2px) rotate(45deg); }
+#queue-accordion > summary::after, #settings-accordion > summary::after { transform: translateY(-2px) rotate(45deg); }
+#queue-accordion[open] > summary::after, #settings-accordion[open] > summary::after { transform: translateY(2px) rotate(-135deg); }
 
 /* Quick language picker living inside the SETTINGS bar (left of the caret).
    Compact code shown as a span; the native <select> is the inert value store
@@ -379,19 +491,23 @@ details[open] > summary::after { transform: rotate(90deg); }
 .lang-chip {
     position: relative; margin-left: auto;
     display: inline-flex; align-items: center; justify-content: center;
-    background: var(--inset); border: 1px solid var(--border);
-    border-radius: 6px; min-width: 34px; height: 22px; padding: 0 7px;
+    background: none; border: none;
+    border-radius: 6px; min-width: 34px; height: 24px; padding: 0 8px;
     cursor: pointer;
-    transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+    transition: box-shadow .15s ease, transform .08s ease;
 }
-.lang-chip:hover { border-color: #3f5169; background: #15212e; }
+/* Bare code at rest, a raised key on hover, like the queue's keys (see
+   .queue-act). The language list is a child of the chip, so a hover or press
+   inside the open list must not light or sink the chip itself. */
+.lang-chip:hover:not(:has(.select-menu:hover)) { background: var(--key-face); box-shadow: var(--key-lift); }
+.lang-chip:active:not(:has(.select-menu:hover)) { transform: translateY(1px); box-shadow: var(--key-press); }
 .lang-chip-code { font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--text); pointer-events: none; }
-.lang-chip:hover .lang-chip-code { color: #fff; }
+.lang-chip:hover:not(:has(.select-menu:hover)) .lang-chip-code { color: #fff; }
 /* Inert value store: never rendered, never hit-tested (clicks land on the chip,
    which opens the styled menu). Still keyboard-reachable — Tab + arrows change
    the value and fire `change` like any select. */
 .lang-chip select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
-.lang-chip:focus-within { border-color: var(--accent); }
+.lang-chip:focus-within { box-shadow: 0 0 0 1px var(--accent); }
 /* 19 languages don't fit the popup — cap the menu and scroll inside it. The cap
    must also fit ABOVE the chip (the menu opens upward and the popup document is
    ~300px tall in the empty state — taller caps get clipped by the window edge).
@@ -405,15 +521,15 @@ details[open] > summary::after { transform: rotate(90deg); }
 /* The chip's own tooltip, in place of the native title: the browser bubble is
    unstyleable and, in the on-page widget, is drawn by the page outside the panel.
    Anchored to the SETTINGS <summary> (the chip itself is ~34px and flush right, so
-   a tooltip anchored to IT would run off the window) and clamped to max-width:100%
-   of that bar — clipping is impossible whatever the locale. Opens UPWARD for the
+   a tooltip anchored to IT would run off the window) and clamped to that bar's
+   width inside its 16px padding — clipping is impossible whatever the locale. Opens UPWARD for the
    same reason the language list does: the bar sits near the window's bottom edge.
    The bar's uppercase/letter-spacing must not leak into the tooltip text. */
 #settings-accordion > summary { position: relative; }
 .lang-tip {
     visibility: hidden; opacity: 0;
-    position: absolute; bottom: 100%; right: 0; margin-bottom: 6px;
-    max-width: 100%; padding: 5px 8px; z-index: 1001;
+    position: absolute; bottom: 100%; right: 16px; margin-bottom: 6px;
+    max-width: calc(100% - 32px); padding: 5px 8px; z-index: 1001;
     background: var(--inset); color: var(--text);
     border: 1px solid var(--accent); border-radius: 6px;
     box-shadow: 0 4px 15px rgba(0,0,0,0.8);
@@ -423,8 +539,10 @@ details[open] > summary::after { transform: rotate(90deg); }
 }
 .lang-chip:hover + .lang-tip { visibility: visible; opacity: 1; transition-delay: 2.5s; }
 /* While the language list is open the tooltip stays out of the way — same rule as
-   the undo tip vs its droplist. */
-#popup-root:has(.lang-menu.open) .lang-tip { display: none; }
+   the undo tip vs its droplist. Hidden, not display:none: a tip coming back from
+   display:none has nothing to transition from, so a pick (the pointer is still
+   inside the chip) flashed it at full opacity past its 2.5s delay. */
+#popup-root:has(.lang-menu.open) .lang-tip { visibility: hidden; opacity: 0; transition: none; }
 
 /* The Auto-advance row's own tooltip, in place of the native title — same reason
    as the language chip above. Unlike the other two tips this one is a full
@@ -456,12 +574,13 @@ details[open] > summary::after { transform: rotate(90deg); }
 /* The DQ master switch's own tooltip — aimed at, so the 0.4 s dwell. Anchored to the whole summary row
    (the switch is ~42px and flush right, so a tip anchored to IT would run off the
    window) and stretched across it, so it wraps rather than clips; the trigger stays
-   the switch alone. It hangs below the summary, over the
-   subcategory's own content when open and over Manual Ignore when collapsed. */
+   the switch alone. It opens UPWARD, over the surface switch: below the row
+   there is only the Manual Ignore row and the panel's bottom edge, too little
+   for a three-line tip in some locales. */
 #dq-section > summary { position: relative; }
 .dq-master-tip {
     visibility: hidden; opacity: 0;
-    position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px;
+    position: absolute; bottom: 100%; left: 16px; right: 16px; margin-bottom: 4px;
     padding: 5px 8px; z-index: 1001;
     background: var(--inset); color: var(--text);
     border: 1px solid var(--accent); border-radius: 6px;
@@ -473,6 +592,11 @@ details[open] > summary::after { transform: rotate(90deg); }
 .settings-subcat > summary .switch:hover + .dq-master-tip { visibility: visible; opacity: 1; transition-delay: 0.4s; }
 
 .settings-content { padding: 6px 0 0 0; display: flex; flex-direction: column; gap: 6px; }
+/* SETTINGS' body: the panel's side padding back under the full-width bar. Its
+   subcategories are full-width rows ruled off by their own borders, so the
+   flex gap is dropped and the surface switch keeps its own air below. */
+#settings-placeholder { padding: 6px 16px 0; gap: 0; }
+#surface-row { padding-bottom: 6px; }
 .section-title { font-size: 11px; color: var(--text); text-transform: uppercase; font-weight: 700; letter-spacing: .5px; }
 
 /* The surface switch opens SETTINGS with no caption of its own (the "Interface:"
@@ -481,16 +605,15 @@ details[open] > summary::after { transform: rotate(90deg); }
    it from the first subcategory. */
 #surface-row .wide-switch { margin-top: 0; }
 
-/* Collapsible feature subcategories inside SETTINGS (Discovery Queue / Manual Ignore).
-   Spacing comes from the .settings-content flex gap alone: a margin of their own
-   stacked on top of it, and the pair of summaries carried that doubled air even
-   collapsed. Same reason the summary padding is tight — see the 600px budget in
+/* Collapsible feature subcategories inside SETTINGS (Discovery Queue / Manual Ignore):
+   full-width rows like the bars above them, ruled off by a top border. Spacing
+   comes from their padding alone, kept tight for the 600px budget in
    tests/popup/popup-height.spec.js. */
-.settings-subcat { interpolate-size: allow-keywords; }
-.settings-subcat > summary { padding: 4px 0 2px 0; color: var(--text); }
-.settings-subcat > summary .section-title { flex: 1; }
+.settings-subcat { interpolate-size: allow-keywords; margin: 0 -16px; border-top: 1px solid var(--border); }
+.settings-subcat > summary { padding: 4px 16px; color: #fff; }
+.settings-subcat > summary .section-title { flex: 1; color: #fff; }
 .settings-subcat > summary .switch { margin-right: 2px; }
-.subcat-content { padding: 6px 0 0 0; display: flex; flex-direction: column; gap: 6px; }
+.subcat-content { padding: 2px 16px 6px; display: flex; flex-direction: column; gap: 6px; }
 /* .stat-row carries its own margin-bottom for the stats block at the top of the
    panel, where rows are not in a flex column. Here they are, so that margin
    stacked on the gap and every row sat 15px from the next instead of 8 — four
@@ -527,13 +650,15 @@ details[open] > summary::after { transform: rotate(90deg); }
     transition: block-size .5s ease, opacity .3s ease, content-visibility .5s allow-discrete;
 }
 
-/* SETTINGS / QUEUE top-level applets: animate the SOLO collapse only. Opening
-   stays instant — the SETTINGS body lazy-renders, so an open animation would
-   jump as content lands. popup_main.js marks .solo-collapse when a panel is
-   closed on its own; a CONCURRENT collapse (opening the sibling) is left
-   unmarked so it snaps shut in the SAME synchronous frame the sibling opens —
-   the panel never flashes to full height first, whatever subcategory is
-   expanded inside SETTINGS. Browsers without ::details-content just snap. */
+/* SETTINGS / QUEUE top-level applets. popup_main.js marks .solo-collapse when
+   a panel is closed on its own; a CONCURRENT collapse (opening the sibling) is
+   left unmarked so it snaps shut in the SAME synchronous frame the sibling
+   opens — the panel never flashes to full height first, whatever subcategory
+   is expanded inside SETTINGS. The one exception is an open queue when
+   SETTINGS is clicked: it folds smoothly first and SETTINGS opens after it
+   (the .handoff rule below), which keeps the same guarantee by taking turns.
+   Both open smoothly (the [open] rules further down).
+   Browsers without ::details-content just snap. */
 #settings-accordion, #queue-accordion { interpolate-size: allow-keywords; }
 #settings-accordion.solo-collapse::details-content,
 #queue-accordion.solo-collapse::details-content {
@@ -542,16 +667,25 @@ details[open] > summary::after { transform: rotate(90deg); }
     opacity: 0;
     transition: block-size .5s ease, opacity .3s ease, content-visibility .5s allow-discrete;
 }
+/* The queue folding away for SETTINGS (popup_settings.js wireExclusiveDetails,
+   handoffMs): the same fold, quicker, since SETTINGS opens only once it ends.
+   Keep the .28s equal to QUEUE_HANDOFF_MS in popup_main.js. */
+#queue-accordion.solo-collapse.handoff::details-content {
+    transition: block-size .28s ease, opacity .2s ease, content-visibility .28s allow-discrete;
+}
 
-/* Queue applet: unlike SETTINGS (its body is lazy → instant open, otherwise it
-   "jumps" as content loads), the queue renders immediately, so its "solo" open can
-   be animated too. The transition is declared ONLY on the [open] target: opening
-   smoothly pulls 0→auto, while an ordinary close (without .solo-collapse) has no
-   transition and collapses instantly — that's the COMPETITIVE collapse, when SETTINGS
-   opens in its place, and it must stay instant. The smooth "solo" and "on-completion"
-   close is handled by the .solo-collapse rule above. */
-#queue-accordion::details-content { block-size: 0; overflow: hidden; opacity: 0; }
-#queue-accordion[open]::details-content {
+/* The open itself. The transition is declared ONLY on the [open] target:
+   opening smoothly pulls 0→auto, while an ordinary close (without .solo-collapse)
+   has no transition and collapses instantly — that's the COMPETITIVE collapse,
+   when the other applet opens in its place, and it must stay instant. The smooth
+   "solo" and "on-completion" close is handled by the .solo-collapse rule above.
+   SETTINGS re-renders its body a storage read after it opens
+   (popup_settings.js init); the height runs toward `auto` as it is laid out
+   each frame, so a body that lands mid-way only retargets the same motion. */
+#queue-accordion::details-content,
+#settings-accordion::details-content { block-size: 0; overflow: hidden; opacity: 0; }
+#queue-accordion[open]::details-content,
+#settings-accordion[open]::details-content {
     block-size: auto; overflow: visible; opacity: 1;
     transition: block-size .3s ease, opacity .25s ease, overflow 0s .3s;
 }
@@ -607,60 +741,409 @@ select option { background: #16202d; color: #fff; }
 .select-opt.disabled:hover { background: transparent; color: var(--text); }
 
 /* === CURATOR IGNORE QUEUE APPLET === */
-/* This applet's title is white (the SETTINGS summary is blue). */
-#queue-accordion > summary { color: #fff; }
 .queue-summary-right { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; }
 
-/* Running indicator: a small (~15px) barber-pole tile left of the job counter,
-   shown only while a job is actively ignoring (visible even when collapsed). */
-.queue-running-bar {
-    display: none; width: 30px; height: 5px; border-radius: 3px; flex-shrink: 0;
-    background-image: linear-gradient(45deg,
-        var(--accent) 25%, transparent 25%, transparent 50%,
-        var(--accent) 50%, var(--accent) 75%, transparent 75%, transparent);
-    background-size: 8px 8px;
-    animation: ilap-queue-barber .5s linear infinite;
-}
-#queue-accordion.has-running .queue-running-bar { display: block; }
-@keyframes ilap-queue-barber { from { background-position: 0 0; } to { background-position: 8px 0; } }
-
 .queue-jobs-chip {
-    min-width: 22px; height: 20px; padding: 0 7px;
+    min-width: 24px; height: 24px; padding: 0 6px; box-sizing: border-box;
     display: inline-flex; align-items: center; justify-content: center;
-    background: var(--inset); border: 1px solid var(--border); border-radius: 10px;
+    background: var(--inset); border: 1px solid var(--border); border-radius: 6px;
     font-size: 13px; font-weight: 700; color: #fff;
 }
-#queue-list { padding: 6px 0 0 0; display: flex; flex-direction: column; gap: 8px; }
-.queue-job { background: var(--inset); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; }
-/* The job for the curator page we're currently on gets a highlight outline. */
-.queue-job.current { border-color: #45A1FA; box-shadow: 0 0 0 1px #45A1FA, 0 0 10px rgba(69,161,250,.3); }
-/* The special auto-filling Manual-Ignore job: a distinct green accent (the
-   IGNORED-badge / "running" green) marks it apart from curator/undo jobs. */
-.queue-job.mi { border-color: #7ad13f; box-shadow: 0 0 0 1px rgba(122,209,63,.5), 0 0 10px rgba(122,209,63,.2); }
-.queue-job.mi .queue-job-name { color: #a6e57a; }
-.queue-job-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.queue-job-name { font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.queue-job-status { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); flex-shrink: 0; }
-.queue-job-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
-.queue-bar { margin-top: 7px; height: 6px; background: #0a1119; border-radius: 3px; overflow: hidden; }
-.queue-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width .3s ease; }
-.queue-job-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 8px; }
-.queue-job-count { font-size: 11px; font-weight: 700; color: #fff; }
-.queue-job-pct { margin-left: 7px; color: var(--accent); font-weight: 700; }
-.queue-job-actions { display: inline-flex; gap: 18px; }
-.queue-job-skip { font-size: 10px; color: #ffd21a; margin-top: 5px; }
-.queue-halt-hint { font-size: 10px; color: #ffd21a; padding: 6px 2px 2px; }
+/* Running indicator: the job counter's frame turns into a barber pole while a
+   job is actively ignoring (visible even when collapsed), around the count on
+   its dark square. In the counter, not beside it, so the bar's title keeps its
+   width. The stripes run under a transparent 3px border; the dark fill covers
+   the rest (padding-box). The keyframes move both layers, and the plain fill
+   does not show it. */
+#queue-accordion.has-running .queue-jobs-chip {
+    border: 3px solid transparent;
+    background-color: #0b1219;
+    background-image:
+        linear-gradient(var(--inset), var(--inset)),
+        linear-gradient(45deg,
+            #66c0f4 25%, transparent 25%, transparent 50%,
+            #66c0f4 50%, #66c0f4 75%, transparent 75%, transparent);
+    background-clip: padding-box, border-box;
+    background-origin: padding-box, border-box;
+    background-size: auto, 8px 8px;
+    animation: ilap-queue-barber .5s linear infinite;
+}
+@keyframes ilap-queue-barber { from { background-position: 0 0; } to { background-position: 8px 0; } }
+/* An empty queue keeps the bar for the lists icon, and opens on a hint that
+   says where jobs come from (popup_queue.js _markEmpty). */
+.queue-empty-hint { font-size: 11px; line-height: 1.5; color: var(--muted); padding: 2px 2px 4px; }
+.queue-empty-icon {
+    display: inline-flex; align-items: center; justify-content: center; vertical-align: middle;
+    width: 30px; height: 18px; margin: 0 2px; color: var(--muted);
+    background: var(--inset); border: 1px solid var(--border); border-radius: 5px;
+}
+.queue-empty-icon svg { width: 22px; height: 11px; display: block; }
+.queue-empty-icon .ico-plus { fill: currentColor; }
+
+/* Built-in lists icon (ui/popup_presets.js): a double-width chip in the bar,
+   set apart from the job counter so the two never read as one number. */
+.preset-chip {
+    margin-right: 4px;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 24px; color: #fff;
+    background: none; border: none; border-radius: 6px;
+    cursor: pointer;
+}
+/* The lists menu is a child of the key, so a hover or press inside the open
+   menu must not light or sink the key itself. The press moves the GLYPH, never
+   the key: a transform on the key, even one still transitioning back, makes it
+   the menu's containing block, and the menu, stretched to the bar, shrinks to
+   the 36px key for those frames. */
+/* A bare glyph at rest. Hover lays a flat key under it (no lift or shadow)
+   and lightens the plus, a press nudges the glyph down. */
+.preset-chip:hover:not(:has(.preset-menu:hover)) { background: #2a3b4f; }
+.preset-chip > svg { display: block; width: 26px; height: 13px; pointer-events: none; }
+.preset-chip:active:not(:has(.preset-menu:hover)) > svg { transform: translateY(1px); }
+/* The list in white, the plus in blue with a soft shadow under it. Hover
+   brightens the plus. */
+.preset-chip .ico-plus { filter: drop-shadow(0 .7px .5px rgba(0,0,0,.75)); transition: filter .15s ease; }
+.preset-chip:hover:not(:has(.preset-menu:hover)) .ico-plus { filter: brightness(1.25) drop-shadow(0 .7px .5px rgba(0,0,0,.75)); }
+#queue-accordion.master-off .preset-chip { opacity: .4; cursor: default; }
+#queue-accordion.master-off .preset-chip:hover:not(:has(.preset-menu:hover)) { background: none; }
+#queue-accordion.master-off .preset-chip:hover:not(:has(.preset-menu:hover)) .ico-plus { filter: drop-shadow(0 .7px .5px rgba(0,0,0,.75)); }
+#queue-accordion.master-off .preset-chip:active:not(:has(.preset-menu:hover)) > svg { transform: none; }
+
+/* The picked row's copy flying into the job count (popup_presets.js
+   _flyToQueue): the selected row's look, shrinking from its top left corner,
+   out of reach. */
+.preset-ghost {
+    position: absolute; z-index: 1002; margin: 0; overflow: hidden;
+    background: #1d3a59; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.5);
+    transform-origin: 0 0; pointer-events: none;
+    text-transform: none; letter-spacing: normal; white-space: nowrap;
+}
+
+/* The icon's own tooltip, built like the language chip's (see .lang-tip),
+   after a two-second hover. It hangs under the bar, starting at the icon's
+   middle, or further left when the bar's end is nearer (popup_presets.js
+   _placeTip sets left). */
+#queue-accordion > summary { position: relative; }
+.preset-tip {
+    visibility: hidden; opacity: 0;
+    position: absolute; top: 100%; right: auto; margin-top: 4px;
+    max-width: calc(100% - 32px); padding: 5px 8px; z-index: 1001;
+    background: var(--inset); color: var(--text);
+    border: 1px solid var(--accent); border-radius: 6px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+    font-size: 11px; font-weight: 600; line-height: 1.35;
+    text-transform: none; letter-spacing: normal; pointer-events: none;
+    transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
+}
+.preset-chip:hover + .preset-tip { visibility: visible; opacity: 1; transition-delay: 2s; }
+#popup-root:has(.preset-menu.open) .preset-tip { display: none; }
+/* Once clicked, the tip stays down until the pointer leaves the icon
+   (popup_presets.js). */
+.preset-chip.tip-done + .preset-tip { display: none; }
+
+/* The lists menu: opens upward like the language list, but spans the whole bar
+   inside its padding (the icon is not positioned, so the bar is its anchor): a long locale wraps
+   the list name instead of running past the panel. The bar's
+   uppercase/letter-spacing must not leak into it. */
+/* It has to fit between the bar and the panel's top with one gesture hint line
+   (Already played off), so its rows are tight and its line height is set, or
+   a CJK font's taller lines push its title out of the window. */
+.preset-menu {
+    left: 16px; right: 16px; min-width: 0; padding: 6px 8px; cursor: default;
+    text-transform: none; letter-spacing: normal; white-space: normal; line-height: 16px;
+}
+/* It opens by fading in as it rises a few pixels into place, and closes the
+   same way back, whatever closes it (the icon, a click elsewhere in the panel,
+   a pick that stages a list). So it stays rendered when shut, hidden and out
+   of reach once it has faded. A shift only, no scale: the highlight is placed
+   from the rows' boxes on the first frame (popup_presets.js _placeHl). */
+.preset-menu {
+    display: block; visibility: hidden; opacity: 0; transform: translateY(6px);
+    transition: opacity .18s ease-in, transform .18s ease-in, visibility 0s linear .18s;
+}
+.preset-menu.open {
+    visibility: visible; opacity: 1; transform: none;
+    transition: opacity .2s ease-out, transform .2s ease-out, visibility 0s;
+}
+@media (prefers-reduced-motion: reduce) { .preset-menu, .preset-menu.open { transition: none; } }
+.preset-title { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px 4px; }
+.preset-opt {
+    position: relative;
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600;
+    color: var(--text); cursor: pointer;
+}
+.preset-opt:hover { background: #22303f; color: #fff; }
+/* The selected row's fill is its own block under the rows, sliding from row
+   to row on a pick (popup_presets.js _placeHl). The rows paint over it. */
+.preset-opt.selected, .preset-opt.selected:hover { background: transparent; color: #fff; }
+.preset-hl { position: absolute; left: 8px; right: 8px; border-radius: 6px; background: #1d3a59; pointer-events: none; }
+.preset-hl.moving { transition: top .22s ease, height .22s ease; }
+@media (prefers-reduced-motion: reduce) { .preset-hl.moving { transition: none; } }
+.preset-opt.disabled { opacity: .35; cursor: default; }
+.preset-opt.disabled:hover { background: transparent; color: var(--text); }
+.preset-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    border: 1px solid var(--muted);
+}
+.preset-opt.selected .preset-dot { background: var(--accent); border-color: var(--accent); }
+.preset-name { flex: 1; }
+.preset-year {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 8px; border-radius: 5px; background: var(--inset); border: 1px solid var(--border);
+    font-size: 11px; font-weight: 700; color: #fff; cursor: pointer;
+    white-space: nowrap; flex-shrink: 0;
+}
+.preset-year::after {
+    content: ''; width: 0; height: 0;
+    border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--muted);
+    transition: transform .2s ease;
+}
+.preset-year.open::after { transform: rotate(180deg); }
+.preset-opt.disabled .preset-year { cursor: pointer; }
+.preset-menu [role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* The open years list drops over the whole-list rows below the AI row, which
+   stay in place and in view to its left. It keeps within their height, so the
+   menu keeps its height (popup_presets.js _render), and scrolls when the years
+   outgrow it. A pick on one of those rows closes it. It hangs right under the year
+   button: flush with its right edge (the row's 8px padding) and as wide as
+   the widest year, never narrower than the button (popup_presets.js sets the
+   min-width from it). */
+.preset-flat { position: relative; }
+/* With no whole lists in this build there is nothing to drop over: room for
+   about three years. */
+.preset-flat.covered:not(:has(.preset-opt)) { min-height: 76px; }
+.preset-years {
+    position: absolute; top: 2px; right: 8px; max-height: calc(100% - 4px);
+    overflow-y: auto; width: max-content; box-sizing: border-box;
+    background: var(--inset); border: 1px solid var(--border); border-radius: 6px; padding: 2px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.6);
+}
+.preset-years .select-opt { padding: 5px 10px; font-size: 11px; }
+/* Add sits in the menu's lower right corner, as wide as its label, as tall as
+   the Un-ignore buttons. */
+.preset-go {
+    display: block; width: max-content; max-width: 100%; margin: 4px 0 0 auto; padding: 5px 22px;
+    background: var(--accent); color: #fff; border: none; border-radius: 6px;
+    font-size: 12px; font-weight: 700; font-family: inherit; line-height: inherit; cursor: pointer;
+}
+.preset-go:disabled { opacity: .4; cursor: default; }
+/* In place of Add, at its height or less. */
+.preset-msg { font-size: 11px; color: #ffd21a; padding: 10px 4px 2px; white-space: normal; }
+
+/* One slim strip per job (popup_queue.js _row), all on one line: the name cut
+   to the name column (--qname-w, set by the applet), a mini progress bar, the
+   percent, the region skips and the actions. Three jobs keep the open queue
+   inside the 600px toolbar window (tests/popup/popup-height.spec.js). */
+/* --qglyph-w: a job's glyph (the lists glyph, the un-ignore arrow or a
+   curator's filter square) plus its gap. A name column is --qname-w and one
+   --qglyph-w of room more, after the glyph. A job with no glyph has the same
+   span with nothing in front, so all the mini bars start at one place. */
+/* The side padding is the panel's, given back under the full-width bar. */
+#queue-list { --qname-w: 90px; --qglyph-w: 22px; padding: 8px 16px 10px; display: flex; flex-direction: column; gap: 6px; }
+/* Frameless cards: the fill alone sets a job apart, the padding taking the
+   old 1px border's place so the rows keep their size. */
+.queue-job { position: relative; background: #17232f; border-radius: 8px; padding: 6px 7px 6px 10px; }
+/* A curator's strip: a square in its filter's colour in front of the name
+   (popup_queue.js _row), with the filter's name on hover. It takes the lists
+   glyph's slot: 14px plus 1px each side is the glyph's 16px. */
+.queue-job-filter {
+    position: relative; flex-shrink: 0; width: 14px; height: 14px; margin: 0 1px;
+    border-radius: 3px; cursor: pointer; user-select: none;
+}
+/* A wider hover target than the square itself. */
+.queue-job-filter::after { content: ''; position: absolute; inset: -4px; }
+.queue-filter-tip {
+    visibility: hidden; opacity: 0;
+    position: absolute; bottom: 100%; left: 0; margin-bottom: 4px; z-index: 1001;
+    width: max-content; max-width: 220px; padding: 5px 8px;
+    background: var(--inset); color: var(--text); border: 1px solid var(--accent); border-radius: 6px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; font-weight: 600; line-height: 1.35;
+    pointer-events: none; transition: opacity .2s, visibility .2s; transition-delay: 0s;
+}
+.queue-job-filter:hover .queue-filter-tip,
+.queue-job-glyph.has-tip:hover .queue-filter-tip { visibility: visible; opacity: 1; transition-delay: .4s; }
+/* The job for the curator page we're currently on gets a highlight ring. */
+.queue-job.current { box-shadow: 0 0 0 1px #45A1FA, 0 0 10px rgba(69,161,250,.3); }
+/* The special auto-filling gesture jobs (Manual ignores / un-ignores): their
+   name in the lime of a running job marks them apart from curator/undo jobs. */
+.queue-job.mi .queue-job-name, .queue-job.mi .queue-name-full { color: #48ff00; }
+.queue-job-line { display: flex; align-items: center; gap: 6px; }
+/* A paused job reads black-and-white: everything but its actions and a
+   curator's filter square loses its colour, the ring included. The bar's
+   filter sits on the line, not on .queue-mini, which must not become the
+   stretching track's containing block. */
+.queue-job.paused { box-shadow: none; }
+/* A job that is actually running: a broad white sheen sweeps across its strip,
+   under the content, so the work shows at a glance. The strip itself stands
+   out a little: lit from the top, shaded at the bottom, with a lit top edge
+   and a soft drop shadow. The base fill is the bottom layer, so the strip
+   keeps its colour between sweeps. The 2.4s is SHEEN_MS in popup_queue.js,
+   which phase-locks the sweep across re-renders. */
+.queue-job.running {
+    background:
+        linear-gradient(100deg, transparent 28%, rgba(255, 255, 255, .07) 40%, rgba(255, 255, 255, .19) 50%, rgba(255, 255, 255, .07) 60%, transparent 72%) 0 0 / 300% 100% no-repeat,
+        linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, 0) 55%, rgba(0, 0, 0, .18)),
+        #17232f;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1), inset 0 -1px 0 rgba(0, 0, 0, .35), 0 2px 6px rgba(0, 0, 0, .35);
+    animation: ilap-job-sheen 2.4s linear infinite;
+}
+/* The current curator's ring stays on a running strip. */
+.queue-job.current.running {
+    box-shadow: 0 0 0 1px #45A1FA, 0 0 10px rgba(69,161,250,.3), inset 0 1px 0 rgba(255, 255, 255, .1), inset 0 -1px 0 rgba(0, 0, 0, .35);
+}
+@keyframes ilap-job-sheen { from { background-position: 100% 0, 0 0, 0 0; } to { background-position: 0% 0, 0 0, 0 0; } }
+@media (prefers-reduced-motion: reduce) { .queue-job.running { animation: none; } }
+/* Hover lightens a strip's base fill a little, fading in, running or not. */
+.queue-job { transition: background-color .4s ease; }
+.queue-job:hover, .queue-job.running:hover { background-color: #1e2c3b; }
+.queue-job.paused :is(.queue-job-glyph svg, .queue-mini-line, .queue-job-count, .queue-job-skip) { filter: grayscale(1); }
+.queue-job.paused :is(.queue-job-name, .queue-job-pct) { color: var(--muted); }
+/* A job from a built-in list: the list glyph (no plus) in front of its name,
+   centred in the same 16px slot as a curator's filter square, like an
+   un-ignore job's green arrow. */
+.queue-job-glyph { display: inline-flex; justify-content: center; width: 16px; color: var(--muted); flex-shrink: 0; }
+.queue-job-glyph svg { width: 13px; height: 13px; display: block; }
+/* The lists glyph names what it stands for on hover, in the square's tip. */
+.queue-job-glyph.has-tip { position: relative; }
+.queue-job-glyph.has-tip::after { content: ''; position: absolute; inset: -4px; }
+
+/* The name and the mini bar share one box, so the bar can stretch over the
+   name: the bar's track is positioned against this box, not against its slot.
+   The wider gap sets the bar and the percent off from the name. The row's
+   gaps and keys are trimmed so the ⚠ skip mark and a percent of 100 still fit
+   without squeezing the name column, which would move this row's bar off the
+   line the other bars start on (tests/popup/queue.spec.js). */
+.queue-job-area { position: relative; display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* A width, not a flex-basis: the box around the name sizes to its content,
+   and a basis alone would let a short name pull the bar in after it. */
+.queue-job-namebox { position: relative; flex: 0 1 auto; width: calc(var(--qname-w) + 2 * var(--qglyph-w)); min-width: 0; }
+.queue-job:has(.queue-job-glyph, .queue-job-filter) .queue-job-namebox { width: calc(var(--qname-w) + var(--qglyph-w)); }
+.queue-job-name { display: block; font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity .2s ease; }
+/* The whole name over the cut one, in the same type, on hover of a cut name. */
+.queue-name-full {
+    visibility: hidden; opacity: 0;
+    position: absolute; left: -5px; top: -4px; z-index: 8;
+    width: max-content; max-width: 250px; padding: 3px 4px;
+    font-size: 12px; font-weight: 700; color: #fff; white-space: normal; overflow-wrap: anywhere;
+    background: var(--inset); border: 1px solid var(--accent); border-radius: 5px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.8); pointer-events: none;
+    transition: opacity .15s, visibility .15s; transition-delay: 0s;
+}
+.queue-job-namebox.is-cut:hover .queue-name-full { visibility: visible; opacity: 1; transition-delay: .4s; }
+
+/* The mini bar: a short slot after the name, pale for what is still to go. On
+   hover its track stretches left across the name (the strip keeps its height),
+   the line thickens and the name fades out under it. Off hover the count goes
+   first, and the bar folds back after it (the .1s delay). */
+.queue-mini { flex: 0 0 22px; height: 16px; }
+.queue-mini-track {
+    position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 6;
+    width: 22px; height: 16px; display: flex; align-items: center;
+    transition: width .2s ease .1s;
+}
+.queue-mini-line { width: 100%; height: 4px; background: #93a9c2; border-radius: 2px; overflow: hidden; transition: height .2s ease .1s; }
+.queue-mini-fill { display: block; height: 100%; border-radius: 2px; transition: width .3s ease; }
+.queue-mini:hover .queue-mini-track { width: 100%; transition-delay: 0s; }
+/* The name fades out under the stretching bar, in step with it. */
+.queue-job-area .queue-job-name { transition-delay: .1s; }
+.queue-job-area:has(.queue-mini:hover) .queue-job-name { opacity: 0; transition-delay: 0s; }
+.queue-mini:hover .queue-mini-line { height: 8px; border-radius: 4px; transition-delay: 0s; }
+/* "done/total" over the stretched bar, .1s after it has fully stretched (its
+   .2s). It grows into place from the centre with a slight overshoot, and off
+   hover it shrinks back as it fades. The slash sits on the bar's centre line:
+   the two numbers take equal columns, the done one growing to the left, so a
+   new digit moves nothing. The dark outline reads over the fill, the pale part
+   and the strip alike. */
+.queue-mini-num {
+    position: absolute; inset: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center;
+    font-size: 12px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap;
+    text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 1px #000;
+    opacity: 0; transform: scale(.6); pointer-events: none;
+    transition: opacity .1s ease, transform .1s ease;
+}
+.queue-mini-num > :first-child { text-align: right; }
+.queue-mini:hover .queue-mini-num {
+    opacity: 1; transform: none;
+    transition: opacity .2s ease .3s, transform .25s cubic-bezier(.34, 1.56, .64, 1) .3s;
+}
+
+.queue-job-pct, .queue-job-count { font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0; }
+/* Room for "100%" at all times, so a job reaching its end moves nothing. */
+.queue-job-pct { min-width: 4.6ch; }
+.queue-job-skip { position: relative; font-size: 10px; font-weight: 700; color: #ffd21a; flex-shrink: 0; cursor: help; }
+/* The ⚠ alone (its count is in its tooltip) stands next to Pause: the
+   strip's free room goes before it. */
+.queue-job-skip { margin-left: auto; }
+.queue-job-skip + .queue-job-actions { margin-left: 0; }
+.queue-skip-tip {
+    visibility: hidden; opacity: 0;
+    position: absolute; bottom: 100%; right: -40px; margin-bottom: 6px; z-index: 1001;
+    width: max-content; max-width: 220px; padding: 5px 8px;
+    background: var(--inset); color: var(--text); border: 1px solid var(--accent); border-radius: 6px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; font-weight: 600; line-height: 1.35;
+    pointer-events: none; transition: opacity .2s, visibility .2s; transition-delay: 0s;
+}
+.queue-job-skip:hover .queue-skip-tip { visibility: visible; opacity: 1; transition-delay: .4s; }
+/* A pending job's clock, in the ⚠ slot. The slot keeps the ⚠'s width and
+   the larger clock spills over its edges evenly, so the bar does not move. */
+.queue-job-wait { display: inline-flex; justify-content: center; width: 8.6px; color: #fff; }
+.queue-job-wait b { font-weight: 800; }
+.queue-job-wait svg { display: block; flex-shrink: 0; fill: none; }
+/* Pause/Play and Remove sit well apart, so a slip meant for Pause does not
+   land on Remove (which asks first anyway). */
+.queue-job-actions { display: inline-flex; gap: 10px; flex-shrink: 0; margin-left: auto; }
+/* A rule between Pause/Play and Remove, in the middle of the gap. */
+.queue-act-del { position: relative; }
+.queue-act-del::before {
+    content: ''; position: absolute; left: -6px; top: 3px; bottom: 3px;
+    width: 1px; background: var(--border); pointer-events: none;
+}
+.queue-halt-hint { font-size: 10px; color: #ffd21a; padding: 4px 2px 2px; }
+
+/* Bare glyphs at rest, with no frame or fill. Hover raises a key under the
+   glyph (a top-lit gradient, a highlight along the top edge, a drop shadow)
+   and a click presses it in. Pause and Remove raise it in their own colour,
+   the language chip in the neutral --key-face. */
+.queue-act, .lang-chip {
+    --key-face: linear-gradient(180deg, #34495f 0%, #233446 100%);
+    --key-lift: inset 0 1px 0 rgba(255,255,255,.12), 0 2px 4px rgba(0,0,0,.45), 0 1px 1px rgba(0,0,0,.6);
+    --key-press: inset 0 1px 2px rgba(0,0,0,.45);
+}
 .queue-act {
     display: inline-flex; align-items: center; justify-content: center;
-    width: 32px; height: 28px; padding: 0; cursor: pointer;
-    background: var(--panel); color: var(--muted); border: 1px solid var(--border); border-radius: 6px;
-    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+    width: 22px; height: 24px; padding: 0; cursor: pointer;
+    background: none; color: var(--text); border: none; border-radius: 6px;
+    transition: box-shadow .15s ease, color .15s ease, transform .08s ease;
 }
-.queue-act svg { display: block; width: 15px; height: 15px; }
-/* Hover = filled colour: pause→yellow, play→bright green, delete→IGNORED-badge red. */
-.queue-act.is-pause:not([disabled]):hover { background: #ffd21a; color: #1a1300; border-color: #ffd21a; }
-.queue-act.is-play:not([disabled]):hover  { background: #7ad13f; color: #0c1a07; border-color: #7ad13f; }
-.queue-act-del:hover { background: #D32F2F; color: #fff; border-color: #D32F2F; }
+.queue-act:not([disabled]):not(.is-confirm):not(.is-cancel):hover { box-shadow: var(--key-lift); }
+.queue-act:not([disabled]):active { transform: translateY(1px); box-shadow: var(--key-press); }
+/* The key shows the action a click takes: a quiet grey ⏸ on a job that goes,
+   a ▶ waiting on a paused one. Hover inverts either into a key of its colour
+   (taxi yellow, lime) with a dark glyph. */
+.queue-act.is-pause { color: #737c85; }
+.queue-act.is-play { color: #fff; }
+.queue-act-del { color: var(--muted); }
+.queue-act svg { display: block; width: 13px; height: 13px; }
+.queue-act:is(.is-pause, .is-play) svg { width: 16px; height: 16px; }
+/* Hover = filled colour: play→lime, pause→taxi yellow, delete→the panel's red (--danger). */
+.queue-act.is-play:not([disabled]):hover { background: linear-gradient(180deg, #b4ff8c 0%, #48ff00 45%, #2bb000 100%); color: #0c1a07; }
+.queue-act.is-pause:not([disabled]):hover { background: linear-gradient(180deg, #ffd34d 0%, #f7b500 45%, #c48a00 100%); color: #1a1300; }
+.queue-act-del:hover { background: linear-gradient(180deg, #ff4b53 0%, #ee1c25 45%, #b8000a 100%); color: #fff; }
+/* Remove asks first: ✓ removes (red, like Remove), ✕ keeps the job (green). Both pop
+   in over the two buttons they replace, as bare bold marks with no key under
+   them; hover only brightens the mark. */
+.queue-act.is-confirm, .queue-act.is-cancel {
+    background: none; box-shadow: none;
+    font-family: inherit; font-size: 17px; font-weight: 900; line-height: 1;
+    -webkit-text-stroke: .6px currentColor;
+}
+.queue-act.is-confirm:active, .queue-act.is-cancel:active { box-shadow: none; }
+.queue-act.is-confirm { color: var(--danger); }
+.queue-act.is-confirm:hover { color: #ff4b53; }
+.queue-act.is-cancel { color: #4fd64f; }
+.queue-act.is-cancel:hover { color: #93f093; }
+.queue-act.is-confirm, .queue-act.is-cancel { animation: ilap-act-swap .18s ease; }
+@keyframes ilap-act-swap { from { transform: scale(.6); opacity: 0; } }
 /* Pause/Resume with the extension off (Remove stays live). The hover fills above
    skip [disabled] via :not() instead of being overridden here, so the dead
    button's look doesn't depend on rule order. */
