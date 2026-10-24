@@ -7,6 +7,16 @@ which are the only place the version number lives.
 No release dates here on purpose. The store listings show them, and a date in a
 tracked file is one more thing that can quietly stop being true.
 
+## 1.3.4
+
+- **Fixed the IGNORED badge spreading over Steam's search suggestions.** Hovering a game
+  in the search box dropdown in Steam's header stretched its badge and blur over the
+  whole dropdown.
+- **Fixed a scrollbar flashing on the on-page widget** while the ignore queue or
+  settings section opens.
+- Fixed translation inaccuracies in several interface languages.
+- Minor bug fixes and UI/UX improvements.
+
 ## 1.3.3
 
 - **Built-in ignore lists.** Add a whole list to the ignore queue with the lists icon

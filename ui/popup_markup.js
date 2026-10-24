@@ -66,7 +66,7 @@
             <div class="stat-row" style="flex-direction: column; align-items: flex-start; gap: 4px;">
               <span class="stat-label" data-i18n="last_ignored">Recent:</span>
               <!-- Drawn like a closed droplist: the last entry's name, its source
-                   icon and a chevron that turns up while the history shows. -->
+                   icon and a caret that turns down while the history shows. -->
               <div id="last-ignored-row">
                 <span id="last-game">None</span>
                 <span class="hist-src" id="last-src"></span>

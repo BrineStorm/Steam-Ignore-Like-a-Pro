@@ -243,6 +243,7 @@
             // never grows. A message stands in for Add until the next pick. The
             // open years drop over the lists, which stay in view, so the menu
             // keeps its height.
+            const yearWas = this._yearBox();
             this.menu.innerHTML = `
                 <div class="preset-hl" hidden></div>
                 <div class="preset-title">${esc(t('presets_title'))}</div>
@@ -254,6 +255,29 @@
             const yearsBox = this.menu.querySelector('.preset-years');
             if (yearBtn && yearsBox) yearsBox.style.minWidth = yearBtn.offsetWidth + 'px';
             this._placeHl();
+            this._moveYear(yearWas);
+        }
+
+        // The AI row and where its year button stands in it, in an open menu.
+        _yearBox() {
+            const row = this.menu.classList.contains('open') && this.menu.querySelector(`.preset-opt[data-list="${AI}"]`);
+            const btn = row && row.querySelector('.preset-year');
+            if (!btn) return null;
+            const r = row.getBoundingClientRect(), b = btn.getBoundingClientRect();
+            return { row, btn, h: r.height, x: b.left - r.left, y: b.top - r.top };
+        }
+
+        // A year that no longer fits beside the name wraps under it (popup.css),
+        // and one that fits again comes back up. The redraw would jump there, so
+        // the row grows or shrinks to its new height and the button flies from
+        // its old place into the new one, in step with the highlight's slide.
+        _moveYear(was) {
+            const now = this._yearBox();
+            if (!was || !now || was.y === now.y || !now.row.animate
+                || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+            const timing = { duration: 220, easing: 'ease' };
+            now.row.animate([{ height: was.h + 'px' }, { height: now.h + 'px' }], timing);
+            now.btn.animate([{ transform: `translate(${was.x - now.x}px, ${was.y - now.y}px)` }, { transform: 'none' }], timing);
         }
 
         // The selected row's highlight is one block under the rows that slides

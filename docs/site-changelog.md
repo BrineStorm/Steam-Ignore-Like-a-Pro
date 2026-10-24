@@ -5,6 +5,12 @@ version heading, newest first, followed by plain bullets. A plain line before th
 bullets becomes that release's one-line lede. Bullets are one line each, with no
 markdown inside.
 
+## 1.3.4
+- Fixed the IGNORED badge spreading over Steam's search suggestions in the header search box.
+- Fixed a scrollbar flashing on the on-page widget while a section opens.
+- The built-in lists menu fits long translations, and its icon stays lit while the menu is open.
+- Fixed translation inaccuracies in several interface languages.
+
 ## 1.3.3
 - Built-in ignore lists for games with AI-generated content, Denuvo DRM, kernel-level anti-cheat, In-App Purchases and every VR game.
 - Ignore a whole bundle, every game and DLC in it, with one gesture.

@@ -267,7 +267,7 @@
         _ensurePositioning(element) {
             const style = getComputedStyle(element);
             if (style.position === 'static') {
-                element.classList.add('ilap-tagged-container');
+                element.dataset.ilapAnchor = '';
             }
             if (style.display === 'inline') {
                 element.style.display = 'inline-block';

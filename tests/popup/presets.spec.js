@@ -117,6 +117,30 @@ test.describe('Popup — built-in ignore lists', () => {
         expect(Math.min(...widths)).toBeGreaterThan(bar.width / 2);
     });
 
+    test('the icon stays lit while the menu is open, paler under the pointer', async ({ page, context }) => {
+        await openPopup(page, context);
+        const chip = page.locator('#preset-chip');
+        const bg = () => chip.evaluate(el => getComputedStyle(el).backgroundColor);
+        const away = () => page.mouse.move(5, 5);
+
+        await chip.hover();
+        await expect.poll(bg).toBe('rgb(42, 59, 79)'); // plain hover
+        await away();
+        await expect.poll(bg).toBe('rgba(0, 0, 0, 0)');
+
+        await openMenu(page);
+        await expect.poll(bg).toBe('rgb(52, 71, 93)'); // the pointer is still on the icon
+        await away();
+        await expect.poll(bg).toBe('rgb(42, 59, 79)'); // lit with the pointer gone
+        await page.locator('#preset-menu .preset-title').hover();
+        await expect.poll(bg).toBe('rgb(42, 59, 79)'); // a hover inside the menu leaves it as is
+
+        await chip.click({ position: { x: 4, y: 4 } });
+        await expect(page.locator('#preset-menu')).not.toHaveClass(/open/);
+        await away();
+        await expect.poll(bg).toBe('rgba(0, 0, 0, 0)');
+    });
+
     test('the menu fits under the panel top with one gesture hint line, in every locale', async ({ page, context }) => {
         // The menu opens upward over the panel. With Already played off the hint
         // card loses a line, the bar moves up, and a taller menu ran its title

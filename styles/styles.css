@@ -34,10 +34,13 @@
     line-height: 1;
 }
 
-/* Layout Safety: 
-   Class added via JS to container if position is static.
-   Ensures the absolute badge sticks to the card corner, not the page. */
-.ilap-tagged-container {
+/* Layout Safety:
+   Attribute added via JS to container if position is static.
+   Ensures the absolute badge sticks to the card corner, not the page.
+   An attribute rather than a class: React rows (the header search dropdown)
+   rewrite className on hover, which dropped the class and let the badge and
+   veil spread over the whole panel. */
+[data-ilap-anchor] {
     position: relative !important;
 }
 

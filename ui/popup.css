@@ -172,8 +172,8 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
 .stat-label { color: #fff; }
 
 /* The Last-Ignored box, drawn as a closed droplist over the history below it:
-   name, source icon, chevron. Hovering it shows the history, and the chevron
-   turns up for as long as the history does. */
+   name, source icon, caret. Hovering it shows the history, and the caret
+   turns down for as long as the history does. */
 #last-ignored-row {
     display: flex; align-items: center; gap: 8px; width: 100%;
     background: var(--inset); border: 1px solid var(--border); border-radius: 8px;
@@ -184,11 +184,11 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .last-chevron {
-    width: 6px; height: 6px; flex-shrink: 0;
-    border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
-    transform: translateY(-2px) rotate(45deg); transition: transform .2s ease;
+    width: 0; height: 0; flex-shrink: 0;
+    border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid var(--muted);
+    transition: transform .2s ease;
 }
-.history-trigger:hover .last-chevron { transform: translateY(2px) rotate(-135deg); }
+.history-trigger:hover .last-chevron { transform: rotate(90deg); }
 /* The list hangs 4px below the box. A pointer crossing that gap would leave
    the trigger, and the list would start fading out and back in. This strip
    bridges it while the trigger is hovered. */
@@ -471,19 +471,15 @@ summary::-webkit-details-marker { display: none; }
 #settings-accordion[open] > summary .gear-ico { transform: rotate(45deg); }
 #settings-accordion > summary:hover .gear-ico { transform: rotate(45deg) scale(1.25); }
 @media (prefers-reduced-motion: reduce) { .gear-ico { transition: none; } }
-/* The chevron: a bordered corner turned to point. A subcategory's points right
-   (›) and turns down open. A top-level bar's points down (∨) and turns up open.
-   The translate keeps the drawn corner on
-   the row's centre line as it turns. */
+/* The caret: a small triangle that points right while its part is shut and
+   turns down as it opens. The bars, the subcategories and both droplists
+   (the history, the AI years) share it. */
 summary::after {
-    content: ''; display: inline-block; width: 6px; height: 6px; flex-shrink: 0;
-    border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
-    transform: translateX(-2px) rotate(-45deg);
+    content: ''; display: inline-block; width: 0; height: 0; flex-shrink: 0;
+    border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid var(--muted);
     transition: transform 0.2s ease-in-out; margin-left: 10px; margin-right: 2px;
 }
-details[open] > summary::after { transform: translateY(-2px) rotate(45deg); }
-#queue-accordion > summary::after, #settings-accordion > summary::after { transform: translateY(-2px) rotate(45deg); }
-#queue-accordion[open] > summary::after, #settings-accordion[open] > summary::after { transform: translateY(2px) rotate(-135deg); }
+details[open] > summary::after { transform: rotate(90deg); }
 
 /* Quick language picker living inside the SETTINGS bar (left of the caret).
    Compact code shown as a span; the native <select> is the inert value store
@@ -638,7 +634,9 @@ details[open] > summary::after { transform: translateY(-2px) rotate(45deg); }
     block-size: auto;
     opacity: 1;
     overflow: visible;
-    transition: block-size .26s ease, opacity .2s ease, overflow 0s .26s;
+    /* allow-discrete, or the delay is ignored and the body sticks out of the
+       growing box, putting a scrollbar on the panel for the length of the open. */
+    transition: block-size .26s ease, opacity .2s ease, overflow 0s .26s allow-discrete;
 }
 /* Solo collapse (JS-marked): a slower, content-preserving close. The base rule
    snaps content-visibility to hidden the instant [open] is removed (content
@@ -687,7 +685,9 @@ details[open] > summary::after { transform: translateY(-2px) rotate(45deg); }
 #queue-accordion[open]::details-content,
 #settings-accordion[open]::details-content {
     block-size: auto; overflow: visible; opacity: 1;
-    transition: block-size .3s ease, opacity .25s ease, overflow 0s .3s;
+    /* allow-discrete: without it overflow flips to visible at once, and the body
+       sticking out of the still-growing box puts a scrollbar on the widget panel. */
+    transition: block-size .3s ease, opacity .25s ease, overflow 0s .3s allow-discrete;
 }
 
 select {
@@ -803,6 +803,11 @@ select option { background: #16202d; color: #fff; }
    brightens the plus. */
 .preset-chip .ico-plus { filter: drop-shadow(0 .7px .5px rgba(0,0,0,.75)); transition: filter .15s ease; }
 .preset-chip:hover:not(:has(.preset-menu:hover)) .ico-plus { filter: brightness(1.25) drop-shadow(0 .7px .5px rgba(0,0,0,.75)); }
+/* While the menu is open the key stays lit as on hover, and a hover on the key
+   itself (the click that closes it) pales it further. */
+.preset-chip:has(.preset-menu.open) { background: #2a3b4f; }
+.preset-chip:has(.preset-menu.open) .ico-plus { filter: brightness(1.25) drop-shadow(0 .7px .5px rgba(0,0,0,.75)); }
+.preset-chip:has(.preset-menu.open):hover:not(:has(.preset-menu:hover)) { background: #34475d; }
 #queue-accordion.master-off .preset-chip { opacity: .4; cursor: default; }
 #queue-accordion.master-off .preset-chip:hover:not(:has(.preset-menu:hover)) { background: none; }
 #queue-accordion.master-off .preset-chip:hover:not(:has(.preset-menu:hover)) .ico-plus { filter: drop-shadow(0 .7px .5px rgba(0,0,0,.75)); }
@@ -847,8 +852,10 @@ select option { background: #16202d; color: #fff; }
 /* It has to fit between the bar and the panel's top with one gesture hint line
    (Already played off), so its rows are tight and its line height is set, or
    a CJK font's taller lines push its title out of the window. */
+/* It sits flush on the bar, without the language list's 4px of air: a
+   two-line AI row in a long locale needs the room at the top. */
 .preset-menu {
-    left: 16px; right: 16px; min-width: 0; padding: 6px 8px; cursor: default;
+    left: 16px; right: 16px; bottom: 100%; min-width: 0; padding: 4px 8px 6px; cursor: default;
     text-transform: none; letter-spacing: normal; white-space: normal; line-height: 16px;
 }
 /* It opens by fading in as it rises a few pixels into place, and closes the
@@ -865,7 +872,7 @@ select option { background: #16202d; color: #fff; }
     transition: opacity .2s ease-out, transform .2s ease-out, visibility 0s;
 }
 @media (prefers-reduced-motion: reduce) { .preset-menu, .preset-menu.open { transition: none; } }
-.preset-title { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px 4px; }
+.preset-title { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px 2px; }
 .preset-opt {
     position: relative;
     display: flex; align-items: center; gap: 8px;
@@ -887,6 +894,14 @@ select option { background: #16202d; color: #fff; }
 }
 .preset-opt.selected .preset-dot { background: var(--accent); border-color: var(--accent); }
 .preset-name { flex: 1; }
+/* The AI row keeps its year button beside the name while both fit, and wraps
+   it onto a line of its own at the right when they don't ("2023 and earlier",
+   a German TBA). The name's basis is its whole text, so the row wraps before
+   the name would, and its cap keeps it beside the dot. popup_presets.js
+   _moveYear animates the switch. */
+.preset-opt[data-list="ai"] { flex-wrap: wrap; row-gap: 0; }
+.preset-opt[data-list="ai"] .preset-name { flex: 1 1 auto; max-width: calc(100% - 16px); }
+.preset-opt[data-list="ai"] .preset-year { margin-left: auto; }
 .preset-year {
     display: inline-flex; align-items: center; gap: 5px;
     padding: 3px 8px; border-radius: 5px; background: var(--inset); border: 1px solid var(--border);
@@ -895,10 +910,10 @@ select option { background: #16202d; color: #fff; }
 }
 .preset-year::after {
     content: ''; width: 0; height: 0;
-    border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--muted);
+    border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid var(--muted);
     transition: transform .2s ease;
 }
-.preset-year.open::after { transform: rotate(180deg); }
+.preset-year.open::after { transform: rotate(90deg); }
 .preset-opt.disabled .preset-year { cursor: pointer; }
 .preset-menu [role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* The open years list drops over the whole-list rows below the AI row, which
