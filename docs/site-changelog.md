@@ -5,6 +5,10 @@ version heading, newest first, followed by plain bullets. A plain line before th
 bullets becomes that release's one-line lede. Bullets are one line each, with no
 markdown inside.
 
+## 1.3.5
+- Fixed the Pending tooltip and the Remove confirmation blinking on the Ignore Tasks Queue panel while a job runs.
+- Games with AI-generated content released this week moved from the Upcoming 2026 list to 2026.
+
 ## 1.3.4
 - Fixed the IGNORED badge spreading over Steam's search suggestions in the header search box.
 - Fixed a scrollbar flashing on the on-page widget while a section opens.

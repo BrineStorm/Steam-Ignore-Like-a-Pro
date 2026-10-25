@@ -7,6 +7,13 @@ which are the only place the version number lives.
 No release dates here on purpose. The store listings show them, and a date in a
 tracked file is one more thing that can quietly stop being true.
 
+## 1.3.5
+
+- **Fixed the Pending tooltip and the Remove confirmation blinking** on the Ignore Tasks
+  Queue panel while a job runs.
+- Games with AI-generated content released this week moved from the Upcoming 2026 list
+  to 2026.
+
 ## 1.3.4
 
 - **Fixed the IGNORED badge spreading over Steam's search suggestions.** Hovering a game

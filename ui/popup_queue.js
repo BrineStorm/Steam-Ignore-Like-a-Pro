@@ -43,10 +43,9 @@
     const COLLAPSE_MS = 500;
 
     // One sweep of the running strip's sheen — matches the 2.4s on
-    // .queue-job.running in popup.css. Every render rebuilds the strips, which
-    // would restart the sweep on each progress tick, so a running strip is
-    // started at the phase of a shared clock (a negative animation-delay) and
-    // the rebuilt one picks the sweep up where the old one was.
+    // .queue-job.running in popup.css. A strip that starts running is started
+    // at the phase of a shared clock (a negative animation-delay), so a fresh
+    // one picks the sweep up where an old one was (_patchList).
     const SHEEN_MS = 2400;
 
     // Curator id of the page this surface is rendered on (only matches in the on-page
@@ -74,6 +73,21 @@
         [Store.JOB_TYPE.MI]: 'mi_job_name',
         [Store.JOB_TYPE.MIUNDO]: 'miundo_job_name',
     });
+
+    // Makes `from` match `to` in place, node by node: an equal node is left as
+    // it is, a node of another kind is swapped for its twin, an element of the
+    // same tag takes the twin's attributes and the same pass over its children.
+    function morph(from, to) {
+        if (from.nodeType !== to.nodeType || from.nodeName !== to.nodeName) { from.replaceWith(to); return; }
+        if (from.nodeType === Node.TEXT_NODE) { if (from.data !== to.data) from.data = to.data; return; }
+        if (from.nodeType !== Node.ELEMENT_NODE || from.isEqualNode(to)) return;
+        for (const a of Array.from(from.attributes)) if (!to.hasAttribute(a.name)) from.removeAttribute(a.name);
+        for (const a of Array.from(to.attributes)) if (from.getAttribute(a.name) !== a.value) from.setAttribute(a.name, a.value);
+        const was = Array.from(from.childNodes);
+        const next = Array.from(to.childNodes);
+        next.forEach((n, i) => { if (i < was.length) morph(was[i], n); else from.appendChild(n); });
+        was.slice(next.length).forEach(n => n.remove());
+    }
 
     class QueueManager {
         constructor(root) {
@@ -251,46 +265,43 @@
                     .map((j, i) => this._row(j, cur, statuses[i], this._done(j, store),
                         this._skipped(j, store)))
                     .join('') + halt;
-                if (!this._patchOpenBar(html)) this.list.innerHTML = html;
+                this._patchList(html);
             }
             if (window.ILAP && window.ILAP.i18n) window.ILAP.i18n.applyDom(this.list);
         }
 
-        // A bar under the pointer stays the same element through a render: a
-        // rebuilt one would start unhovered and run its stretch and its count's
-        // delay again on every drain tick. Its strip keeps the row, the line, the
-        // name-and-bar box and the bar. The bar takes the new fill and numbers,
-        // everything else in the list comes fresh. False when no bar is open or
-        // its job is gone, for a plain rebuild.
-        _patchOpenBar(html) {
-            const bar = this.list.querySelector('.queue-mini:hover');
-            const row = bar && bar.closest('.queue-job');
-            if (!row) return false;
+        // The list takes the new HTML in place: a job still in the queue keeps
+        // its strip's elements, and only what differs is changed. A rebuilt
+        // strip would start unhovered on every drain tick, so a tooltip under
+        // the pointer would wait out its delay again, an open bar would run its
+        // stretch again and ✓ ✕ would pop in again. A strip that keeps running
+        // keeps its sheen delay, since a new one would make the sweep jump.
+        _patchList(html) {
             const tmp = document.createElement('div');
             tmp.innerHTML = html;
-            const fresh = Array.from(tmp.children).find(r => r.dataset.jobId === row.dataset.jobId);
-            const freshBar = fresh && fresh.querySelector('.queue-mini');
-            if (!freshBar) return false;
-            // Puts `twin`'s siblings in `parent` around `kept`, in place of its own.
-            const swapAround = (parent, kept, twin) => {
-                const nodes = Array.from(twin.parentNode.childNodes);
-                const at = nodes.indexOf(twin);
-                Array.from(parent.childNodes).forEach(n => { if (n !== kept) n.remove(); });
-                kept.before(...nodes.slice(0, at));
-                kept.after(...nodes.slice(at + 1));
-            };
-            const area = bar.parentNode;
-            const freshArea = freshBar.parentNode;
-            swapAround(area, bar, freshBar);
-            swapAround(area.parentNode, area, freshArea);
-            swapAround(this.list, row, fresh);
-            row.className = fresh.className;
-            row.style.cssText = fresh.style.cssText;
-            for (const a of ['aria-valuemax', 'aria-valuenow', 'aria-label']) bar.setAttribute(a, freshBar.getAttribute(a));
-            bar.querySelector('.queue-mini-fill').style.cssText = freshBar.querySelector('.queue-mini-fill').style.cssText;
-            const num = bar.querySelector('.queue-mini-num').children;
-            Array.from(freshBar.querySelector('.queue-mini-num').children).forEach((s, i) => { num[i].textContent = s.textContent; });
-            return true;
+            const old = new Map(Array.from(this.list.children)
+                .filter(r => r.dataset.jobId).map(r => [r.dataset.jobId, r]));
+            const rows = Array.from(tmp.children).map((fresh) => {
+                const kept = fresh.dataset.jobId && old.get(fresh.dataset.jobId);
+                if (!kept) return fresh;
+                if (kept.classList.contains('running') && fresh.classList.contains('running')) {
+                    fresh.style.animationDelay = kept.style.animationDelay;
+                }
+                // Set on hover (see the constructor), absent from the new HTML.
+                const cut = kept.querySelector('.queue-job-namebox.is-cut');
+                const freshBox = fresh.querySelector('.queue-job-namebox');
+                if (cut && freshBox) freshBox.classList.add('is-cut');
+                morph(kept, fresh);
+                return kept;
+            });
+            const keep = new Set(rows);
+            Array.from(this.list.childNodes).forEach(n => { if (!keep.has(n)) n.remove(); });
+            // A kept strip already in its place is not moved: a move would
+            // restart its animations as well.
+            rows.forEach((r, i) => {
+                const at = this.list.children[i] || null;
+                if (r !== at) this.list.insertBefore(r, at);
+            });
         }
 
         // The queue emptied. If the applet was OPEN (the user was watching a job

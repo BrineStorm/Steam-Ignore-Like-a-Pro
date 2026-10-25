@@ -511,6 +511,35 @@ test.describe('Popup — ignore-queue applet', () => {
         await expect(row(pending).locator('.queue-job-skip')).toHaveText(/^⚠/);
     });
 
+    test('Drain progress keeps an open tooltip and the ✓ ✕ of the strips it does not change', async ({ page, context }) => {
+        // A drain re-renders the list about once a second. A rebuilt strip
+        // would start unhovered, so the clock's tooltip waited out its delay
+        // again each time and ✓ ✕ popped in again: both blinked.
+        const running = makeJob({ total: 10, appids: Array.from({ length: 10 }, (_, i) => String(i + 1)) });
+        const pending = makeJob({ status: 'pending' });
+        const cursor = (n) => ({ ['ilap_curator_cursor_' + running.id]: n });
+        await setExtensionStorage(context, Object.assign({ ilap_curator_queue: [running, pending] }, cursor(0), liveLease(running)));
+        await openPopup(page, context);
+        await openApplet(page);
+        const row = (job) => page.locator(`.queue-job[data-job-id="${job.id}"]`);
+        const tip = row(pending).locator('.queue-skip-tip');
+        await row(pending).locator('.queue-job-wait').hover();
+        await expect(tip).toHaveCSS('opacity', '1');
+        await tip.evaluate(el => { el.__kept = true; });
+
+        await setExtensionStorage(context, cursor(3));
+        await expect(row(running).locator('.queue-job-pct')).toHaveText('30%');
+        expect(await tip.evaluate(el => el.__kept)).toBe(true);
+        await expect(tip).toHaveCSS('opacity', '1');
+
+        await row(running).locator('[data-act="remove"]').click();
+        const ok = row(running).locator('[data-act="confirm"]');
+        await ok.evaluate(el => { el.__kept = true; });
+        await setExtensionStorage(context, cursor(6));
+        await expect(row(running).locator('.queue-job-pct')).toHaveText('60%');
+        expect(await ok.evaluate(el => el.__kept)).toBe(true);
+    });
+
     test('Progress count reads the drainer-owned cursor key', async ({ page, context }) => {
         const job = makeJob({ total: 10, appids: Array.from({ length: 10 }, (_, i) => String(i + 1)) });
         await setExtensionStorage(context, {
@@ -548,9 +577,8 @@ test.describe('Popup — ignore-queue applet', () => {
     test('...and that burst costs far fewer rebuilds than it has writes', async ({ page, context }) => {
         // The other half of the throttle: the trailing edge landing is worth
         // nothing if every write still rebuilt the list on its way there. Count
-        // the rebuilds rather than trust the clock — one innerHTML assignment is
-        // one childList batch on #queue-list, and the i18n pass that follows
-        // touches descendants only (no subtree: true here, so it is not counted).
+        // the rebuilds rather than trust the clock — a render patches the list
+        // in one synchronous pass, which the observer delivers as one batch.
         const job = makeJob({ total: 10, appids: Array.from({ length: 10 }, (_, i) => String(i + 1)) });
         await setExtensionStorage(context, {
             ilap_curator_queue: [job],
@@ -562,7 +590,7 @@ test.describe('Popup — ignore-queue applet', () => {
         await page.evaluate(() => {
             window.__ilapRebuilds = 0;
             new MutationObserver(() => { window.__ilapRebuilds += 1; })
-                .observe(document.getElementById('queue-list'), { childList: true });
+                .observe(document.getElementById('queue-list'), { childList: true, subtree: true, characterData: true, attributes: true });
         });
 
         const WRITES = 8;
