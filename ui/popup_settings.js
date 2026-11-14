@@ -13,8 +13,7 @@
     // Surface helper (src/surface.js): ilap_surface_mode + Steam-client detection.
     const Surface = window.ILAP.Surface;
 
-    // Shared exclusive-<details> wiring, reused by the top-level popup applets
-    // (SETTINGS ↔ QUEUE, popup_main.js) and the settings subcategories (Discovery
+    // Exclusive-<details> wiring for the settings subcategories (Discovery
     // Queue ↔ Manual Ignore). Takes over the native summary toggle so opening one
     // section collapses its sibling in the SAME synchronous frame — the native
     // `toggle` event fires a frame late, which would flash both open for one paint
@@ -22,39 +21,18 @@
     // place) is marked so it gets the smooth content-preserving animation; the
     // concurrent collapse triggered by opening the sibling stays unmarked so it
     // snaps shut together. `skipSelector` names an in-summary control that owns its
-    // own click (the language chip / the DQ master switch) and must not toggle it.
-    // `handoffMs`: instead of snapping an open sibling shut, fold it away smoothly
-    // (.solo-collapse.handoff) and open this section only once it has folded, so
-    // the two heights never add up on screen.
-    const wireExclusiveDetails = (section, sibling, skipSelector, handoffMs) => {
+    // own click (the DQ master switch) and must not toggle it.
+    const wireExclusiveDetails = (section, sibling, skipSelector) => {
         if (!section) return;
         const summary = section.querySelector(':scope > summary');
         if (!summary) return;
-        let handoff = null;
         summary.addEventListener('click', (e) => {
+            // A forged click opens nothing: a section's state is a stored setting.
+            if (!e.isTrusted) { e.preventDefault(); return; }
             if (skipSelector && e.target.closest(skipSelector)) return;
             e.preventDefault();
-            // A second click during a hand-off cancels it: nothing opens.
-            if (handoff) {
-                clearTimeout(handoff);
-                handoff = null;
-                return;
-            }
             const willOpen = !section.open;
             section.classList.toggle('solo-collapse', !willOpen);
-            if (willOpen && sibling && sibling.open && handoffMs) {
-                sibling.classList.add('solo-collapse', 'handoff');
-                sibling.open = false;
-                handoff = setTimeout(() => {
-                    handoff = null;
-                    sibling.classList.remove('handoff');
-                    // The sibling was opened again meanwhile: the later click
-                    // wins, and the two are never open together.
-                    if (sibling.open) return;
-                    section.open = true;
-                }, handoffMs);
-                return;
-            }
             if (willOpen && sibling) sibling.open = false;
             section.open = willOpen;
         });
@@ -113,7 +91,10 @@
     }).join('');
     const { BINDINGS, OFF } = Settings;
 
+    // `labels` may also be a function of the value, for a list whose rows are
+    // names rather than strings of ours (the undo menu's creators).
     function shortcutDisplay(value, slot, labels) {
+        if (typeof labels === 'function') return esc(labels(value));
         const entry = (labels || SHORTCUT_LABELS)[value];
         if (!entry) return '';
         const text = t(entry[0]);
@@ -151,6 +132,9 @@
 
     // Replace the OS-rendered <select> list with a styled menu, while keeping the
     // real <select> as the value store (and the element Playwright drives in tests).
+    // The styled menu is for the mouse. The keyboard path is the real <select>
+    // itself: it keeps its tab stop, its name and its arrow keys, and its focus
+    // ring is drawn on the display (popup.css).
     function enhanceSelect(shell, select, slot, root, labels) {
         if (!shell || !select) return;
         const closeAll = () => root.querySelectorAll('.select-menu.open').forEach(m => m.classList.remove('open'));
@@ -185,12 +169,30 @@
         });
     }
 
+    // The language tab's pane: every translated language by its own name, two
+    // to a row, the current one marked.
+    function langGrid() {
+        const i18n = window.ILAP.i18n;
+        const cur = i18n.getLang();
+        const langs = i18n.getLanguages().filter(l => l.translated);
+        const label = esc(t('language').replace(/\s*[:：]\s*$/, ''));
+        const opts = langs.map(l => `<button type="button" class="lang-opt${l.code === cur ? ' selected' : ''}" role="radio" aria-checked="${l.code === cur}" tabindex="${l.code === cur ? 0 : -1}" data-lang="${esc(l.code)}" lang="${esc(l.code)}">${esc(l.name)}</button>`).join('');
+        return `<div class="lang-grid" role="radiogroup" aria-label="${label}">${opts}</div>`;
+    }
+
+    // The styled droplist for the undo menu's creators (popup_undo.js).
+    window.ILAP.PopupSelect = Object.freeze({ enhanceSelect });
+
     class SettingsManager {
         // deps.applyMasterInert: the panel-wide master-off rule, owned by popup_main.js.
+        // deps.foldLang(): folds the language tab and resolves once it is shut.
         constructor(root, deps) {
             this.root = root;
             this.applyMasterInert = deps.applyMasterInert;
+            this.foldLang = deps.foldLang || (() => Promise.resolve());
             this.container = root.getElementById('settings-placeholder');
+            this.langPane = root.getElementById('lang-pane');
+            this._bindLanguage();
             // Close any open custom dropdown when clicking elsewhere within this root.
             root.addEventListener('click', () => this.closeAllMenus());
         }
@@ -219,9 +221,16 @@
          * up the new locale; otherwise no-op (init() will run on first open).
          */
         relabel(data) {
+            if (this.langPane && this.langPane.children.length) this.renderLang();
             if (!this.container || this.container.children.length === 0) return;
             this.render();
             this.bindEvents(data || {});
+        }
+
+        // Fills the language tab's pane, as the tab opens and on a change of
+        // language.
+        renderLang() {
+            if (this.langPane) this.langPane.innerHTML = langGrid();
         }
 
         render() {
@@ -232,12 +241,13 @@
             // the widget is forced there and the stored key is left untouched.
             const surfaceRow = Surface.isSteamClientUA(navigator.userAgent) ? '' : `
                 <div id="surface-row" data-master-exempt>
+                    <span class="surface-label" data-i18n="surface_mode">Interface:</span>
                     <label class="wide-switch">
-                        <input type="checkbox" id="surface-toggle">
+                        <input type="checkbox" id="surface-toggle" aria-labelledby="surface-popup-label">
                         <div class="wide-track">
                             <span class="wide-bg"></span>
                             <span class="wide-label" data-i18n="surface_widget">On page</span>
-                            <span class="wide-label" data-i18n="surface_popup">Toolbar</span>
+                            <span class="wide-label" id="surface-popup-label" data-i18n="surface_popup">Toolbar</span>
                         </div>
                     </label>
                 </div>`;
@@ -265,22 +275,23 @@
                                  on-page widget the PAGE draws it, outside our panel. Hover
                                  is on the whole row, exactly as the title was. -->
                             <div class="stat-row dq-next-row">
-                                <span data-i18n="click_next_after_ignore">Auto-advance after ignore</span>
+                                <span id="q-next-label" data-i18n="click_next_after_ignore">Auto-advance after ignore</span>
                                 <label class="switch">
-                                    <input type="checkbox" id="q-next">
+                                    <input type="checkbox" id="q-next" aria-labelledby="q-next-label">
                                     <span class="slider"></span>
                                 </label>
                                 <span class="dq-next-tip" role="tooltip" data-i18n="tooltip_dq_next">Enable automatic transition ONLY when a game is successfully ignored.</span>
                             </div>
 
                             <div style="margin-top: 8px;">
-                                <span style="font-size: 12px; display: block; margin-bottom: 4px;" data-i18n="ignore_mode">Ignore Mode:</span>
+                                <span id="q-mode-label" style="font-size: 12px; display: block; margin-bottom: 4px;" data-i18n="ignore_mode">Ignore Mode:</span>
+                                <!-- Checked is the right half: named by the caption and that half. -->
                                 <label class="wide-switch">
-                                    <input type="checkbox" id="q-mode-toggle">
+                                    <input type="checkbox" id="q-mode-toggle" aria-labelledby="q-mode-label q-mode-every">
                                     <div class="wide-track">
                                         <span class="wide-bg"></span>
                                         <span class="wide-label" data-i18n="mode_bad_reviews">Bad Reviews</span>
-                                        <span class="wide-label" data-i18n="mode_every_game">Every Game</span>
+                                        <span class="wide-label" id="q-mode-every" data-i18n="mode_every_game">Every Game</span>
                                     </div>
                                 </label>
                             </div>
@@ -294,18 +305,18 @@
                     </summary>
                     <div class="subcat-content">
                         <div class="stat-row">
-                            <span data-i18n="blur_ignored_covers">Blur ignored covers</span>
+                            <span id="mask-label" data-i18n="blur_ignored_covers">Blur ignored covers</span>
                             <label class="switch">
-                                <input type="checkbox" id="mask-toggle">
+                                <input type="checkbox" id="mask-toggle" aria-labelledby="mask-label">
                                 <span class="slider"></span>
                             </label>
                         </div>
 
                         <div class="stat-row">
-                            <span style="flex: 1;" data-i18n="default_ignore">Default Ignore:</span>
+                            <span id="default-key-label" style="flex: 1;" data-i18n="default_ignore">Default Ignore:</span>
                             <div class="select-shell">
                                 <span class="select-display" id="default-key-display"></span>
-                                <select id="default-key">${shortcutOptions(BINDINGS)}</select>
+                                <select id="default-key" aria-labelledby="default-key-label">${shortcutOptions(BINDINGS)}</select>
                             </div>
                         </div>
 
@@ -313,7 +324,7 @@
                             <span id="p-label" style="flex: 1;" data-i18n="already_played">Already Played:</span>
                             <div class="select-shell">
                                 <span class="select-display" id="platform-key-display"></span>
-                                <select id="platform-key">${shortcutOptions([OFF].concat(BINDINGS))}</select>
+                                <select id="platform-key" aria-labelledby="p-label">${shortcutOptions([OFF].concat(BINDINGS))}</select>
                             </div>
                         </div>
 
@@ -323,20 +334,20 @@
                              (ZigzagTracker), so a flat left-right zigzag is the same motion
                              to it — genuinely useful on capsules too short to circle over.
                              The glyph beside the label names NO rotation direction, and the
-                             row carries no hover hint at all: the detector sees X only, so
+                             row has no hover hint at all: the detector sees X only, so
                              a circle's rotation is invisible to it and both directions fire
                              (asserted in zigzag.unit.spec.js), while the glyph has to be
                              drawn SOME way round — counter-clockwise, for the undo
                              convention. Silence lets the reader copy the glyph and be
                              right, with the other direction working anyway. -->
                         <div class="stat-row">
-                            <span style="flex: 1;" data-i18n="solo_unignore">Un-ignore:</span>
+                            <span id="unignore-key-label" style="flex: 1;" data-i18n="solo_unignore">Un-ignore:</span>
                             <div class="select-shell">
                                 <span class="select-display" id="unignore-key-display"></span>
                                 <!-- The circle first (it is this binding's default), and 'off' last
                                      under its own label: the badge click is hard-wired, so it is
                                      never a full off (UNIGNORE_LABELS). -->
-                                <select id="unignore-key">${shortcutOptions([Settings.DEFAULTS.UNIGNORE].concat(BINDINGS.filter(b => b !== Settings.DEFAULTS.UNIGNORE), OFF), UNIGNORE_LABELS)}</select>
+                                <select id="unignore-key" aria-labelledby="unignore-key-label">${shortcutOptions([Settings.DEFAULTS.UNIGNORE].concat(BINDINGS.filter(b => b !== Settings.DEFAULTS.UNIGNORE), OFF), UNIGNORE_LABELS)}</select>
                             </div>
                         </div>
                     </div>
@@ -463,6 +474,52 @@
             if (dqSwitch) dqSwitch.addEventListener('click', (e) => e.stopPropagation());
         }
 
+        // A pick folds the tab and is stored once the fold is over: the stored
+        // language re-renders the whole panel, which would jump mid-motion.
+        // Picked from the keyboard, the focus goes back to the language tab.
+        _bindLanguage() {
+            const pane = this.langPane;
+            if (!pane) return;
+            const tab = () => this.root.getElementById('tab-lang');
+            // Real clicks only: in the widget this panel lives in an open shadow root.
+            pane.addEventListener('click', (e) => {
+                if (!e.isTrusted) return;
+                const opt = e.target.closest('.lang-opt');
+                if (!opt) return;
+                if (e.detail === 0 && tab()) tab().focus();
+                const fold = this.foldLang();
+                if (opt.classList.contains('selected')) return;
+                pane.querySelectorAll('.lang-opt').forEach(o => {
+                    o.classList.toggle('selected', o === opt);
+                    o.setAttribute('aria-checked', String(o === opt));
+                });
+                fold.then(() => chrome.storage.local.set({ [K.LANG]: opt.dataset.lang }));
+            });
+            // One tab stop, on the current language. The arrows move the focus
+            // through the two columns, and Enter or Space picks: a pick re-renders
+            // the whole panel in that language, so the choice does not follow focus.
+            // Escape folds the tab and gives the focus back to it.
+            pane.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    e.stopPropagation();
+                    this.foldLang();
+                    if (tab()) tab().focus();
+                    return;
+                }
+                const opts = Array.from(pane.querySelectorAll('.lang-opt'));
+                const i = opts.indexOf(e.target);
+                if (i < 0) return;
+                const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 2, ArrowUp: -2 }[e.key];
+                const to = e.key === 'Home' ? 0 : e.key === 'End' ? opts.length - 1
+                    : step === undefined ? -1 : Math.min(Math.max(i + step, 0), opts.length - 1);
+                if (to < 0) return;
+                e.preventDefault();
+                opts[i].tabIndex = -1;
+                opts[to].tabIndex = 0;
+                opts[to].focus();
+            });
+        }
+
         _applyValues(data) {
             const els = this.els;
             if (!els) return;
@@ -526,10 +583,8 @@
         }
     }
 
-    // The droplist guard is shared with the language chip (ui/popup_main.js).
     window.ILAP_Settings = {
-        create: (root, deps) => new SettingsManager(root, deps), wireExclusiveDetails,
-        dispatchPick, isSelfPick, isPageReachable,
+        create: (root, deps) => new SettingsManager(root, deps),
     };
 
 })();

@@ -19,7 +19,7 @@ function loadILAP() {
 test.describe('sanitizeName — storage boundary normalizer (unit)', () => {
     const ILAP = loadILAP();
 
-    test('strips tag delimiters so a name cannot carry markup', () => {
+    test('strips tag delimiters so a name cannot include markup', () => {
         // The XSS payload survives only as inert text — no '<' or '>' remain, so a
         // render path that forgot to escape still couldn't form a tag.
         expect(ILAP.sanitizeName('<img src=x onerror=alert(1)>')).toBe('img src=x onerror=alert(1)');
@@ -45,7 +45,7 @@ test.describe('sanitizeName — storage boundary normalizer (unit)', () => {
         expect(ILAP.sanitizeName(LRI + 'Half-Life' + PDI)).toBe('Half-Life');
         expect(ILAP.sanitizeName('a' + RLM + LRE + PDF + 'b')).toBe('ab');
 
-        // NOT all of \p{Cf}: ZWJ and ZWNJ live there too and carry meaning, so
+        // NOT all of \p{Cf}: ZWJ and ZWNJ live there too and have meaning, so
         // cutting them would corrupt legitimate names rather than protect them.
         const ZWJ = '‍', ZWNJ = '‌';
         expect(ILAP.sanitizeName('क्' + ZWJ + 'ष')).toBe('क्' + ZWJ + 'ष');

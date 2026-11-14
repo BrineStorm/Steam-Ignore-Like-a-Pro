@@ -22,7 +22,7 @@ const CURATOR_PATH = `/curator/${CURATOR_ID}/`;
 const BTN = '#ilap-curator-enqueue';
 
 // A seeded job stands in for one the user already staged, purely to put the
-// button in its Added state — but it has to carry REAL work to survive: the
+// button in its Added state — but it has to have REAL work to survive: the
 // drainer collects a zero-appid pending job as an unfinished completion the
 // moment it runs (CuratorQueueDrainer._collectDrained), which would yank the
 // button back to the add-variant mid-test. So the list is:
@@ -119,6 +119,37 @@ test.describe('Curator — enqueue button', () => {
         await expect(menu.locator('[data-value="all_but_recommended"]')).toBeVisible();
     });
 
+    test('The menu works from the keyboard: Enter opens it onto its first row, arrows walk, Escape gives the focus back, Enter picks', async ({ page, context }) => {
+        await openCurator(page);
+        const btn = page.locator(BTN);
+        await expect(btn).toHaveAttribute('aria-haspopup', 'menu');
+        await btn.focus();
+        await page.keyboard.press('Enter');
+        const menu = page.locator('.ilap-curator-menu.open');
+        await expect(menu).toHaveAttribute('role', 'menu');
+        await expect(btn).toHaveAttribute('aria-expanded', 'true');
+        const rows = menu.locator('.ilap-curator-opt');
+        await expect(rows.first()).toBeFocused();
+        await page.keyboard.press('ArrowDown');
+        await expect(rows.nth(1)).toBeFocused();
+        await page.keyboard.press('ArrowUp');
+        await page.keyboard.press('ArrowUp');
+        await expect(rows.last()).toBeFocused();
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.ilap-curator-menu.open')).toHaveCount(0);
+        await expect(btn).toBeFocused();
+        await expect(btn).toHaveAttribute('aria-expanded', 'false');
+
+        // ArrowDown opens it too, and Enter on a row stages its filter.
+        await page.keyboard.press('ArrowDown');
+        await expect(rows.first()).toBeFocused();
+        await page.keyboard.press('End');
+        const value = await page.evaluate(() => document.activeElement.getAttribute('data-value'));
+        await page.keyboard.press('Enter');
+        await expect.poll(async () => (await readQueue(context)).map(j => j.filter)).toEqual([value]);
+        await expect(btn).toBeFocused();
+    });
+
     test('Picking a filter stages a job into ilap_curator_queue and shows a toast', async ({ page, context }) => {
         await openCurator(page);
 
@@ -139,6 +170,11 @@ test.describe('Curator — enqueue button', () => {
             .not.toBe('enumerating');
 
         await expect(page.locator('.ilap-toast')).toContainText(/added to queue/i);
+        // The menu that faded out with the pick was not redrawn: no "In queue" on
+        // its rows. Opened again, it is drawn from the queue as it is.
+        await expect(page.locator('.ilap-curator-menu .ilap-opt-pill')).toHaveCount(0);
+        await page.locator(BTN).click();
+        await expect(page.locator('.ilap-curator-menu.open [data-value="all_but_recommended"] .ilap-opt-pill')).toHaveCount(1);
     });
 
     // The square before "Added": its fill, the filter its tip names, and whether
@@ -232,7 +268,8 @@ test.describe('Curator — enqueue button', () => {
         expect(await rowStates(page)).toEqual({
             not_recommended: 'locked', informational: 'locked', all_but_recommended: 'queued+tag'
         });
-        await page.locator('.ilap-curator-menu.open [data-value="informational"]').click();
+        // force: the locked row is aria-disabled, which Playwright will not click; a mouse still can.
+        await page.locator('.ilap-curator-menu.open [data-value="informational"]').click({ force: true });
         await expect(page.locator('.ilap-curator-menu.open')).toBeVisible();
         expect(await readQueue(context)).toHaveLength(1);
     });
@@ -291,6 +328,28 @@ test.describe('Curator — enqueue button', () => {
             .toBeLessThanOrEqual(w0);
         expect((await page.locator(BTN).boundingBox()).width).toBeGreaterThan(w0 - 4);
         expect(await page.locator(`${BTN} .ilap-cur-label`).textContent()).toBe(label0);
+    });
+
+    test('The button keeps one width from Add to Added, at least as wide as the menu rows', async ({ page, context }) => {
+        await openCurator(page);
+        await page.evaluate(() => document.fonts.ready);
+        // Settled: no width animation left running on the button.
+        const settledWidth = async () => {
+            await page.waitForFunction((b) => document.querySelector(b).getAnimations().length === 0, BTN);
+            return (await page.locator(BTN).boundingBox()).width;
+        };
+        const w0 = await settledWidth();
+        await expect(page.locator(`${BTN} .ilap-cur-div`)).toBeVisible();
+
+        await setExtensionStorage(context, { ilap_curator_queue: [makeJob(CURATOR_ID, 'all_but_recommended')] });
+        await expect(page.locator(`${BTN} .ilap-cur-label`)).toHaveText(/added to ignore queue/i);
+        expect(Math.abs((await settledWidth()) - w0)).toBeLessThan(1);
+
+        // The open menu matches the button: no plain row is wider than it.
+        await page.locator(BTN).click();
+        const rows = await page.evaluate(() => [...document.querySelectorAll('.ilap-curator-menu.open .ilap-curator-opt:not(.active)')]
+            .map(r => r.scrollWidth));
+        for (const rw of rows) expect(rw).toBeLessThanOrEqual(w0 + 1);
     });
 
     test('Cross-window sync: an OPEN droplist redraws live when the queue changes elsewhere', async ({ page, context }) => {

@@ -1,3 +1,6 @@
+// The start prompt's Disable: it writes ilap_q_master=false, the toast goes,
+// and no prompt comes back on reload.
+
 const { test, expect } = require('../_fixtures.js');
 const { AUTH_FILE, SEL, openExploreQueue } = require('./_helpers');
 const { setExtensionStorage, getExtensionStorage } = require('../_extension.js');

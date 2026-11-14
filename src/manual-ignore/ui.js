@@ -3,9 +3,19 @@
     'use strict';
 
     const Sanitizer = window.ILAP.Sanitizer;
+    const { fadeOut, sharpen, sizeToCapsule, ensurePositioning, applyBlur } = window.ILAP.ManualIgnore.MarkDom;
+
+    // A collaborator is checked as its class is built, so a wiring slip fails
+    // at boot rather than at the first mark.
+    function need(cls, what, dep, fns) {
+        if (!dep || !fns.every(fn => typeof dep[fn] === 'function')) {
+            throw new TypeError(`[ILAP] ${cls} needs ${what}`);
+        }
+    }
 
     class DuplicateDetector {
         constructor(contextScanner) {
+            need('DuplicateDetector', 'a scanner', contextScanner, ['hasBadgeInAncestors']);
             this.scanner = contextScanner;
         }
 
@@ -29,9 +39,11 @@
     const t = window.ILAP.t;
 
     class BadgeFactory {
-        static create(appid, typeClass, reason, iconUrl) {
+        // `auto`: the AI tab's HIGH level ignored the game (its crossed AI mark
+        // is AiMarks', in the capsule's corner).
+        static create(appid, typeClass, reason, iconUrl, auto) {
             const overlay = document.createElement('div');
-            overlay.className = `ilap-ignored-overlay ${typeClass}`;
+            overlay.className = `ilap-ignored-overlay ${typeClass}` + (auto ? ' ilap-ignored-auto' : '');
             overlay.dataset.ilapAppid = appid;
 
             let tooltipText = t('ignore_applied_by');
@@ -67,15 +79,25 @@
     }
 
     class BadgeRenderer {
-        constructor(strategyProvider, duplicateDetector, badgeClasses, resourceService, maskConfig) {
-            this.strategies = strategyProvider;
-            this.detector = duplicateDetector;
-            this.badgeClasses = badgeClasses;
-            this.resources = resourceService;
-            this.maskConfig = maskConfig;
+        //   strategies  where a link's capsule is (containers.js)
+        //   detector    DuplicateDetector
+        //   classes     BADGE_CLASSES (containers.js)
+        //   resources   the badge icon's URL
+        //   maskConfig  { isEnabled() }: the blur over a badged cover
+        //   aiMarks     the crossed AI mark that goes on and off with an auto badge (ai-marks.js)
+        constructor(deps) {
+            for (const dep of ['strategies', 'detector', 'classes', 'resources', 'maskConfig', 'aiMarks']) {
+                if (!deps || !deps[dep]) throw new TypeError('[ILAP] BadgeRenderer needs deps.' + dep);
+            }
+            this.strategies = deps.strategies;
+            this.detector = deps.detector;
+            this.badgeClasses = deps.classes;
+            this.resources = deps.resources;
+            this.maskConfig = deps.maskConfig;
+            this.aiMarks = deps.aiMarks;
         }
 
-        render(linkElement, appid, reason) {
+        render(linkElement, appid, reason, auto) {
             const containerObj = this.strategies.findContainer(linkElement);
             if (!containerObj) return;
 
@@ -94,83 +116,19 @@
             const variantClass = this._getVariantClass(type);
             const iconUrl = this.resources.getIconUrl('icon16.png'); 
             
-            const badge = BadgeFactory.create(appid, variantClass, reason, iconUrl);
+            const badge = BadgeFactory.create(appid, variantClass, reason, iconUrl, auto);
             
-            this._ensurePositioning(targetForBadge);
+            ensurePositioning(targetForBadge);
             targetForBadge.appendChild(badge);
+            sizeToCapsule(badge, targetForBadge);
+            if (auto) this.aiMarks.cross(targetForBadge, appid);
 
-            if (this.maskConfig && this.maskConfig.isEnabled()) {
-                this._applyBlur(targetForBadge, appid);
+            if (this.maskConfig.isEnabled()) {
+                applyBlur(targetForBadge, appid);
             }
 
             targetForBadge.dataset.ilapState = 'processed';
             targetForBadge.dataset.ilapIgnoreId = appid;
-        }
-
-        // Blur the cover art itself: the filter rides its exact box, so an image
-        // that overflows onto a sibling video is blurred where it actually renders
-        // (an inset:0 overlay on the parent would miss that overhang). A capsule
-        // can hold TWO views of the same art — the resting <img> and a hover
-        // microtrailer <video> that overlays it 1:1 — and either can be on screen,
-        // so both must be blurred; blurring only the largest left the resting
-        // image sharp (the video, preload="none", won on area but is invisible).
-        //
-        // When the resting cover is a CSS background on the badge's OWN element
-        // (the Featured & Recommended main capsule), filter:blur can't touch it
-        // without smearing the badge — lay a backdrop veil under the badge instead.
-        _applyBlur(targetForBadge, appid) {
-            if (this._hasOwnCoverBackground(targetForBadge)) {
-                this._applyBackdrop(targetForBadge, appid);
-                return;
-            }
-            for (const art of this._pickArts(targetForBadge)) {
-                art.classList.add('ilap-ignored-blur');
-                art.dataset.ilapBlur = appid;
-            }
-        }
-
-        // True when the badge target paints its own cover as a background-image —
-        // the case filter:blur can't serve (it shares the box with the badge). A
-        // size gate keeps an incidental small background (e.g. a decorative badge)
-        // from hijacking capsules whose real cover is an <img> we can blur directly.
-        _hasOwnCoverBackground(host) {
-            if (getComputedStyle(host).backgroundImage === 'none') return false;
-            return host.clientWidth * host.clientHeight > 20000;
-        }
-
-        // A blur veil under the badge: backdrop-filter blurs whatever art is painted
-        // behind it (background, video, screenshots) while the badge (z-index:50)
-        // sits above it. Idempotent so a re-render / syncMasks doesn't stack veils.
-        _applyBackdrop(host, appid) {
-            if (host.querySelector(':scope > .ilap-blur-backdrop')) return;
-            const veil = document.createElement('div');
-            veil.className = 'ilap-blur-backdrop';
-            veil.dataset.ilapBlur = appid;
-            host.appendChild(veil);
-        }
-
-        // The real cover art inside the badge target. A plain querySelector picks
-        // the FIRST media, which on some surfaces is Steam's transparent blank.gif
-        // spacer (e.g. .tab_item's overlay anchor) rather than the visible capsule
-        // (.tab_item_cap_img). Drop those spacers and our own badge's tooltip icon,
-        // then keep every element rendered at (near) the largest media's size — the
-        // cover plus any full-bleed microtrailer overlay — while excluding small
-        // decorative media (platform/discount icons) so blur stays on the art.
-        _pickArts(container) {
-            const media = Array.from(container.querySelectorAll('img, video')).filter(el => {
-                if ((el.getAttribute('src') || '').includes('blank.gif')) return false;
-                if (el.closest('.ilap-ignored-overlay')) return false;
-                return true;
-            });
-            if (!media.length) return [];
-
-            const areas = media.map(el => el.clientWidth * el.clientHeight);
-            const bestArea = Math.max(...areas);
-            // No layout yet (e.g. pre-render): fall back to the prior single-pick.
-            if (bestArea <= 0) return [media[0]];
-            // Keep the cover and any full-bleed microtrailer overlay (>= 50% of the
-            // largest media); drop small decorative icons well under that.
-            return media.filter((_, i) => areas[i] >= bestArea * 0.5);
         }
 
         // Remove a previously-rendered IGNORED badge for `appid` across the
@@ -182,17 +140,24 @@
             appid = String(appid);
             document.querySelectorAll(`.ilap-ignored-overlay[data-ilap-appid="${appid}"]`).forEach(badge => {
                 const host = badge.parentElement;
-                badge.remove();
+                delete badge.dataset.ilapAppid;
+                fadeOut(badge);
                 if (host) {
                     delete host.dataset.ilapState;
                     if (host.dataset.ilapIgnoreId === appid) delete host.dataset.ilapIgnoreId;
                 }
             });
+            // The cover sharpens as the badge fades.
             document.querySelectorAll(`.ilap-ignored-blur[data-ilap-blur="${appid}"]`).forEach(el => {
                 el.classList.remove('ilap-ignored-blur');
                 delete el.dataset.ilapBlur;
+                sharpen(el);
             });
-            document.querySelectorAll(`.ilap-blur-backdrop[data-ilap-blur="${appid}"]`).forEach(el => el.remove());
+            document.querySelectorAll(`.ilap-blur-backdrop[data-ilap-blur="${appid}"]`).forEach(el => {
+                delete el.dataset.ilapBlur;
+                fadeOut(el);
+            });
+            this.aiMarks.uncross(appid);
         }
 
         // Reconcile the "un-ignore queued" mark across every badge in the document.
@@ -214,44 +179,21 @@
         // blur class from every art element (badges stay); ON re-applies it to each
         // badged game's art for the given appids.
         syncMasks(appids) {
-            if (!this.maskConfig || !this.maskConfig.isEnabled()) {
+            if (!this.maskConfig.isEnabled()) {
                 document.querySelectorAll('.ilap-ignored-blur').forEach(el => {
                     el.classList.remove('ilap-ignored-blur');
                     delete el.dataset.ilapBlur;
                 });
                 // Backdrop veils are dedicated elements, not a class on the art —
-                // remove them outright.
-                document.querySelectorAll('.ilap-blur-backdrop').forEach(el => el.remove());
+                // remove them outright. The AI tab's stay.
+                document.querySelectorAll('.ilap-blur-backdrop[data-ilap-blur]').forEach(el => el.remove());
                 return;
             }
             appids.forEach(appid => {
                 document.querySelectorAll(`.ilap-ignored-overlay[data-ilap-appid="${appid}"]`).forEach(badge => {
-                    if (badge.parentElement) this._applyBlur(badge.parentElement, appid);
+                    if (badge.parentElement) applyBlur(badge.parentElement, appid);
                 });
             });
-        }
-
-        // The capsule Steam greys out as already on the account's list, or null.
-        steamGreyed(linkElement) {
-            return linkElement.closest('.ds_ignored');
-        }
-
-        // A gesture on a greyed capsule paints no badge of ours: Steam's own
-        // IGNORED flag there takes the gesture's colour, the badge colours
-        // (styles.css). The class sits on the capsule, the rule reaches its flag.
-        tintSteamFlag(greyed, appid, reason) {
-            greyed.classList.toggle('ilap-steam-tint-played', reason === 2);
-            greyed.classList.toggle('ilap-steam-tint-ignore', reason !== 2);
-            greyed.dataset.ilapTint = String(appid);
-            if (!this.tintTip) this.tintTip = new TintTip(this.resources);
-        }
-
-        untintSteamFlag(appid) {
-            document.querySelectorAll(`[data-ilap-tint="${String(appid)}"]`).forEach(el => {
-                el.classList.remove('ilap-steam-tint-ignore', 'ilap-steam-tint-played');
-                delete el.dataset.ilapTint;
-            });
-            if (this.tintTip) this.tintTip.hide();
         }
 
         _getVariantClass(type) {
@@ -263,28 +205,59 @@
             };
             return map[type] || this.badgeClasses.GRID;
         }
+    }
 
-        _ensurePositioning(element) {
-            const style = getComputedStyle(element);
-            if (style.position === 'static') {
-                element.dataset.ilapAnchor = '';
-            }
-            if (style.display === 'inline') {
-                element.style.display = 'inline-block';
-            }
+    // Steam's own marks on a capsule its account list greys out. A gesture there
+    // paints no badge of ours: Steam's IGNORED flag takes the gesture's colour.
+    // `tips`: what the tinted flag means, on hover (FloatTip below).
+    class SteamFlagTint {
+        constructor(tips) {
+            need('SteamFlagTint', 'tips', tips, ['watch', 'hide']);
+            this.tips = tips;
+        }
+
+        // The capsule Steam greys out as already on the account's list, or null.
+        steamGreyed(linkElement) {
+            return linkElement.closest('.ds_ignored');
+        }
+
+        // The badge colours (styles.css). The class sits on the capsule, the rule
+        // reaches its flag.
+        tintSteamFlag(greyed, appid, reason) {
+            greyed.classList.toggle('ilap-steam-tint-played', reason === 2);
+            greyed.classList.toggle('ilap-steam-tint-ignore', reason !== 2);
+            greyed.dataset.ilapTint = String(appid);
+            this.tips.watch();
+        }
+
+        untintSteamFlag(appid) {
+            document.querySelectorAll(`[data-ilap-tint="${String(appid)}"]`).forEach(el => {
+                el.classList.remove('ilap-steam-tint-ignore', 'ilap-steam-tint-played');
+                delete el.dataset.ilapTint;
+            });
+            this.tips.hide();
         }
     }
 
-    // What a tinted flag means, shown on hover. Steam dims and clips the whole
-    // greyed capsule (opacity, overflow), so a tooltip inside it would be faint
-    // and cut off: this one is a single element on <body>, placed over the flag,
-    // after the badge tooltip's dwell (styles.css). Created with the first tint,
+    // What a tinted flag, an AI mark or the AI note's flag and buttons mean,
+    // shown on hover. Steam dims and
+    // clips the whole greyed capsule (opacity, overflow), and clips many others,
+    // so a tooltip inside one would be faint or cut off: this one is a single
+    // element on <body>, placed over the flag or the mark, after the badge
+    // tooltip's dwell (styles.css). Watching starts with the first tint or mark,
     // so a page without one listens to nothing.
-    class TintTip {
+    class FloatTip {
         constructor(resources) {
+            need('FloatTip', 'resources', resources, ['getIconUrl']);
             this.resources = resources;
             this.tip = null;
             this.flag = null;
+            this.watching = false;
+        }
+
+        watch() {
+            if (this.watching) return;
+            this.watching = true;
             document.addEventListener('mouseover', (e) => this._onOver(e), true);
             document.addEventListener('mouseout', (e) => this._onOut(e), true);
             window.addEventListener('scroll', () => this.hide(), { capture: true, passive: true });
@@ -292,7 +265,9 @@
 
         _onOver(e) {
             if (!e.isTrusted || !e.target.closest) return;
-            const flag = e.target.closest('[data-ilap-tint] > .ds_ignored_flag');
+            // A mark swapped or taken off under the pointer sends no mouseout.
+            if (this.flag && !this.flag.isConnected) this.hide();
+            const flag = e.target.closest('[data-ilap-tint] > .ds_ignored_flag, .ilap-ai-tag, [data-ilap-tip]');
             if (flag && flag !== this.flag) this.show(flag);
         }
 
@@ -307,15 +282,28 @@
                 this.tip.className = 'ilap-tooltip ilap-tooltip-floating';
                 document.body.appendChild(this.tip);
             }
-            const played = flag.parentElement.classList.contains('ilap-steam-tint-played');
+            // An element of ours names its own words (the AI note's flag and
+            // buttons, ai-page.js), with the same stand-in for the icon.
+            const own = flag.dataset.ilapTip;
+            const ai = own === undefined && flag.classList.contains('ilap-ai-tag');
+            const played = own === undefined && !ai && flag.parentElement.classList.contains('ilap-steam-tint-played');
             // Escaped with a stand-in for the icon, which then becomes the <img>.
-            const text = t(played ? 'steam_tint_tip_played' : 'steam_tint_tip_ignore', { icon: '\u0001' });
+            // The AI mark's text ends with it, as the badge's does.
+            const text = own !== undefined ? own : ai ? t('ai_tag_tip') + ' \u0001'
+                : t(played ? 'steam_tint_tip_played' : 'steam_tint_tip_ignore', { icon: '\u0001' });
+            // A control aimed at answers sooner than a mark passed on the way.
+            this.tip.classList.toggle('ilap-tooltip-quick', own !== undefined);
             const icon = `<img src="${Sanitizer.escapeHTML(this.resources.getIconUrl('icon16.png'))}" alt="">`;
             this.tip.innerHTML = Sanitizer.escapeHTML(text).replace('\u0001', icon);
             // Above the flag's left edge: Steam keeps that edge put while the
-            // flag expands from its icon into the word.
+            // flag expands from its icon into the word. Above the AI mark's
+            // right edge when the mark sits in the capsule's right corner, as
+            // a flag's when in its left one.
             const r = flag.getBoundingClientRect();
-            this.tip.style.left = `${Math.max(4, r.left)}px`;
+            const box = ai && flag.parentElement.getBoundingClientRect();
+            const end = ai && box.right - r.right < r.left - box.left;
+            this.tip.classList.toggle('ilap-tooltip-end', end);
+            this.tip.style.left = end ? `${r.right}px` : `${Math.max(4, r.left)}px`;
             this.tip.style.top = `${r.top}px`;
             this.tip.classList.add('show');
             this.flag = flag;
@@ -329,5 +317,7 @@
 
     window.ILAP.ManualIgnore.DuplicateDetector = DuplicateDetector;
     window.ILAP.ManualIgnore.BadgeRenderer = BadgeRenderer;
+    window.ILAP.ManualIgnore.SteamFlagTint = SteamFlagTint;
+    window.ILAP.ManualIgnore.FloatTip = FloatTip;
 
 })();

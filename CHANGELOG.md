@@ -7,6 +7,52 @@ which are the only place the version number lives.
 No release dates here on purpose. The store listings show them, and a date in a
 tracked file is one more thing that can quietly stop being true.
 
+## 1.4.0
+
+- **New name.** The extension is now Steam Ignore Like a Pro — AI Filter & Mass Ignore,
+  and Steam Ignore Like a Pro — Junk-Free Steam, AI Game Filter & Mass Ignore on the Chrome
+  Web Store.
+- **AI filter level.** The new AI tab in the extension's panel has a slider with five
+  levels, and the tab's icon and the slider's colour change with the level. Low flags AI games across the store the way Steam flags a game in your library,
+  and the flag says how the game uses AI when that is known, such as translation only or
+  AI inside the game. Low is the default. An AI game's own page shows the developers' AI disclosure near the
+  top, with a link down to Steam's full text, or says that the game was marked as AI by hand. A game stays in the AI lists after its developer removes the disclosure, and the flag's tooltip on its page says so. Medium also blurs their covers, and High
+  adds every AI game you see on a store page to the ignore queue with a short animation. Pick the animation from a tomato, an emoji of your choice, a red
+  swipe and more, or turn it off. Two switches keep games that use AI only for translation or have
+  AI inside the game, for the AI lists too. On High the Classic Discovery Queue helper
+  also ignores every game whose Steam page has an AI Generated Content Disclosure,
+  whatever its reviews.
+- **Ignore developers and publishers.** A button next to a creator's name on a game page
+  ignores that creator on Steam, and so does a swipe over a creator's link. Steam then
+  stops recommending their games. The undo menu rolls back creators as well.
+- **Four new built-in lists.** Known bad games, Lesser-known bad games, Invasive EULA
+  terms and EULA can change at any time. Kernel-level anti-cheat is now Kernel access and also includes games
+  whose EULA asks for kernel access.
+- **Updated lists are marked.** A built-in list you already ran shows a blue dot once an
+  update changes it, and running it again ignores the new games.
+- **Games in your library are kept.** Curator lists, built-in lists and bundles skip
+  games you own, and the queue shows how many it skipped.
+- **See why a game is ignored.** A game page gets the red IGNORED frame from the Classic
+  Discovery Queue when a curator list, a built-in list, a bundle or the AI filter ignored
+  the game, and its tooltip names the list and the day.
+- **New panel layout.** The ignore queue opens from the extension's icon, which shows
+  the number of tasks and their progress. The built-in lists, the AI tab, the language
+  and the settings sit in one row of buttons at the bottom of the panel.
+- **Fixed the Discovery Queue helper stalling** after a change in Steam's page code.
+- Fixed a built-in list staying marked as ignored after Undo rolled back its games.
+- Fixed a curator task stuck on collecting its list after its tab was closed.
+- Undo reaches your last 20,000 ignores, up from 5,000.
+- Fixed the ignore button on a curator's list changing its width.
+- Fixed the Undo button shifting while the Total Ignored count changes.
+- Fixed a scrollbar on the on-page widget when the recent history has long game names.
+- Menus, messages, badges and queue tasks fade in and out, and every animation stops when
+  the system asks for reduced motion.
+- Dutch interface, 24 languages in all.
+- A calmer panel with flat buttons and still queue tasks, and Steam's own font in the
+  on-page widget.
+- Better keyboard and screen reader support in the extension's panel.
+- Minor bug fixes, UI/UX improvements, refactoring and optimizations.
+
 ## 1.3.5
 
 - **Fixed the Pending tooltip and the Remove confirmation blinking** on the Ignore Tasks

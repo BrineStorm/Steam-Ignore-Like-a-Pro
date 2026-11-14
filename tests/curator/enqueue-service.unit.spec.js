@@ -17,9 +17,9 @@ function loadService() {
     for (const file of ['filters.js', 'enqueue-service.js']) {
         vm.runInContext(fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'curator', file), 'utf8'), sandbox);
     }
-    return sandbox.window.ILAP.Curator.EnqueueService;
+    return { EnqueueService: sandbox.window.ILAP.Curator.EnqueueService, filters: sandbox.window.ILAP_Filters };
 }
-const EnqueueService = loadService();
+const { EnqueueService, filters } = loadService();
 
 // In-memory Store stub mirroring the async facade EnqueueService depends on.
 function makeStore(initialQueue = []) {
@@ -35,9 +35,6 @@ function makeStore(initialQueue = []) {
             if (next) state.queue = next;
             return state.queue;
         },
-        async getCache() { return state.cache; },
-        isFresh() { return state.cacheFresh; },
-        async putCache(id, obj) { state.cachePut = obj; state.cache = obj; },
         async getQueue() { return state.queue.map(j => Object.assign({}, j)); },
         async removeJob(jobId) {
             state.removed.push(jobId);
@@ -46,11 +43,13 @@ function makeStore(initialQueue = []) {
         async setCursor(jobId, n) { state.cursors[jobId] = n; },
         // Mirrors the real Store: `patch` may be an object or a (job)=>partial fn,
         // and a vanished job is a no-op.
-        async updateJob(jobId, patch) {
+        // `list` is stored with the patch, under its own key.
+        async updateJob(jobId, patch, list) {
             const j = state.queue.find(x => x.id === jobId);
             if (!j) return null;
             const resolved = typeof patch === 'function' ? patch(j) : patch;
-            state.updates.push({ jobId, patch: resolved });
+            if (!resolved) return j;
+            state.updates.push({ jobId, patch: resolved, list });
             Object.assign(j, resolved);
         }
     };
@@ -67,7 +66,14 @@ function makeEnum(apps, total) {
     };
 }
 
-const build = (store, enumerator) => new EnqueueService({ store, enumerator, maxJobs: 3 });
+// The retention cache over the stub's state.
+const cacheOf = ({ state }) => ({
+    get: async () => state.cache,
+    isFresh: () => state.cacheFresh,
+    put: async (id, obj) => { state.cachePut = obj; state.cache = obj; },
+});
+
+const build = (store, enumerator) => new EnqueueService({ store, cache: cacheOf(store), enumerator, filters, maxJobs: 3 });
 
 test.describe('EnqueueService.stage (unit)', () => {
     test('adds a new job as enumerating and reports kind:added', async () => {
@@ -80,9 +86,21 @@ test.describe('EnqueueService.stage (unit)', () => {
         expect(job).toMatchObject({
             type: 'curator',
             curatorId: '123', curatorName: 'Cur',
-            filter: 'not_recommended', status: 'enumerating', appids: [], total: 0
+            filter: 'not_recommended', status: 'enumerating', total: 0
         });
+        expect(job.appids).toBeUndefined();   // the list comes with resolve(), under its own key
         expect(outcome.jobId).toBe(job.id);
+    });
+
+    test('a filter that is none of the menu\'s stages nothing', async () => {
+        // The value comes from the row's data-value, which page script can rewrite
+        // before a real click.
+        const store = makeStore();
+        const svc = build(store, makeEnum([]));
+        for (const f of ['recommended', 'constructor', '', undefined]) {
+            expect(await svc.stage('123', 'Cur', f)).toBeNull();
+        }
+        expect(store.state.queue).toHaveLength(0);
     });
 
     test('re-picking the SAME filter is a no-op (null outcome, queue unchanged)', async () => {
@@ -201,7 +219,7 @@ test.describe('EnqueueService.resolve (unit)', () => {
         { appid: 12, type: 'informational' }
     ];
 
-    test('fresh cache: no enumerate, filters appids, resets cursor, flips to pending', async () => {
+    test('fresh cache: no enumerate, filters appids, flips to pending', async () => {
         const store = makeStore([seedJob()]);
         store.state.cache = { apps }; store.state.cacheFresh = true;
         const enumerator = makeEnum(apps);
@@ -209,9 +227,9 @@ test.describe('EnqueueService.resolve (unit)', () => {
 
         expect(res).toEqual({ ok: true });
         expect(enumerator.calls).toBe(0); // served from cache
-        expect(store.state.cursors.j1).toBe(0);
         const last = store.state.updates.at(-1);
-        expect(last).toMatchObject({ jobId: 'j1', patch: { status: 'pending', total: 2, appids: [10, 11] } });
+        expect(last).toMatchObject({ jobId: 'j1', patch: { status: 'pending', total: 2 }, list: [10, 11] });
+        expect(last.patch.appids).toBeUndefined();
     });
 
     test('stale cache: enumerates, writes the cache, then resolves', async () => {
@@ -254,8 +272,8 @@ test.describe('EnqueueService.resolve (unit)', () => {
         const res = await build(store, makeEnum(apps)).resolve('123', 'j1', 'Cur', 'not_recommended');
 
         expect(res).toEqual({ ok: true });
-        expect(store.state.queue[0]).toMatchObject({ status: 'paused', total: 2, appids: [10, 11] });
-        expect(store.state.cursors.j1).toBe(0); // list still resolved + cursor reset
+        expect(store.state.queue[0]).toMatchObject({ status: 'paused', total: 2 });
+        expect(store.state.updates.at(-1).list).toEqual([10, 11]);
     });
 
     test('empty list (parsed 0 / nothing under filter) drops the job and reports { error:true }', async () => {
@@ -267,6 +285,74 @@ test.describe('EnqueueService.resolve (unit)', () => {
         expect(res).toEqual({ error: true });
         expect(store.state.removed).toContain('j1');
         expect(store.state.updates).toHaveLength(0);
+    });
+});
+
+// A curator job whose staging tab went away inside its read: only resolve()
+// moves a job on, so without this it says "Collecting" for good.
+test.describe('EnqueueService.adoptOrphans (unit)', () => {
+    const MIN = 60 * 1000;
+    const apps = [{ appid: 10, type: 'not_recommended' }];
+    const orphan = (extra) => Object.assign({ id: 'j1', curatorId: '123', curatorName: 'Cur', filter: 'not_recommended',
+        status: 'enumerating', total: 0, addedAt: Date.now() - 11 * MIN }, extra);
+    const fresh = (store) => { store.state.cache = { apps }; store.state.cacheFresh = true; return store; };
+
+    test('a job with no list past the age of any read is resolved, whichever page this is', async () => {
+        const store = fresh(makeStore([orphan()]));
+        const answers = await build(store, makeEnum(apps)).adoptOrphans(async () => true);
+        expect(answers).toEqual([{ name: 'Cur', res: { ok: true } }]);
+        expect(store.state.queue[0]).toMatchObject({ status: 'pending', total: 1 });
+    });
+
+    test('a paused or resumed one with no list counts too: nothing else gives it one', async () => {
+        for (const status of ['paused', 'pending']) {
+            const store = fresh(makeStore([orphan({ status })]));
+            await build(store, makeEnum(apps)).adoptOrphans(async () => true);
+            expect(store.state.updates).toHaveLength(1);
+        }
+    });
+
+    test('a read still running, a job with its list and other job types are left alone, at no cost', async () => {
+        const store = fresh(makeStore([
+            orphan({ id: 'young', addedAt: Date.now() - 2 * MIN }),
+            orphan({ id: 'listed', status: 'pending', total: 2 }),
+            orphan({ id: 'preset', type: 'preset', curatorId: 'preset_x', total: 0 }),
+        ]));
+        let asked = 0;
+        const answers = await build(store, makeEnum(apps)).adoptOrphans(async () => { asked += 1; return true; });
+        expect(answers).toEqual([]);
+        expect(asked).toBe(0);
+        expect(store.state.updates).toHaveLength(0);
+    });
+
+    test('with Steam not to be asked (master off, signed out) it waits', async () => {
+        const store = fresh(makeStore([orphan()]));
+        expect(await build(store, makeEnum(apps)).adoptOrphans(async () => false)).toEqual([]);
+        expect(store.state.queue[0].status).toBe('enumerating');
+    });
+
+    test('another tab finished first: its list stands, as a drainer may be walking it', async () => {
+        const store = fresh(makeStore([orphan()]));
+        const enumerator = makeEnum(apps);
+        const svc = build(store, enumerator);
+        const late = svc.resolve('123', 'j1', 'Cur', 'not_recommended');
+        Object.assign(store.state.queue[0], { total: 5, status: 'pending' });
+        await late;
+        expect(store.state.queue[0].total).toBe(5);
+        expect(store.state.updates).toHaveLength(0);
+        expect(store.state.cursors.j1).toBeUndefined();
+    });
+
+    test('another tab finished first and this read found nothing or threw: the job stands, nothing said', async () => {
+        const empty = { async enumerate() { return { total: 0, apps: [], partial: true }; }, filterAppids: () => [] };
+        const thrown = { async enumerate() { throw new Error('Steam said no'); }, filterAppids: () => [] };
+        for (const enumerator of [empty, thrown]) {
+            const store = makeStore([orphan()]);
+            const late = build(store, enumerator).resolve('123', 'j1', 'Cur', 'not_recommended');
+            Object.assign(store.state.queue[0], { total: 5, status: 'pending' });
+            expect(await late).toBeUndefined();
+            expect(store.state.removed).toEqual([]);
+        }
     });
 });
 

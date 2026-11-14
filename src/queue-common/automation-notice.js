@@ -20,7 +20,7 @@
     const STYLE_ID = 'ilap-notice-style';
     // Ours, not Steam's: the icon and the name say who is asking.
     const ICON_URL = chrome.runtime.getURL('assets/icons/icon48.png');
-    const APP_NAME = 'Steam Ignore Like A Pro';
+    const APP_NAME = 'Steam Ignore Like a Pro';
 
     const t = window.ILAP.t;
     const esc = window.ILAP.Sanitizer.escapeHTML;

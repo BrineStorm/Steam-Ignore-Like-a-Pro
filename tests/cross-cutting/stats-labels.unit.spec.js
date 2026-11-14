@@ -89,7 +89,18 @@ test.describe('StatsLogic history labels (unit)', () => {
             PRESET: 'Built-in List',
             BUNDLE: 'Bundle',
             UNDO: 'Undo',
+            CREATOR: 'Creator',
         });
+    });
+
+    test('a creator ignore is one uncounted entry with its clan id; its rollback is marked', () => {
+        const S = loadStats();
+        const ignored = S.creatorState({}, '8floor ltd', 33019580, true);
+        expect(ignored[S.HISTORY_KEY][0]).toEqual({ name: '8floor ltd', source: 'Creator', curatorId: '33019580' });
+        expect(ignored[S.LAST_KEY]).toBe('8floor ltd');
+        expect(ignored[S.COUNT_KEY]).toBeUndefined();
+        const back = S.creatorState(ignored, '8floor ltd', '33019580', false);
+        expect(back[S.HISTORY_KEY].map(h => h.unignore)).toEqual([true, undefined]);
     });
 
     test('a finished bundle job is one entry with its name and its store path', () => {
@@ -99,5 +110,38 @@ test.describe('StatsLogic history labels (unit)', () => {
         // An id of any other shape gives no link.
         expect({ ...S.jobEntry({ type: 'bundle', curatorId: 'bundle_x"', curatorName: 'B' }) })
             .toEqual({ name: 'B', source: 'Bundle' });
+    });
+});
+
+// All three lists empty is what Steam answers an anonymous request.
+test.describe('StatsLogic: a read that contradicts the last total (unit)', () => {
+    const read = (ignored = [], owned = [], wishlist = []) => {
+        const map = new Map(ignored.map(a => [String(a), 0]));
+        map.owned = new Set(owned);
+        map.wishlist = new Set(wishlist);
+        return map;
+    };
+
+    test('looksAnonymous: all three lists empty or missing, and nothing else', () => {
+        const S = loadStats();
+        expect(S.looksAnonymous(read())).toBe(true);
+        const none = read();
+        none.owned = null;
+        none.wishlist = null;
+        expect(S.looksAnonymous(none)).toBe(true);
+        expect(S.looksAnonymous(read(['1']))).toBe(false);
+        expect(S.looksAnonymous(read([], ['1']))).toBe(false);
+        expect(S.looksAnonymous(read([], [], ['1']))).toBe(false);
+    });
+
+    test('contradictsTotal: a list Steam counted lately cannot be empty now, a fresh account can', () => {
+        const S = loadStats();
+        const now = 1_000_000_000_000;
+        const DAY = 24 * 60 * 60 * 1000;
+        expect(S.contradictsTotal({ total: 20, ts: now - DAY }, now)).toBe(true);
+        expect(S.contradictsTotal({ total: 0, ts: now - DAY }, now)).toBe(false);
+        expect(S.contradictsTotal(undefined, now)).toBe(false);
+        // A week on it may really be empty: this must not stop a drain for good.
+        expect(S.contradictsTotal({ total: 20, ts: now - 8 * DAY }, now)).toBe(false);
     });
 });

@@ -9,7 +9,7 @@ var PKG_BASENAME = 'steam-ignore-like-a-pro';
 
 // LICENSE ships because GPL-3 requires the text to travel with the binary.
 // LICENSE.MPL deliberately does NOT: no shipped file is MPL-covered any more
-// (every source carries GPL-3.0-or-later), so in the package it would only be a
+// (every source states GPL-3.0-or-later), so in the package it would only be a
 // second licence text with nothing to apply to. It stays in the repo, where it
 // documents what releases up to v1.1 went out under.
 var COMMON_ASSETS = [
@@ -18,7 +18,7 @@ var COMMON_ASSETS = [
     'assets',
     'styles',
     '_locales',
-    'data',
+    'data/presets.json',
     'LICENSE'
 ];
 
@@ -217,7 +217,8 @@ function buildPlatform(browser) {
 
     for (const asset of COMMON_ASSETS) {
         const srcPath = path.join(__dirname, asset);
-        const destPath = path.join(outputDir, path.basename(asset));
+        const destPath = path.join(outputDir, asset);
+        fs.mkdirSync(path.dirname(destPath), { recursive: true });
         copyRecursiveSync(srcPath, destPath);
     }
 

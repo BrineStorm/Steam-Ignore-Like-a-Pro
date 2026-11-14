@@ -27,6 +27,15 @@ const EXT = path.join(__dirname, '..', 'dist', 'chromium-test');
 // cloud-synced, where .gitignore offers no protection) — under the user's home.
 const AUTH_FILE = path.join(os.homedir(), '.playwright-states', 'steam.json');
 
+// Chromium runs with no window by default, so a run never takes the screen or
+// the focus. That is the full browser in its new headless mode (channel
+// 'chromium'), which loads extensions; Playwright's plain headless is the
+// headless shell, which has no extension host at all (no service worker,
+// nothing injects). ILAP_HEADED=1 brings the windows back, for watching or
+// debugging a run. Firefox stays headed (_firefox.js).
+const HEADED = process.env.ILAP_HEADED === '1';
+const CHROMIUM_MODE = { channel: 'chromium', headless: !HEADED };
+
 // Desktop-width viewport so Steam renders its full layout, but short enough
 // that the whole window (incl. browser chrome) fits a 1080p screen — the EQ
 // toast is anchored bottom:20px, so an over-tall window pushed its buttons off
@@ -38,7 +47,12 @@ const COMMON_OPTIONS = {
 };
 
 const test = base.test.extend({
-    context: async ({ browserName }, use) => {
+    // The device pixel ratio, as Windows display scaling sets it (1.25 at
+    // 125 %). Chromium only. A fraction of a pixel rounds differently at each
+    // scale, which is where a one-pixel scrollbar comes from.
+    scale: [1, { option: true }],
+
+    context: async ({ browserName, scale }, use) => {
         const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ilap-pw-'));
         let context;
         if (browserName === 'firefox') {
@@ -46,6 +60,8 @@ const test = base.test.extend({
         } else {
             context = await chromium.launchPersistentContext(userDataDir, {
                 ...COMMON_OPTIONS,
+                ...CHROMIUM_MODE,
+                deviceScaleFactor: scale,
                 args: [
                     '--window-position=0,0',
                     `--disable-extensions-except=${EXT}`,
@@ -91,4 +107,4 @@ const test = base.test.extend({
     },
 });
 
-module.exports = { test, expect: base.expect, AUTH_FILE };
+module.exports = { test, expect: base.expect, AUTH_FILE, CHROMIUM_MODE };

@@ -42,13 +42,12 @@
     const SPARED_DIM = 'rgba(69, 161, 250, .4)'; // paler idle outline for the launcher
     const LOGO_RED = '#d32f2f'; // the IGNORED-ribbon red (same red EQ/DQ use)
     const LOGO_WHITE = '#e8eef4'; // the dice white
-    const FONT = '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif';
+    const FONT = '"Motiva Sans", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif';
 
     const LAUNCHER_CSS = `
-        /* Force the popup font across the whole widget via a direct rule (beats
-           popup.css inheritance, so labels like "Your Discovery Queue" can't fall
-           back to Steam's page font), and don't depend on the linked stylesheet
-           having loaded yet. */
+        /* One font across the whole widget, Steam's own first (the store page
+           has loaded it), by a direct rule that beats popup.css inheritance and
+           does not wait for the linked stylesheet. */
         :host, :host * { font-family: ${FONT}; }
         .ilap-launcher {
             width: ${ICON}px; height: ${ICON}px; padding: 0;
@@ -83,6 +82,13 @@
         /* A hover adds a real blue outline on top of the glow. */
         .ilap-chevron:not(.ghost):hover { border-color: ${SPARED}; }
         .ilap-chevron:hover svg { opacity: 1; }
+        /* Keyboard focus (Section 508): a ring on the three buttons, and the
+           chevron and the pin at full strength while they have it (the pin
+           shows only on a hover otherwise). */
+        .ilap-launcher:focus-visible, .ilap-chevron:focus-visible, .ilap-pin:focus-visible {
+            outline: 2px solid ${SPARED}; outline-offset: 2px;
+        }
+        .ilap-chevron.shown:focus-visible, .ilap-pin:not(.stashed):focus-visible { opacity: 1; }
         /* Temporary highlight right after coming back from the parked popup
            surface: a 3 s gold pulse (.gold) grabs the eye, then it settles to a
            steady blue outline for ~7 s more, then fades back to the passive
@@ -222,16 +228,53 @@
         }
         .ilap-launcher.pulse { animation: ilap-launcher-pulse .9s ease-in-out 1; }
         .ilap-launcher img { width: 26px; height: 26px; border-radius: 5px; display: block; pointer-events: none; }
-        .ilap-panel { display: none; position: absolute; top: ${ICON + 8}px; right: 0; }
+        .ilap-panel { display: none; position: absolute; top: ${ICON + 8}px; right: 0; transition: opacity .2s ease; }
         .ilap-panel.open { display: block; }
+        /* Closing: the panel fades out over .2 s and only then goes (reveal).
+           Its opening is popup.css's ilap-shell-in, and a reopen in the fade
+           fades it back. An opacity only, so the compositor runs it. Clicks
+           in the fade reach the page. */
+        .ilap-panel.closing { display: block; opacity: 0; pointer-events: none; }
         /* 1px Spared-coloured outline + smoothed corners on the panel itself.
            The toolbar popup gets scrolling from the browser for free; here the
            panel must cap itself to the viewport (host top + panel offset +
            bottom margin) and scroll, or on short screens (≤~768px with the
-           settings accordion open) its lower part would be unreachable. */
+           settings tab open) its lower part would be unreachable. */
         .ilap-panel #popup-root {
             outline: none; border: 1px solid ${SPARED}; border-radius: 10px;
             max-height: calc(100vh - ${TOP + ICON + 8 + 12}px); overflow-y: auto;
+        }
+        /* The lists, the queue's twin (popup.css #queue-drawer): a window of
+           its own out of the flow, framed all round, its right edge on the
+           panel's left one and its foot on the tab line, or under it for rows
+           taller than the panel (ListPanes._place).
+           The queue's window opens over the panel's top and the lists move
+           down under it (ListPanes.follow). */
+        .ilap-panel #lists-drawer,
+        .ilap-panel #lists-drawer.open {
+            position: absolute; width: 236px; height: auto; z-index: 10; overflow: visible;
+        }
+        .ilap-panel #lists-drawer .drawer-inner {
+            position: static; width: auto;
+            border: 1px solid ${SPARED}; border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.6);
+        }
+        /* The store's Motiva Sans runs wider than the toolbar popup's Segoe UI.
+           Here the queue's window has the room: 22px over popup.css's 304px,
+           the strips' ⚠ slot and its gap, so their name column keeps this
+           year's AI list name whole. */
+        .ilap-panel #queue-drawer,
+        .ilap-panel #queue-drawer.open { width: 326px; }
+        /* Reduced motion: every motion of the shadow root runs in an instant
+           and once (the gold halo, the pulse, the slides). Durations only: a
+           delay is a dwell (the pin's 5 s) and stays, and an animation still
+           ends, so the pulse's animationend comes. The panel's own rule is
+           popup.css's. */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: .01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: .01ms !important;
+            }
         }
     `;
 
@@ -278,7 +321,8 @@
         const launcher = document.createElement('button');
         launcher.type = 'button';
         launcher.className = 'ilap-launcher';
-        launcher.setAttribute('aria-label', 'Steam Ignore Like A Pro');
+        launcher.setAttribute('aria-label', 'Steam Ignore Like a Pro');
+        launcher.setAttribute('aria-expanded', 'false');
         launcher.innerHTML = `<img src="${chrome.runtime.getURL('assets/icons/icon48.png')}" alt="">`;
         shadow.appendChild(launcher);
 
@@ -292,7 +336,7 @@
         const chevron = document.createElement('button');
         chevron.type = 'button';
         chevron.className = 'ilap-chevron';
-        chevron.setAttribute('aria-label', 'Show Steam Ignore Like A Pro');
+        chevron.setAttribute('aria-label', 'Show Steam Ignore Like a Pro');
         // Small tilted gamepad in the logo's colours: dice-white body, ribbon-red
         // face buttons showing through the body's cut-outs. Rotated -20° for a
         // dynamic look. The d-pad reads as a dark cut-out against the body.
@@ -361,6 +405,12 @@
             applyState();
             chrome.storage.local.set({ [STATE_KEY]: v });
         };
+        // Only what is on screen takes the keyboard focus: the stashed launcher
+        // and pin, or the hidden chevron, at opacity 0 (Section 508).
+        const reachable = (collapsed) => {
+            launcher.tabIndex = pin.tabIndex = collapsed ? -1 : 0;
+            chevron.tabIndex = collapsed ? 0 : -1;
+        };
         const applyState = () => {
             clearTimeout(idleTimer);
             if (ctx.surface.isGhost()) {
@@ -369,6 +419,7 @@
                 launcher.classList.add('stashed');
                 pin.classList.add('stashed');
                 chevron.classList.add('shown');
+                reachable(true);
                 if (panel.classList.contains('open')) setOpen(false);
                 return;
             }
@@ -376,6 +427,7 @@
             launcher.classList.toggle('stashed', collapsed);
             pin.classList.toggle('stashed', collapsed);
             chevron.classList.toggle('shown', collapsed);
+            reachable(collapsed);
             if (!collapsed) ctx.surface.clearRestore(); // expanding cancels the welcome-back outline (and its timer)
             if (collapsed && panel.classList.contains('open')) setOpen(false);
             // A pinned launcher stays out, so don't even arm the idle timer — otherwise
@@ -385,9 +437,20 @@
             if (!collapsed && !ctx.pin.isPinned()) idleTimer = setTimeout(onIdle, Math.max(ts + IDLE_MS - Date.now(), 0) + 50);
         };
         const reveal = (open) => {
+            launcher.setAttribute('aria-expanded', String(open));
+            if (open) panel.classList.remove('closing');
+            else if (panel.classList.contains('open')) panel.classList.add('closing');
             panel.classList.toggle('open', open);
             launcher.classList.toggle('active', open); // keep the hover-style highlight while open
         };
+        // The fade out is over (or cut short): the panel goes.
+        const closed = (e) => {
+            if (e.target === panel && e.propertyName === 'opacity' && !panel.classList.contains('open')) {
+                panel.classList.remove('closing');
+            }
+        };
+        panel.addEventListener('transitionend', closed);
+        panel.addEventListener('transitioncancel', closed);
         const setOpen = (open) => {
             wantOpen = open;
             if (open && !inited) {
@@ -477,6 +540,7 @@
         // The tooltip hints the action the pin offers, so it only shows while the pin
         // is inactive (pressed = already pinned, no hint needed).
         const applyPinTitle = () => {
+            pin.setAttribute('aria-label', t('widget_pin'));   // its name, in the interface language
             if (pinned) pin.removeAttribute('title');
             else pin.title = t('widget_pin');
         };
@@ -550,6 +614,7 @@
             if (ghost) renderGhostHint();
             else chevronTip.textContent = t('widget_expand');
             chevronTip.classList.toggle('expand', !ghost);
+            chevron.setAttribute('aria-label', chevronTip.textContent);   // its tip is its name
         };
         let introBurstTimer = null, introCycleTimer = null;
         const stopIntroCycle = () => {

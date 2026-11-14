@@ -12,13 +12,31 @@
     --accent: #45A1FA;
     --toggle: #2f6fd0;
     --danger: #ee1c25;
+    /* A lighter red than --danger: 12px text on the card needs 4.5:1 (Section 508). */
+    --danger-text: #ff5a5f;
     --chip: #0a0f16;
+    /* A control or row under the pointer, and the picked row of a list. */
+    --hover: #22303f;
+    --selected: #1d3a59;
+    /* Menus and droplists: Steam's own panel colour. */
+    --menu: #16202d;
+    /* A queue strip, and a list row under the pointer. */
+    --strip: #17232f;
+    /* Secondary text: the tab line, captions. */
+    --text-2: #8fb4d6;
+    /* A job at work, in lime (Steam's #a4d007 reads as pale green). */
+    --ok: #48ff00;
+    /* A queue that waits on something: skips, a halted route. */
+    --warn: #ffd21a;
+    /* Steam's font where the page has it (the widget on a store page), the
+       system's in the toolbar popup. */
+    --font: "Motiva Sans", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
 }
 
 /* Shadow-host baseline so the on-page widget matches the popup window's typography
    instead of inheriting Steam's page font / default smoothing (no-op in the popup). */
 :host {
-    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--font);
     font-size: 13px;
     -webkit-font-smoothing: antialiased;
 }
@@ -31,10 +49,12 @@ html, body {
     overflow: hidden;
 }
 
+/* As wide as the shell: the panel, plus the lists drawer while it is out. */
 body {
-    width: 320px;
+    width: max-content;
+    min-width: 320px;
     color: var(--text);
-    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--font);
     font-size: 13px;
     -webkit-font-smoothing: antialiased;
 }
@@ -47,16 +67,16 @@ body {
     /* width + text styles repeated here so the shadow-DOM widget (no <body>) styles correctly */
     width: 320px;
     min-height: 230px;
-    padding: 16px;
+    /* No bottom padding: the tab line, or the open pane under it, is the panel's lower edge. */
+    padding: 16px 16px 0;
     color: var(--text);
-    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--font);
     font-size: 13px;
     -webkit-font-smoothing: antialiased;
-    /* subtle inner glow from the top-centre so the panel reads lit, not flat-dark */
-    background:
-        radial-gradient(135% 90% at 50% -15%, #233a52 0%, #18283a 42%, #101b27 100%);
-    /* outline + negative offset keeps the border outside the layout flow: expanding
-       the settings-accordion no longer shifts it or creates subpixel gaps. */
+    /* One flat fill, as Steam's own panels. */
+    background: #18283a;
+    /* outline + negative offset keeps the border outside the layout flow: opening
+       the tab panel never shifts it or creates subpixel gaps. */
     outline: 1px solid var(--border);
     outline-offset: -1px;
 }
@@ -98,6 +118,83 @@ h3 {
 }
 .header-title-wrapper { display: flex; align-items: center; gap: 10px; }
 .header-title-wrapper img { width: 30px; height: 30px; border-radius: 6px; }
+/* The extension's icon is the queue's button (popup_queue.js). The job count
+   sits in a square at the lower right corner, a little over the icon, and the
+   square's outline traces the share of the queue's games done, green while a
+   job runs. The count fades out with the last job. The negative margin keeps
+   the title where the bare icon had it. */
+#queue-btn {
+    position: relative; display: block; width: 38px; height: 38px; margin: -4px; padding: 4px; box-sizing: border-box;
+    background: none; border: none; border-radius: 10px; cursor: pointer;
+}
+#queue-btn img { display: block; transition: transform .2s ease; }
+#queue-btn:hover img, #queue-btn[aria-expanded="true"] img { transform: scale(1.06); }
+#queue-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* While the queue is out, the open tab's mark (.tab::after) under the icon,
+   on the header's lower edge. Before the icon and the count, so the count's
+   square sits over it. */
+#queue-btn::before {
+    content: ''; position: absolute; left: 4px; right: 4px; bottom: -4px; height: 2px;
+    background: var(--accent); border-radius: 2px; opacity: 0; transition: opacity .2s ease;
+}
+#queue-btn[aria-expanded="true"]::before { opacity: 1; }
+/* While a job runs a barber pole runs round the icon: stripes moving under a
+   mask that keeps only a 2px frame. */
+.queue-barber {
+    position: absolute; inset: 0; padding: 2px; border-radius: 10px; pointer-events: none;
+    background-image: linear-gradient(45deg,
+        #66c0f4 25%, transparent 25%, transparent 50%,
+        #66c0f4 50%, #66c0f4 75%, transparent 75%, transparent);
+    background-size: 6px 6px;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    opacity: 0; transition: opacity .3s ease;
+}
+#queue-btn.has-running .queue-barber { opacity: 1; animation: ilap-queue-barber .5s linear infinite; }
+@keyframes ilap-queue-barber { from { background-position: 0 0; } to { background-position: 6px 0; } }
+.queue-badge {
+    position: absolute; right: -4px; bottom: -4px; display: flex;
+    transition: opacity .25s ease, transform .25s ease;
+}
+#queue-btn .queue-jobs-chip {
+    min-width: 18px; height: 18px; padding: 0 4px;
+    border-radius: 4px; font-size: 11px; line-height: 1;
+    box-shadow: 0 0 0 2px #1d3046;
+}
+.queue-ring {
+    position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none;
+    fill: none; stroke-width: 2;
+}
+.queue-ring-track { stroke: rgba(147, 169, 194, .28); }
+/* The outline starts at 12 o'clock. A rect's stroke starts just past its top
+   left corner, so the dash is shifted by the way to the top's middle, 7.7 of
+   100 on the 18 px count with rx 4 (a two-digit count starts a pixel left of
+   its middle). The gap is the rest of the outline (popup_queue.js), so the
+   pattern repeats once round it and the dash wraps past the start. */
+.queue-ring-fill {
+    stroke: #93a9c2; stroke-dasharray: var(--ring, 0) var(--ring-gap, 100); stroke-dashoffset: -7.7;
+    transition: stroke-dasharray .4s ease, stroke .3s ease;
+}
+#queue-btn.has-running .queue-ring-fill { stroke: var(--ok); }
+#queue-btn.is-empty .queue-badge { opacity: 0; transform: scale(.5); }
+/* With every job paused, the count and its outline give way to a dot in the
+   Pause key's yellow, lit from the upper left, in the count's place. */
+.queue-badge::after {
+    content: ''; position: absolute; inset: 0; margin: auto;
+    width: 9px; height: 9px; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle at 35% 30%, #ffe08a, #f7b500 55%, #b07c00);
+    box-shadow: 0 0 0 2px #1d3046, 0 1px 2px rgba(0, 0, 0, .6);
+    opacity: 0; transform: scale(.4);
+    transition: opacity .25s ease, transform .25s ease;
+}
+#queue-btn .queue-jobs-chip, .queue-ring { transition: opacity .25s ease, transform .25s ease; }
+#queue-btn.all-paused :is(.queue-jobs-chip, .queue-ring) { opacity: 0; transform: scale(.5); }
+#queue-btn.all-paused .queue-badge::after { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+    #queue-btn img, #queue-btn::before, .queue-barber, .queue-ring-fill, .queue-badge, .queue-badge::after, #queue-btn .queue-jobs-chip, .queue-ring { transition: none; }
+    #queue-btn.has-running .queue-barber { animation: none; }
+}
 
 /* === PILL TOGGLE === */
 .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
@@ -106,14 +203,17 @@ h3 {
 .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: #fff; transition: .25s; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,.4); }
 input:checked + .slider { background-color: var(--toggle); }
 input:checked + .slider:before { transform: translateX(18px); }
+/* The input itself is invisible, so its keyboard focus ring goes on the pill. */
+.switch input:focus-visible + .slider { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* === SEGMENTED MODE SWITCH === */
 /* Full row width, like every other control in the panel. The 600px action-popup
-   budget is paid in VERTICAL trim (no "Interface:" caption, tighter subcategory
-   spacing) — narrowing these two switches bought no height and only made them
-   the odd ones out. .wide-bg is a % of the track, so the knob follows. */
+   budget is paid in VERTICAL trim (tighter subcategory spacing) — narrowing
+   these two switches bought no height and only made them the odd ones out.
+   .wide-bg is a % of the track, so the knob follows. */
 .wide-switch { position: relative; display: block; width: 100%; height: 34px; background: var(--inset); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; user-select: none; overflow: hidden; margin-top: 6px; }
 .wide-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.wide-switch:has(> input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
 .wide-track { display: flex; width: 100%; height: 100%; position: relative; }
 .wide-label { flex: 1; text-align: center; line-height: 34px; font-size: 12px; font-weight: 700; z-index: 2; color: var(--muted); transition: color 0.35s ease; }
 .wide-bg { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 4px); background: #34465f; border-radius: 6px; transition: left 0.38s cubic-bezier(0.32, 1.4, 0.5, 1); z-index: 1; }
@@ -128,13 +228,13 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
    popup_main.js): points at the on-page widget + offers to move the UI here. */
 #ilap-popup-stub {
     width: 300px; padding: 18px 16px; box-sizing: border-box;
-    background: #16202d; color: #c7d5e0; text-align: center;
-    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    background: var(--menu); color: #c7d5e0; text-align: center;
+    font-family: var(--font);
 }
 #ilap-popup-stub img { width: 34px; height: 34px; border-radius: 8px; display: block; margin: 0 auto 10px; }
 #ilap-stub-msg { margin: 0 0 14px; font-size: 13px; line-height: 1.45; }
 #ilap-stub-progress { margin: 0 0 14px; font-size: 12px; font-weight: 700; color: var(--accent); }
-#ilap-stub-halt { margin-top: 6px; font-size: 10px; font-weight: 400; color: #ffd21a; }
+#ilap-stub-halt { margin-top: 6px; font-size: 10px; font-weight: 400; color: var(--warn); }
 #ilap-stub-btnwrap { display: inline-block; }
 #ilap-stub-switch {
     background: #2a6cc6; color: #fff; border: none; border-radius: 3px;
@@ -148,11 +248,12 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
    OUTSIDE #ui-wrapper (the master switch lives in it), so the app icon takes the
    dim from the wrapper's state instead. */
 .master-dim,
-#ui-wrapper.disabled > #settings-accordion > summary::after,
 #popup-root:has(#ui-wrapper.disabled) #ilap-header-icon {
     filter: grayscale(100%); opacity: 0.5;
 }
-#count-link { color: var(--accent); text-decoration: underline; cursor: pointer; font-weight: 700; }
+/* Motiva Sans digits differ in width, so a running count nudged the Undo
+   button with every digit. Tabular digits move it only when a digit is added. */
+#count-link { color: var(--accent); text-decoration: underline; cursor: pointer; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .stat-row {
     display: flex;
@@ -188,7 +289,10 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid var(--muted);
     transition: transform .2s ease;
 }
-.history-trigger:hover .last-chevron { transform: rotate(90deg); }
+.history-trigger:is(:hover, .kbd-open) .last-chevron { transform: rotate(90deg); }
+/* Keyboard focus on the box or an entry shows the history as hover does (popup_main.js). */
+#last-ignored-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.history-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* The list hangs 4px below the box. A pointer crossing that gap would leave
    the trigger, and the list would start fading out and back in. This strip
    bridges it while the trigger is hovered. */
@@ -219,10 +323,31 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     border: 1px solid var(--border); border-radius: 7px;
     transition: background-color .15s ease, border-color .15s ease, color .15s ease;
 }
-#undo-btn:hover:not(:disabled) { background: #22303f; color: #fff; border-color: #3f5169; }
+#undo-btn:hover:not(:disabled) { background: var(--hover); color: #fff; border-color: #3f5169; }
 #undo-btn:disabled { opacity: .45; cursor: default; }
 #undo-btn svg { display: block; }
 
+/* Every small tooltip of the panel is one box: hidden until its trigger
+   shows it, the inset fill, a hairline in the accent, a drop shadow, small
+   bold type. Each tip's own rule keeps its place, its width and its delay. */
+:is(.undo-tip, .count-tip, .dq-next-tip, .dq-master-tip, .tab-tip, .ai-shot-tip, .ai-opt-tip, .list-tip, .list-dot-tip, .queue-filter-tip, .queue-skip-tip) {
+    visibility: hidden; opacity: 0;
+    position: absolute; z-index: 1001; padding: 5px 8px;
+    background: var(--inset); color: var(--text);
+    border: 1px solid var(--accent); border-radius: 6px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+    font-size: 11px; font-weight: 600; line-height: 1.35; pointer-events: none;
+    transition: opacity .2s, visibility .2s; transition-delay: 0s;
+}
+/* A cut name shown whole over itself, in the same box. */
+:is(.list-name-full, .queue-name-full) {
+    visibility: hidden; opacity: 0;
+    position: absolute; left: -5px; top: -4px; z-index: 8;
+    width: max-content; padding: 3px 4px; white-space: normal; overflow-wrap: anywhere;
+    background: var(--inset); border: 1px solid var(--accent); border-radius: 5px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.8); pointer-events: none;
+    transition: opacity .15s, visibility .15s; transition-delay: 0s;
+}
 /* The Undo button's own tooltip — instead of the browser title. The wrapper catches
    hover even on a disabled button; popup_undo.js sets the text in #undo-tip.
    Anchored to #total-row rather than to the button: the label takes flex:1, so the
@@ -233,19 +358,13 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
    string we ship fits — tests/popup/tooltips.spec.js measures all of them) while
    staying under the button it explains, rather than off at the row's far left
    under the "Total Ignored:" caption. Deliberately
-   NOT clamped like .lang-tip below: this tip's text is a full sentence, and
+   NOT clamped like .tab-tip below: this tip's text is a full sentence, and
    wrapping it under the row would cover the Last-Ignored block. A future string
    longer than the panel would clip again; the spec is what catches that. */
 .undo-btn-wrap { display: inline-flex; }
 .undo-tip {
-    visibility: hidden; opacity: 0;
-    position: absolute; top: 100%; right: 0; margin-top: 6px;
-    white-space: nowrap; padding: 5px 8px; z-index: 1001;
-    background: var(--inset); color: var(--text);
-    border: 1px solid var(--accent); border-radius: 6px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
-    font-size: 11px; font-weight: 600; line-height: 1.35; pointer-events: none;
-    transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
+    top: 100%; right: 0; margin-top: 6px;
+    white-space: nowrap;
 }
 .undo-btn-wrap:hover + .undo-tip { visibility: visible; opacity: 1; transition-delay: 2.5s; }
 /* While the droplist is open — the tooltip stays out of the way. */
@@ -256,18 +375,13 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
    text; it wraps only at the row's width — the "not read yet" sentence is
    longer than the panel in some locales. */
 .count-tip {
-    visibility: hidden; opacity: 0;
-    position: absolute; top: 100%; right: 0; margin-top: 6px;
-    width: max-content; max-width: 100%; box-sizing: border-box;
-    padding: 5px 8px; z-index: 1001;
-    background: var(--inset); color: var(--text);
-    border: 1px solid var(--accent); border-radius: 6px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
-    font-size: 11px; font-weight: 400; line-height: 1.35; pointer-events: none;
-    transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
+    top: 100%; right: 0; margin-top: 6px;
+    width: max-content; max-width: 100%;
+    font-weight: 400;
 }
 .count-tip b { font-weight: 700; }
 #count-link:hover + .count-tip { visibility: visible; opacity: 1; transition-delay: 1.5s; }
+#count-link:focus-visible + .count-tip { visibility: visible; opacity: 1; transition-delay: .4s; }
 #popup-root:has(.undo-menu.open) .count-tip { display: none; }
 
 /* Droplist under the "Total Ignored" row (anchor #total-row). Overlays the
@@ -277,8 +391,12 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     background: var(--inset); border: 1px solid var(--accent); border-radius: 8px;
     padding: 10px; z-index: 1000; box-shadow: 0 4px 15px rgba(0,0,0,0.8);
     cursor: default;
+    /* Fades in and out, in the layout only while it shows (allow-discrete). */
+    opacity: 0; pointer-events: none;
+    transition: opacity .2s ease, display .2s allow-discrete;
 }
-.undo-menu.open { display: block; }
+.undo-menu.open { display: block; opacity: 1; pointer-events: auto; }
+@starting-style { .undo-menu.open { opacity: 0; } }
 /* The droplist is a control panel, not prose: a drag across it must not select
    its labels. Only the two fields stay selectable. */
 .undo-menu { user-select: none; }
@@ -301,8 +419,8 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
    choice as .queue-act below, so a dead stepper's look doesn't depend on rule
    order. Inside :where() so the guard adds no specificity: .selected below must
    still win over hover. */
-.undo-chip:hover:where(:not(:disabled)) { background: #22303f; color: #fff; }
-.undo-chip.selected { background: #1d3a59; border-color: var(--accent); color: #fff; }
+.undo-chip:hover:where(:not(:disabled)) { background: var(--hover); color: #fff; }
+.undo-chip.selected { background: var(--selected); border-color: var(--accent); color: #fff; }
 .undo-menu input {
     width: 52px; height: 26px; padding: 0 7px; min-width: 0;
     background: var(--chip); color: #fff; border: 1px solid var(--border);
@@ -310,7 +428,7 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
     text-align: center; outline: none;
 }
 .undo-menu input:focus { border-color: var(--accent); }
-/* -[ N ]+ stepper. The field carries the undoable total as its own pale hint, which
+/* -[ N ]+ stepper. The field shows the undoable total as its own pale hint, which
    keeps the row narrow enough for the longest translated Go button. Hold a stepper
    to auto-repeat. */
 .undo-step { width: 26px; padding: 0; font-size: 15px; line-height: 1; flex: none; }
@@ -326,14 +444,63 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
 }
 .undo-go:hover:not(:disabled) { background: #3a7de0; }
 .undo-go:disabled { opacity: .4; cursor: default; }
+/* Games | Creators, over the panes. Shown only while the account ignores a
+   creator (popup_undo.js _renderCreators). The picked tab is underlined. */
+.undo-tabs { display: flex; gap: 2px; margin: -2px 0 9px; border-bottom: 1px solid var(--border); }
+.undo-tabs[hidden] { display: none; }
+.undo-tab {
+    position: relative; padding: 4px 9px 6px; cursor: pointer;
+    background: none; border: none; color: var(--muted);
+    font-size: 11px; font-weight: 700; font-family: inherit;
+    transition: color .15s ease;
+}
+.undo-tab::after {
+    content: ""; position: absolute; left: 6px; right: 6px; bottom: -1px; height: 2px;
+    background: var(--accent); border-radius: 1px; opacity: 0; transition: opacity .15s ease;
+}
+.undo-tab:hover, .undo-tab[aria-selected="true"] { color: #fff; }
+.undo-tab[aria-selected="true"]::after { opacity: 1; }
+.undo-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 4px; }
+/* The radio mark of each Games row: a ring with a dot that grows in. */
+.undo-pick { display: flex; align-items: flex-start; gap: 6px; cursor: pointer; }
+.undo-pick .undo-title { margin-bottom: 7px; }
+.undo-pick input {
+    appearance: none; flex: none; width: 13px; height: 13px; margin: 0; padding: 0; cursor: pointer;
+    background: transparent;
+    border: 1.5px solid var(--muted); border-radius: 50%;
+    display: inline-grid; place-content: center;
+    transition: border-color .15s ease;
+}
+.undo-pick input::before {
+    content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+    transform: scale(0); transition: transform .15s ease;
+}
+.undo-pick input:checked { border-color: var(--accent); }
+.undo-pick input:checked::before { transform: scale(1); }
+.undo-pick input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The creators droplist takes the row and opens down over the menu, as tall
+   as the room left above the panel's foot (popup_undo.js sets it on open), and
+   scrolls past that. */
+.undo-creator-shell { flex: 1; min-width: 0; }
+.undo-creator-shell .select-display { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: block; padding: 5px 9px; }
+.undo-creator-shell .select-menu {
+    top: calc(100% + 4px); bottom: auto; left: 0; right: auto;
+    overflow-y: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+    .undo-pick input::before, .undo-tab::after { transition: none; }
+}
 .undo-msg { margin-top: 8px; font-size: 11px; color: var(--muted); line-height: 1.35; }
-.undo-msg.ok { color: #7ad13f; }
+/* The pane a Games | Creators click brings in fades in where the other was,
+   as the menu's height follows (popup_undo.js _selectTab). */
+.undo-pane-in { animation: ilap-undo-pane-in .2s ease; }
+@keyframes ilap-undo-pane-in { from { opacity: 0; } }
 
 /* === HISTORY TOOLTIP === */
 .history-trigger { position: relative; display: block; width: 100%; cursor: default; }
 
 .history-tooltip {
-    visibility: hidden; position: absolute; top: 100%; margin-top: 4px; left: 0; right: 0;
+    display: none; position: absolute; top: 100%; margin-top: 4px; left: 0; right: 0;
     background: #131f2c; border: 1px solid var(--border);
     padding: 4px 4px 12px 4px;
     font-size: 12px;
@@ -346,10 +513,17 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
        which is just enough for the worst measured content (three entries with
        long wrapped names ≈ 153px) to show without scrolling inside itself. */
     max-height: 160px; overflow-y: auto; overflow-x: hidden;
-    transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
+    /* In the layout only while it shows (allow-discrete): hidden, it hung past
+       the widget's shorter panel and put a scrollbar on it. */
+    transition: opacity 0.2s, display 0.2s allow-discrete; transition-delay: 0s;
 }
 
-.history-trigger:hover .history-tooltip { visibility: visible; opacity: 1; transition-delay: 0.4s; }
+.history-trigger:not(.no-more):hover .history-tooltip { display: block; opacity: 1; transition-delay: 0.4s; }
+@starting-style { .history-trigger:not(.no-more):hover .history-tooltip { opacity: 0; } }
+/* Keyboard focus in the box or the list (.kbd-open, popup_main.js). Visible at
+   once, so a quick Tab from the box lands on the entries: only the opacity fades. */
+.history-trigger:not(.no-more).kbd-open .history-tooltip { display: block; opacity: 1; transition: opacity .2s, display 0s; }
+@starting-style { .history-trigger:not(.no-more).kbd-open .history-tooltip { opacity: 0; } }
 
 /* Settings open = a taller panel, so the tooltip gets more room — but a number,
    not `none`. The panel's tallest state (SETTINGS + Manual Ignore, the taller of
@@ -357,7 +531,7 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
    browser's 600px popup window; an uncapped tooltip could only be free of the
    window edge by luck. 260px clears the same worst-case content twice over and
    still ends well above the edge. Asserted in tests/popup/popup-height.spec.js. */
-#popup-root:has(#settings-accordion[open]) .history-tooltip {
+#popup-root:has(#settings-placeholder:not([hidden])) .history-tooltip {
     max-height: 260px;
     overflow-y: auto;
     padding-bottom: 8px; /* Remove extra padding when fully visible */
@@ -393,23 +567,34 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
 .hist-square { display: block; width: 14px; height: 14px; border-radius: 3px; }
 
 /* Remove the extra margin when settings are open */
-#popup-root:has(#settings-accordion[open]) .history-entry:last-child {
+#popup-root:has(#settings-placeholder:not([hidden])) .history-entry:last-child {
     margin-bottom: 0;
 }
 
 /* === GESTURE CARD (DYNAMIC HINT) === */
+/* The gesture card. Its left edge is a stripe in the colour of each line's
+   action, red by Ignore, blue by Already played (each line draws its own
+   piece over the card's 3px left border). Where two lines meet, the two
+   colours pass into each other over 8px, and only there: the upper piece runs
+   on solid under the lower one, which comes in from clear over those 8px. */
 .hint {
     margin-top: 10px; font-size: 12px; background: #1a2939;
-    border: 1px solid var(--border); border-left: 3px solid var(--accent);
-    padding: 7px 10px; border-radius: 4px 8px 8px 4px;
+    border: 1px solid var(--border); border-left: 3px solid transparent;
+    padding: 7px 10px; border-radius: 0 8px 8px 0;
     display: flex; flex-direction: column; gap: 6px;
 }
-.hint-line { display: flex; align-items: center; }
+.hint-line { position: relative; display: flex; align-items: center; --stripe: var(--danger-text); }
+.hint-line.is-played { --stripe: #3ca8fc; }
+.hint-line.is-played .hint-label { color: #3ca8fc; }
+.hint-line::before {
+    content: ''; position: absolute; left: -13px; top: -8px; bottom: -8px; width: 3px;
+    background: var(--stripe); pointer-events: none;
+}
+.hint-line + .hint-line::before { top: -7px; background: linear-gradient(to bottom, transparent, var(--stripe) 8px); }
 
-/* first row ("Ignore:") is red; the "Already played:" row gets an inline blue override from JS */
 /* Label and chip share one line in every locale: a wrapped label is taller than
    the chip and grows the card. The tightest are de and tr "Already played". */
-.hint-label { flex: 1; font-weight: 700; color: var(--danger); font-size: 12px; }
+.hint-label { flex: 1; font-weight: 700; color: var(--danger-text); font-size: 12px; }
 
 .kbd-key {
     display: inline-flex; align-items: center; gap: 4px;
@@ -430,50 +615,8 @@ input:checked ~ .wide-track .wide-label:last-child { color: #fff; }
 details { margin-top: 10px; border: none; border-top: 1px solid var(--border); background: transparent; }
 summary { padding: 7px 10px 3px 0; cursor: pointer; font-size: 12px; color: #3ca8fc; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; list-style: none; }
 summary::-webkit-details-marker { display: none; }
-/* The two top-level bars are bands across the whole panel (the negative
-   margins cancel #popup-root's padding), stacked flush under one another and
-   ruled off by their own top borders. Tight vertical padding: with both on
-   screen the tallest state has to fit the 600px window. Their bodies take the
-   panel's padding back (#queue-list, #settings-placeholder). */
-#queue-accordion, #settings-accordion { margin: 10px -16px 0; }
-#settings-accordion { margin-top: 0; }
-#queue-accordion > summary, #settings-accordion > summary {
-    padding: 5px 16px; color: #fff; letter-spacing: .6px;
-    background: rgba(255, 255, 255, .025);
-}
-#queue-accordion > summary::after, #settings-accordion > summary::after { margin-left: 10px; }
-/* Their titles: a drawn glyph in front (the gear, the stack of tasks), in the
-   accent blue against the title. The title's word sits a shade under white
-   and turns white on hover. */
-.summary-title { display: flex; align-items: center; gap: 8px; min-width: 0; margin-right: 6px; }
-.summary-ico { flex-shrink: 0; display: block; color: #3ca8fc; }
-.summary-title > span { color: #dde2e7; transition: color .2s ease; }
-:is(#queue-accordion, #settings-accordion) > summary:hover .summary-title > span { color: #fff; }
-/* The stack of tasks, drawn a size up from the gear. On hover its three bars
-   drop into place one onto another, the bottom one first, landing with a
-   small bounce. They fall from above the glyph, so it does not clip them.
-   The negative margin keeps it in the gear's 13px slot, so both titles start
-   at the same x. */
-.queue-ico { width: 16px; height: 16px; margin: -1.5px; overflow: visible; }
-#queue-accordion > summary:hover .queue-ico rect { animation: ilap-queue-drop .36s ease-out backwards; }
-#queue-accordion > summary:hover .queue-ico rect:nth-child(2) { animation-delay: .1s; }
-#queue-accordion > summary:hover .queue-ico rect:nth-child(1) { animation-delay: .2s; }
-@keyframes ilap-queue-drop {
-    0% { transform: translateY(-9px); opacity: 0; }
-    65% { transform: translateY(1px); opacity: 1; }
-    100% { transform: none; }
-}
-@media (prefers-reduced-motion: reduce) { #queue-accordion > summary:hover .queue-ico rect { animation: none; } }
-/* The gear turns by one tooth (8 teeth, 45°) on hover and stays turned while
-   SETTINGS is open, so it looks the same at rest either way. Hover also grows
-   it a little, and it settles back to size when the pointer leaves. */
-.gear-ico { transition: transform .35s ease-in-out; }
-#settings-accordion[open] > summary .gear-ico { transform: rotate(45deg); }
-#settings-accordion > summary:hover .gear-ico { transform: rotate(45deg) scale(1.25); }
-@media (prefers-reduced-motion: reduce) { .gear-ico { transition: none; } }
 /* The caret: a small triangle that points right while its part is shut and
-   turns down as it opens. The bars, the subcategories and both droplists
-   (the history, the AI years) share it. */
+   turns down as it opens. The subcategories and the history droplist share it. */
 summary::after {
     content: ''; display: inline-block; width: 0; height: 0; flex-shrink: 0;
     border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid var(--muted);
@@ -481,67 +624,8 @@ summary::after {
 }
 details[open] > summary::after { transform: rotate(90deg); }
 
-/* Quick language picker living inside the SETTINGS bar (left of the caret).
-   Compact code shown as a span; the native <select> is the inert value store
-   (keyboard/tests), the visible list is the styled .select-menu below. */
-.lang-chip {
-    position: relative; margin-left: auto;
-    display: inline-flex; align-items: center; justify-content: center;
-    background: none; border: none;
-    border-radius: 6px; min-width: 34px; height: 24px; padding: 0 8px;
-    cursor: pointer;
-    transition: box-shadow .15s ease, transform .08s ease;
-}
-/* Bare code at rest, a raised key on hover, like the queue's keys (see
-   .queue-act). The language list is a child of the chip, so a hover or press
-   inside the open list must not light or sink the chip itself. */
-.lang-chip:hover:not(:has(.select-menu:hover)) { background: var(--key-face); box-shadow: var(--key-lift); }
-.lang-chip:active:not(:has(.select-menu:hover)) { transform: translateY(1px); box-shadow: var(--key-press); }
-.lang-chip-code { font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--text); pointer-events: none; }
-.lang-chip:hover:not(:has(.select-menu:hover)) .lang-chip-code { color: #fff; }
-/* Inert value store: never rendered, never hit-tested (clicks land on the chip,
-   which opens the styled menu). Still keyboard-reachable — Tab + arrows change
-   the value and fire `change` like any select. */
-.lang-chip select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
-.lang-chip:focus-within { box-shadow: 0 0 0 1px var(--accent); }
-/* 19 languages don't fit the popup — cap the menu and scroll inside it. The cap
-   must also fit ABOVE the chip (the menu opens upward and the popup document is
-   ~300px tall in the empty state — taller caps get clipped by the window edge).
-   The summary bar's uppercase/letter-spacing must not leak into the names. */
-.lang-chip .select-menu {
-    max-height: 232px; overflow-y: auto;
-    text-transform: none; letter-spacing: normal;
-}
-.lang-chip .select-opt { padding: 6px 10px; font-size: 11px; }
-
-/* The chip's own tooltip, in place of the native title: the browser bubble is
-   unstyleable and, in the on-page widget, is drawn by the page outside the panel.
-   Anchored to the SETTINGS <summary> (the chip itself is ~34px and flush right, so
-   a tooltip anchored to IT would run off the window) and clamped to that bar's
-   width inside its 16px padding — clipping is impossible whatever the locale. Opens UPWARD for the
-   same reason the language list does: the bar sits near the window's bottom edge.
-   The bar's uppercase/letter-spacing must not leak into the tooltip text. */
-#settings-accordion > summary { position: relative; }
-.lang-tip {
-    visibility: hidden; opacity: 0;
-    position: absolute; bottom: 100%; right: 16px; margin-bottom: 6px;
-    max-width: calc(100% - 32px); padding: 5px 8px; z-index: 1001;
-    background: var(--inset); color: var(--text);
-    border: 1px solid var(--accent); border-radius: 6px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
-    font-size: 11px; font-weight: 600; line-height: 1.35;
-    text-transform: none; letter-spacing: normal; pointer-events: none;
-    transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
-}
-.lang-chip:hover + .lang-tip { visibility: visible; opacity: 1; transition-delay: 2.5s; }
-/* While the language list is open the tooltip stays out of the way — same rule as
-   the undo tip vs its droplist. Hidden, not display:none: a tip coming back from
-   display:none has nothing to transition from, so a pick (the pointer is still
-   inside the chip) flashed it at full opacity past its 2.5s delay. */
-#popup-root:has(.lang-menu.open) .lang-tip { visibility: hidden; opacity: 0; transition: none; }
-
 /* The Auto-advance row's own tooltip, in place of the native title — same reason
-   as the language chip above. Unlike the other two tips this one is a full
+   as the tab line's. Unlike the other two tips this one is a full
    sentence, so a nowrap box could never fit the 320px window: it is stretched
    across the row (left+right: 0) and WRAPS inside it instead, which makes
    clipping impossible in every locale without a spec having to measure it.
@@ -551,18 +635,11 @@ details[open] > summary::after { transform: rotate(90deg); }
    exactly like the native bubble did. */
 .dq-next-row { position: relative; }
 .dq-next-tip {
-    visibility: hidden; opacity: 0;
-    position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px;
-    padding: 5px 8px; z-index: 1001;
-    background: var(--inset); color: var(--text);
-    border: 1px solid var(--accent); border-radius: 6px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
-    font-size: 11px; font-weight: 600; line-height: 1.35; pointer-events: none;
-    transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
+    top: 100%; left: 0; right: 0; margin-top: 4px;
 }
 /* Three dwells in this panel. 0.4 s for a hint on a control you aim at. 2.5 s for
    the two tips on controls the cursor CROSSES on its way somewhere else
-   (.undo-tip, .lang-tip): a short dwell there fires on every passing cursor. And
+   (.undo-tip): a short dwell there fires on every passing cursor. And
    2 s here: this tip hangs over the Ignore Mode block, where the cursor is
    usually headed when it crosses this row. */
 .dq-next-row:hover .dq-next-tip { visibility: visible; opacity: 1; transition-delay: 2s; }
@@ -575,15 +652,8 @@ details[open] > summary::after { transform: rotate(90deg); }
    for a three-line tip in some locales. */
 #dq-section > summary { position: relative; }
 .dq-master-tip {
-    visibility: hidden; opacity: 0;
-    position: absolute; bottom: 100%; left: 16px; right: 16px; margin-bottom: 4px;
-    padding: 5px 8px; z-index: 1001;
-    background: var(--inset); color: var(--text);
-    border: 1px solid var(--accent); border-radius: 6px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
-    font-size: 11px; font-weight: 600; line-height: 1.35; letter-spacing: 0;
-    text-transform: none; pointer-events: none;
-    transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
+    bottom: 100%; left: 16px; right: 16px; margin-bottom: 4px;
+    letter-spacing: 0; text-transform: none;
 }
 .settings-subcat > summary .switch:hover + .dq-master-tip { visibility: visible; opacity: 1; transition-delay: 0.4s; }
 
@@ -591,14 +661,12 @@ details[open] > summary::after { transform: rotate(90deg); }
 /* SETTINGS' body: the panel's side padding back under the full-width bar. Its
    subcategories are full-width rows ruled off by their own borders, so the
    flex gap is dropped and the surface switch keeps its own air below. */
-#settings-placeholder { padding: 6px 16px 0; gap: 0; }
+#settings-placeholder { padding: 6px 16px 10px; gap: 0; }
 #surface-row { padding-bottom: 6px; }
 .section-title { font-size: 11px; color: var(--text); text-transform: uppercase; font-weight: 700; letter-spacing: .5px; }
 
-/* The surface switch opens SETTINGS with no caption of its own (the "Interface:"
-   label was dropped to buy vertical room), so it needs neither the caption gap
-   above it nor a margin below — the .settings-content flex gap alone separates
-   it from the first subcategory. */
+/* The surface switch opens SETTINGS under its "Interface:" caption. */
+.surface-label { display: block; margin-bottom: 4px; font-size: 12px; }
 #surface-row .wide-switch { margin-top: 0; }
 
 /* Collapsible feature subcategories inside SETTINGS (Discovery Queue / Manual Ignore):
@@ -610,7 +678,7 @@ details[open] > summary::after { transform: rotate(90deg); }
 .settings-subcat > summary .section-title { flex: 1; color: #fff; }
 .settings-subcat > summary .switch { margin-right: 2px; }
 .subcat-content { padding: 2px 16px 6px; display: flex; flex-direction: column; gap: 6px; }
-/* .stat-row carries its own margin-bottom for the stats block at the top of the
+/* .stat-row has its own margin-bottom for the stats block at the top of the
    panel, where rows are not in a flex column. Here they are, so that margin
    stacked on the gap and every row sat 15px from the next instead of 8 — four
    times over in the Manual Ignore subcategory, which is the state that has to
@@ -628,7 +696,10 @@ details[open] > summary::after { transform: rotate(90deg); }
     block-size: 0;
     overflow: hidden;
     opacity: 0;
-    transition: block-size .26s ease, opacity .2s ease .04s;
+    /* content-visibility stays visible for the length of the close: without it
+       the closing sibling snapped shut at once and the panel dipped before the
+       opening one grew. */
+    transition: block-size .26s ease, opacity .2s ease .04s, content-visibility .26s allow-discrete;
 }
 .settings-subcat[open]::details-content {
     block-size: auto;
@@ -648,48 +719,6 @@ details[open] > summary::after { transform: rotate(90deg); }
     transition: block-size .5s ease, opacity .3s ease, content-visibility .5s allow-discrete;
 }
 
-/* SETTINGS / QUEUE top-level applets. popup_main.js marks .solo-collapse when
-   a panel is closed on its own; a CONCURRENT collapse (opening the sibling) is
-   left unmarked so it snaps shut in the SAME synchronous frame the sibling
-   opens — the panel never flashes to full height first, whatever subcategory
-   is expanded inside SETTINGS. The one exception is an open queue when
-   SETTINGS is clicked: it folds smoothly first and SETTINGS opens after it
-   (the .handoff rule below), which keeps the same guarantee by taking turns.
-   Both open smoothly (the [open] rules further down).
-   Browsers without ::details-content just snap. */
-#settings-accordion, #queue-accordion { interpolate-size: allow-keywords; }
-#settings-accordion.solo-collapse::details-content,
-#queue-accordion.solo-collapse::details-content {
-    block-size: 0;
-    overflow: hidden;
-    opacity: 0;
-    transition: block-size .5s ease, opacity .3s ease, content-visibility .5s allow-discrete;
-}
-/* The queue folding away for SETTINGS (popup_settings.js wireExclusiveDetails,
-   handoffMs): the same fold, quicker, since SETTINGS opens only once it ends.
-   Keep the .28s equal to QUEUE_HANDOFF_MS in popup_main.js. */
-#queue-accordion.solo-collapse.handoff::details-content {
-    transition: block-size .28s ease, opacity .2s ease, content-visibility .28s allow-discrete;
-}
-
-/* The open itself. The transition is declared ONLY on the [open] target:
-   opening smoothly pulls 0→auto, while an ordinary close (without .solo-collapse)
-   has no transition and collapses instantly — that's the COMPETITIVE collapse,
-   when the other applet opens in its place, and it must stay instant. The smooth
-   "solo" and "on-completion" close is handled by the .solo-collapse rule above.
-   SETTINGS re-renders its body a storage read after it opens
-   (popup_settings.js init); the height runs toward `auto` as it is laid out
-   each frame, so a body that lands mid-way only retargets the same motion. */
-#queue-accordion::details-content,
-#settings-accordion::details-content { block-size: 0; overflow: hidden; opacity: 0; }
-#queue-accordion[open]::details-content,
-#settings-accordion[open]::details-content {
-    block-size: auto; overflow: visible; opacity: 1;
-    /* allow-discrete: without it overflow flips to visible at once, and the body
-       sticking out of the still-growing box puts a scrollbar on the widget panel. */
-    transition: block-size .3s ease, opacity .25s ease, overflow 0s .3s allow-discrete;
-}
-
 select {
     appearance: none; -webkit-appearance: none;
     background-color: var(--panel);
@@ -698,10 +727,10 @@ select {
     cursor: pointer; font-family: inherit; text-align: center;
     transition: background-color .15s ease, box-shadow .15s ease;
 }
-select:hover { background-color: #22303f; }
+select:hover { background-color: var(--hover); }
 select:focus { box-shadow: 0 0 0 2px rgba(47,111,208,.3); }
 select:disabled { opacity: .5; cursor: default; }
-select option { background: #16202d; color: #fff; }
+select option { background: var(--menu); color: #fff; }
 
 /* Shortcut selects: visible label layer (renders the swipe arrow as a mini swoosh),
    with the native <select> transparent on top so it still opens as a dropdown. */
@@ -713,7 +742,9 @@ select option { background: #16202d; color: #fff; }
     border-radius: 6px; padding: 7px 11px; white-space: nowrap; cursor: pointer;
     transition: background-color .15s ease, box-shadow .15s ease;
 }
-.select-shell:hover .select-display { background: #22303f; }
+.select-shell:hover .select-display { background: var(--hover); }
+/* The keyboard drives the transparent <select> (popup_settings.js enhanceSelect). */
+.select-shell:has(select:focus-visible) .select-display { outline: 2px solid var(--accent); outline-offset: 1px; }
 .mini-arrow { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 /* The un-ignore ring is a 16px square where the swipe swoosh is 22px wide, so its
    button ends ~8px short of the two above it. This margin is the padding that
@@ -725,53 +756,45 @@ select option { background: #16202d; color: #fff; }
 /* Custom dropdown menu (replaces the OS-rendered <select> list) */
 .select-menu {
     display: none; position: absolute; right: 0; bottom: calc(100% + 4px);
-    min-width: 100%; background: #16202d; border: 1px solid var(--border);
+    min-width: 100%; background: var(--menu); border: 1px solid var(--border);
     border-radius: 8px; padding: 4px; z-index: 1000;
     box-shadow: 0 8px 20px rgba(0,0,0,.55); white-space: nowrap;
+    /* Fades in and out, in the layout only while it shows (allow-discrete). */
+    opacity: 0; pointer-events: none;
+    transition: opacity .2s ease, display .2s allow-discrete;
 }
-.select-menu.open { display: block; }
+.select-menu.open { display: block; opacity: 1; pointer-events: auto; }
+@starting-style { .select-menu.open { opacity: 0; } }
 .select-opt {
     display: flex; align-items: center; gap: 5px;
     padding: 7px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;
     color: var(--text); cursor: pointer;
 }
-.select-opt:hover { background: #22303f; color: #fff; }
-.select-opt.selected { background: #1d3a59; color: #fff; }
+.select-opt:hover { background: var(--hover); color: #fff; }
+.select-opt.selected { background: var(--selected); color: #fff; }
 .select-opt.disabled { opacity: .35; cursor: default; }
 .select-opt.disabled:hover { background: transparent; color: var(--text); }
 
 /* === CURATOR IGNORE QUEUE APPLET === */
-.queue-summary-right { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; }
-
 .queue-jobs-chip {
     min-width: 24px; height: 24px; padding: 0 6px; box-sizing: border-box;
     display: inline-flex; align-items: center; justify-content: center;
     background: var(--inset); border: 1px solid var(--border); border-radius: 6px;
     font-size: 13px; font-weight: 700; color: #fff;
 }
-/* Running indicator: the job counter's frame turns into a barber pole while a
-   job is actively ignoring (visible even when collapsed), around the count on
-   its dark square. In the counter, not beside it, so the bar's title keeps its
-   width. The stripes run under a transparent 3px border; the dark fill covers
-   the rest (padding-box). The keyframes move both layers, and the plain fill
-   does not show it. */
-#queue-accordion.has-running .queue-jobs-chip {
-    border: 3px solid transparent;
-    background-color: #0b1219;
-    background-image:
-        linear-gradient(var(--inset), var(--inset)),
-        linear-gradient(45deg,
-            #66c0f4 25%, transparent 25%, transparent 50%,
-            #66c0f4 50%, #66c0f4 75%, transparent 75%, transparent);
-    background-clip: padding-box, border-box;
-    background-origin: padding-box, border-box;
-    background-size: auto, 8px 8px;
-    animation: ilap-queue-barber .5s linear infinite;
+/* An empty queue shows a hint that says where jobs come from (popup_queue.js
+   _markEmpty), with the lists button's glyph in it. */
+.queue-empty-hint { font-size: 11px; line-height: 1.5; color: var(--muted); padding: 2px 2px 4px; box-sizing: border-box; }
+/* The queue's last job finished: its strip empties and shows a ✓ in the middle
+   for a moment before the hint takes its place (popup_queue.js _finishLast). */
+.queue-job.is-done { position: relative; }
+.queue-job.is-done > :not(.queue-done-check) { opacity: 0; transition: opacity .25s ease; }
+.queue-done-check {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--ok); pointer-events: none; animation: ilap-done-check .25s ease both;
 }
-@keyframes ilap-queue-barber { from { background-position: 0 0; } to { background-position: 8px 0; } }
-/* An empty queue keeps the bar for the lists icon, and opens on a hint that
-   says where jobs come from (popup_queue.js _markEmpty). */
-.queue-empty-hint { font-size: 11px; line-height: 1.5; color: var(--muted); padding: 2px 2px 4px; }
+.queue-done-check svg { width: 16px; height: 16px; }
+@keyframes ilap-done-check { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: none; } }
 .queue-empty-icon {
     display: inline-flex; align-items: center; justify-content: center; vertical-align: middle;
     width: 30px; height: 18px; margin: 0 2px; color: var(--muted);
@@ -780,186 +803,643 @@ select option { background: #16202d; color: #fff; }
 .queue-empty-icon svg { width: 22px; height: 11px; display: block; }
 .queue-empty-icon .ico-plus { fill: currentColor; }
 
-/* Built-in lists icon (ui/popup_presets.js): a double-width chip in the bar,
-   set apart from the job counter so the two never read as one number. */
-.preset-chip {
-    margin-right: 4px;
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 36px; height: 24px; color: #fff;
-    background: none; border: none; border-radius: 6px;
-    cursor: pointer;
+/* === TAB LINE AND ITS PANEL (ui/popup_tabs.js) === */
+/* A band across the whole panel (the negative margins cancel #popup-root's
+   padding), ruled off above. With no tab open it is the panel's lower edge,
+   and an open pane rules itself off under it. Four equal cells, ruled off
+   from each other: the lists button, the AI tab, the language droplist and
+   the settings gear, each centred in its cell. The rules are inset shadows,
+   so they take no width and the cells stay equal. A button's name is its
+   tooltip and its aria-label. */
+#tabline {
+    position: relative; display: flex; margin: 10px -16px 0;
+    border-top: 1px solid var(--border);
+    background: rgba(255, 255, 255, .025);
 }
-/* The lists menu is a child of the key, so a hover or press inside the open
-   menu must not light or sink the key itself. The press moves the GLYPH, never
-   the key: a transform on the key, even one still transitioning back, makes it
-   the menu's containing block, and the menu, stretched to the bar, shrinks to
-   the 36px key for those frames. */
-/* A bare glyph at rest. Hover lays a flat key under it (no lift or shadow)
-   and lightens the plus, a press nudges the glyph down. */
-.preset-chip:hover:not(:has(.preset-menu:hover)) { background: #2a3b4f; }
-.preset-chip > svg { display: block; width: 26px; height: 13px; pointer-events: none; }
-.preset-chip:active:not(:has(.preset-menu:hover)) > svg { transform: translateY(1px); }
-/* The list in white, the plus in blue with a soft shadow under it. Hover
-   brightens the plus. */
-.preset-chip .ico-plus { filter: drop-shadow(0 .7px .5px rgba(0,0,0,.75)); transition: filter .15s ease; }
-.preset-chip:hover:not(:has(.preset-menu:hover)) .ico-plus { filter: brightness(1.25) drop-shadow(0 .7px .5px rgba(0,0,0,.75)); }
-/* While the menu is open the key stays lit as on hover, and a hover on the key
-   itself (the click that closes it) pales it further. */
-.preset-chip:has(.preset-menu.open) { background: #2a3b4f; }
-.preset-chip:has(.preset-menu.open) .ico-plus { filter: brightness(1.25) drop-shadow(0 .7px .5px rgba(0,0,0,.75)); }
-.preset-chip:has(.preset-menu.open):hover:not(:has(.preset-menu:hover)) { background: #34475d; }
-#queue-accordion.master-off .preset-chip { opacity: .4; cursor: default; }
-#queue-accordion.master-off .preset-chip:hover:not(:has(.preset-menu:hover)) { background: none; }
-#queue-accordion.master-off .preset-chip:hover:not(:has(.preset-menu:hover)) .ico-plus { filter: drop-shadow(0 .7px .5px rgba(0,0,0,.75)); }
-#queue-accordion.master-off .preset-chip:active:not(:has(.preset-menu:hover)) > svg { transform: none; }
+#lists-btn, #tab-ai, #tab-lang { box-shadow: inset -1px 0 0 var(--border); }
+#lists-btn { position: relative; flex: 1 1 0; }
+#lists-btn[aria-expanded="true"] { color: #fff; background: rgba(69, 161, 250, .12); }
+#lists-btn > svg { display: block; width: 26px; height: 13px; transition: opacity .2s ease, transform .25s ease; }
+#lists-btn .ico-plus { filter: drop-shadow(0 .7px .5px rgba(0,0,0,.75)); }
+/* While the drawer is out, the lists glyph moves over to the right and a «
+   comes out from under it on its left, pointing where the drawer went. */
+#lists-btn > .lists-back {
+    position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -20px;
+    opacity: 0; transform: translateX(10px); pointer-events: none;
+}
+#lists-btn[aria-expanded="true"] > svg:not(.lists-back) { transform: translateX(8px); }
+#lists-btn[aria-expanded="true"] > .lists-back { opacity: 1; transform: none; }
+/* In the toolbar popup the lists drop down under the line: the mark points down. */
+#ilap-popup-mount #lists-btn > .lists-back { transform: translateY(-6px) rotate(-90deg); }
+#ilap-popup-mount #lists-btn[aria-expanded="true"] > .lists-back { transform: rotate(-90deg); }
+@media (prefers-reduced-motion: reduce) { #lists-btn > svg { transition: none; } }
+#tabbar { position: relative; display: flex; flex: 3 1 0; min-width: 0; }
+.tab {
+    position: relative; flex: 1 1 0; min-width: 0; height: 34px; margin: 0; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    background: none; border: none; cursor: pointer;
+    color: var(--text-2); font-family: inherit; font-size: 11px; font-weight: 700; letter-spacing: .5px;
+    transition: color .15s ease, background-color .15s ease;
+}
+.tab:hover, .tab[aria-selected="true"] { color: #fff; }
+.tab:hover { background: rgba(255, 255, 255, .04); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 4px; }
+.tab[aria-disabled="true"] { cursor: default; }
+.tab[aria-disabled="true"]:hover { background: none; color: var(--text-2); }
+.tab > * { pointer-events: none; }
+.tab-ico { display: block; flex-shrink: 0; }
+/* The open tab's mark: an accent line on the band's lower edge, inside its
+   cell, fading in under the tab that opens as it fades out under the one
+   that shuts. The lists button has it while its drawer is out. Inside the
+   band: with no tab open the band is the panel's lower edge, and a mark a
+   pixel under it scrolls the widget's panel. */
+.tab::after {
+    content: ''; position: absolute; left: 6px; right: 6px; bottom: 0; height: 2px;
+    background: var(--accent); border-radius: 2px; opacity: 0; transition: opacity .2s ease;
+}
+.tab[aria-selected="true"]::after, #lists-btn[aria-expanded="true"]::after { opacity: 1; }
+.tab-word { font-size: 12px; font-weight: 800; letter-spacing: .04em; }
+/* The AI tab's glyph (ui/popup_markup.js AI_GLYPH): the word AI with a filter
+   funnel right of it. The word follows the level the slider shows (popup_ai.js sets
+   data-level): Off the word alone, Low in a blue frame (the extension only
+   tells), Medium struck through in yellow, High in red, Max in black, each in
+   the slider's colour. A frame or a strike comes and goes drawn along its
+   length. A frame taken back is hidden once it is gone: a closed path with its
+   dash shifted off still leaves a dot where it starts. On hover the funnel and
+   the word grow a little and the strike or frame is drawn again. The word
+   stays in the DOM as text, out of sight. */
+#tab-ai .ai-ico { position: relative; display: block; width: 33px; height: 22px; }
+#tab-ai .ai-glyph { display: block; overflow: visible; }
+:is(#tab-ai, #tab-lang) .tab-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; font-size: 0; }
+.ai-glyph :is(.ai-funnel, .ai-letters) { transform-box: fill-box; transform-origin: center; transition: transform .2s ease; }
+.tab:hover .ai-glyph .ai-funnel { transform: scale(1.12); }
+.ai-glyph .ai-letters { fill: #fff; }
+.tab:hover .ai-glyph .ai-letters { transform: scale(1.06); }
+.ai-glyph .ai-slash { fill: #e3261f; clip-path: inset(0 100% 0 0); transition: clip-path .3s ease-out, fill .2s ease; }
+.ai-glyph .ai-frame { stroke: #1a9fff; stroke-dasharray: 1; stroke-dashoffset: 1; visibility: hidden; transition: stroke-dashoffset .4s ease-out, visibility .4s; }
+#tab-ai[data-level="1"] .ai-glyph .ai-frame { stroke-dashoffset: 0; visibility: visible; }
+#tab-ai:is([data-level="2"], [data-level="3"], [data-level="4"]) .ai-glyph .ai-slash { clip-path: inset(0 0 0 0); }
+#tab-ai[data-level="2"] .ai-glyph .ai-slash { fill: #ffd21a; }
+#tab-ai[data-level="4"] .ai-glyph .ai-slash { fill: #111111; stroke: #c7d5e0; stroke-width: .5px; }
+#tab-ai:is([data-level="2"], [data-level="3"], [data-level="4"]):hover .ai-glyph .ai-slash { animation: ilap-ai-strike .32s ease-out; }
+#tab-ai[data-level="1"]:hover .ai-glyph .ai-frame { animation: ilap-ai-frame .45s ease-out; }
+@keyframes ilap-ai-strike { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes ilap-ai-frame { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+    .ai-glyph :is(.ai-funnel, .ai-letters, .ai-slash, .ai-frame) { transition: none; }
+    #tab-ai:hover .ai-glyph :is(.ai-slash, .ai-frame) { animation: none; }
+}
+/* The crossed-out AI mark as the AI mark shot's thumbnail, the image a capsule
+   the HIGH level ignored shows in its corner (styles.css .ilap-ai-tag-ignored). */
+.ai-shot-pic[data-shot="ai"]::before {
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cdefs%3E%3ClinearGradient id='s' gradientUnits='userSpaceOnUse' x1='2.54' y1='14.08' x2='19.46' y2='7.92'%3E%3Cstop offset='0' stop-color='%23e3261f' stop-opacity='0.8'/%3E%3Cstop offset='0.05' stop-color='%23e3261f'/%3E%3Cstop offset='1' stop-color='%23e93831'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='%23fff' d='M5.17 16.5 7.25 5.5H10.02L12.07 16.5H9.83L9.46 14.18H7.85L7.47 16.5ZM8.06 12.72H9.23L8.65 8.43ZM14.4 16.5V5.5H16.83V16.5Z'/%3E%3Cg fill='url%28%23s%29' opacity='.85'%3E%3Cpolygon points='2.88,15.02 20.04,9.52 18.88,6.32 2.2,13.14'/%3E%3Ccircle cx='2.54' cy='14.08' r='1'/%3E%3Ccircle cx='19.46' cy='7.92' r='1.7'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* The language: a globe in the tab's colour, the panel's language code in
+   white, in the AI tab's letters (TabBar.relabel draws it), and the panel's
+   caret (summary::after), which turns down while the grid is out. The code
+   stays in the DOM as text, out of sight, as the word AI does. */
+.lang-glyph { display: block; flex-shrink: 0; fill: #fff; }
+.lang-caret {
+    display: block; width: 0; height: 0; flex-shrink: 0; margin-left: -1px;
+    border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid var(--muted);
+    transition: transform .2s ease-in-out;
+}
+#tab-lang[aria-selected="true"] .lang-caret { transform: rotate(90deg); }
+/* A gear (the AI tab's, the settings') turns by one tooth (8 teeth, 45°) on
+   hover and stays turned while its tab is open, so it looks the same at rest either way. */
+.gear-ico { transition: transform .35s ease-in-out; }
+.tab[aria-selected="true"] .gear-ico { transform: rotate(45deg); }
+.tab:hover .gear-ico { transform: rotate(45deg) scale(1.15); }
+@media (prefers-reduced-motion: reduce) {
+    .gear-ico, .tab::after, .lang-caret { transition: none; }
+}
+/* A tab's name, over the line and kept inside it (TabBar._placeTip). Aimed
+   at, so the 0.4 s dwell. */
+.tab-tip {
+    bottom: 100%; left: 0; margin-bottom: 4px;
+    width: max-content; max-width: calc(100% - 16px);
+}
+.tab-tip.show { visibility: visible; opacity: 1; transition-delay: .4s; }
+.tab-tip.show.slow { transition-delay: 1s; }
 
-/* The picked row's copy flying into the job count (popup_presets.js
-   _flyToQueue): the selected row's look, shrinking from its top left corner,
-   out of reach. */
-.preset-ghost {
-    position: absolute; z-index: 1002; margin: 0; overflow: hidden;
-    background: #1d3a59; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.5);
-    transform-origin: 0 0; pointer-events: none;
-    text-transform: none; letter-spacing: normal; white-space: nowrap;
-}
+/* The panel under the line, a full-width band like it: each pane takes the
+   panel's side padding back. It clips while its height moves, so nothing
+   sticks out and no scrollbar shows on the way. */
+#tab-panel { margin: 0 -16px; }
+#tab-panel.moving { overflow: hidden; }
+#tab-panel > .tab-pane[hidden] { display: none; }
+#tab-panel > .tab-pane { border-top: 1px solid var(--border); }
 
-/* The icon's own tooltip, built like the language chip's (see .lang-tip),
-   after a two-second hover. It hangs under the bar, starting at the icon's
-   middle, or further left when the bar's end is nearer (popup_presets.js
-   _placeTip sets left). */
-#queue-accordion > summary { position: relative; }
-.preset-tip {
-    visibility: hidden; opacity: 0;
-    position: absolute; top: 100%; right: auto; margin-top: 4px;
-    max-width: calc(100% - 32px); padding: 5px 8px; z-index: 1001;
-    background: var(--inset); color: var(--text);
-    border: 1px solid var(--accent); border-radius: 6px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.8);
-    font-size: 11px; font-weight: 600; line-height: 1.35;
-    text-transform: none; letter-spacing: normal; pointer-events: none;
-    transition: opacity 0.2s, visibility 0.2s; transition-delay: 0s;
+/* The panel and the drawers side by side, one drawer out at a time. A drawer
+   grows from no width on the left (slideDrawer in popup_tabs.js animates it)
+   and is as tall as the panel, with no height of its own, so it never makes
+   the window taller. The lists' block of rows is as tall as its rows and sits
+   with its bottom on the tab line's lower edge, growing upward (ListPanes
+   _place keeps it there while a tab's pane opens under the line). In the
+   widget, rows taller than the panel take its bottom down under the line. The
+   queue's sits against the drawer's top, by the icon, and grows down. The
+   rows keep their width and sit against the drawer's right edge, so they
+   slide in from under the panel rather than reflowing. Only a block taller
+   than the room it has scrolls, inside itself. */
+#ilap-shell { position: relative; display: flex; align-items: stretch; width: max-content; }
+/* Opening: the popup window as it loads, the widget's panel each time it
+   shows (a display: none → block restarts the animation). It unrolls from
+   the top as it fades in. A clip and an opacity, so nothing moves in the
+   layout. */
+#ilap-shell { animation: ilap-shell-in .24s ease-out; }
+@keyframes ilap-shell-in {
+    from { opacity: 0; clip-path: inset(0 0 100% 0); }
+    to { opacity: 1; clip-path: inset(0 0 0 0); }
 }
-.preset-chip:hover + .preset-tip { visibility: visible; opacity: 1; transition-delay: 2s; }
-#popup-root:has(.preset-menu.open) .preset-tip { display: none; }
-/* Once clicked, the tip stays down until the pointer leaves the icon
-   (popup_presets.js). */
-.preset-chip.tip-done + .preset-tip { display: none; }
+@media (prefers-reduced-motion: reduce) { #ilap-shell { animation: none; } }
+:is(#queue-drawer, #lists-drawer) { position: relative; flex: none; width: 0; overflow: hidden; visibility: hidden; }
+:is(#queue-drawer, #lists-drawer).shown { visibility: visible; }
+#lists-drawer.open { width: 236px; }
+.drawer-inner {
+    position: absolute; right: 0; bottom: 0; width: 236px; max-height: 100%; box-sizing: border-box;
+    overflow-y: auto; overscroll-behavior: contain;
+    padding: 12px 8px 12px 10px;
+    background: #0d1620; box-shadow: inset -8px 0 10px -8px rgba(0,0,0,.6);
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); border-radius: 8px 0 0 8px;
+}
+.drawer-inner.moving { overflow: hidden; }
+/* The toolbar popup: a window that grows sideways flashes as the browser
+   resizes it, so there neither drawer opens beside the panel. The lists drop
+   down under the tab line instead, growing the window down, where it shows
+   no flash: a band under the panel as wide as it (the shell turns into a
+   column), opening from no height, its block in the flow and framed on the
+   sides and the foot like the window. The lists and the tabs' panes take
+   turns there (popup_main.js). */
+#ilap-popup-mount #ilap-shell { flex-direction: column; width: 320px; }
+#ilap-popup-mount #lists-drawer,
+#ilap-popup-mount #lists-drawer.open { order: 1; width: auto; height: 0; }
+#ilap-popup-mount #lists-drawer.open { height: auto; }
+#ilap-popup-mount #lists-drawer .drawer-inner {
+    position: static; width: auto; max-height: none; overflow: visible;
+    padding: 10px 14px 12px 12px; background: var(--bg);
+    border: none; border-radius: 0;
+    box-shadow: inset 1px 0 0 var(--border), inset -1px 0 0 var(--border), inset 0 -1px 0 var(--border);
+}
+/* The queue unrolls like a droplist, a small window of its own, as tall as
+   its strips and no taller than the room it has (QueueManager._place),
+   scrolling inside past that. In the toolbar popup it unrolls over the panel
+   off the window's edges, its top under the header, so the icon that shuts it
+   stays in view. In the widget it unrolls out of the panel's left side, over
+   the lists' drawer if that is out. The blue frame and the shadow set it
+   apart from what lies under it. Out of the flow, so the window keeps its
+   size. */
+#queue-drawer,
+#queue-drawer.open {
+    position: absolute; width: 304px; height: auto; z-index: 20; overflow: visible;
+}
+#ilap-popup-mount #queue-drawer { left: 8px; }
+/* There the panel under the header dims and blurs while the queue is out, so
+   the queue reads as a window of its own over it. The header, with the icon
+   that shuts the queue, stays clear. A click on the dimmed panel shuts the
+   queue (QueueManager). The panel is a stacking context of its own, so none
+   of its menus or tips shows through. */
+#ilap-popup-mount #popup-root { isolation: isolate; }
+/* The blur is there only while the queue is out, and eases off with the dim:
+   a backdrop filter left on the hidden layer made every frame of the panel's
+   own height moves costly, and slow pages dropped them. */
+#ilap-popup-mount #ilap-shell::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 0; top: var(--queue-top, 0);
+    z-index: 19; background: rgba(5,10,16,.55);
+    opacity: 0; pointer-events: none;
+    transition: opacity .22s ease, -webkit-backdrop-filter .22s ease, backdrop-filter .22s ease;
+}
+#ilap-popup-mount #ilap-shell.queue-open::after {
+    opacity: 1; pointer-events: auto;
+    -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+}
+@media (prefers-reduced-motion: reduce) { #ilap-popup-mount #ilap-shell::after { transition: none; } }
+#queue-drawer .drawer-inner {
+    position: static; width: auto; padding: 10px 10px 12px 10px;
+    border: 1px solid var(--accent); border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0,0,0,.6);
+}
+/* The drawer's title wears the stack of tasks. As the drawer slides out on a
+   queue with jobs, and on hover of the title, its three bars drop into place
+   one onto another, the bottom one first, landing with a small bounce. They fall from above the
+   glyph, so it does not clip them. */
+.queue-title { display: flex; align-items: center; gap: 6px; }
+.queue-ico { display: block; flex-shrink: 0; overflow: visible; }
+:is(#queue-drawer.sliding.open:not(.is-empty), .queue-title:hover) .queue-ico rect { animation: ilap-queue-drop .36s ease-out backwards; }
+:is(#queue-drawer.sliding.open:not(.is-empty), .queue-title:hover) .queue-ico rect:nth-child(2) { animation-delay: .1s; }
+:is(#queue-drawer.sliding.open:not(.is-empty), .queue-title:hover) .queue-ico rect:nth-child(1) { animation-delay: .2s; }
+@keyframes ilap-queue-drop {
+    0% { transform: translateY(-9px); opacity: 0; }
+    65% { transform: translateY(1px); opacity: 1; }
+    100% { transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .queue-ico rect { animation: none !important; } }
+.drawer-inner::-webkit-scrollbar { width: 6px; }
+.drawer-inner::-webkit-scrollbar-track { background: transparent; }
+.list-pane + .list-pane { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 
-/* The lists menu: opens upward like the language list, but spans the whole bar
-   inside its padding (the icon is not positioned, so the bar is its anchor): a long locale wraps
-   the list name instead of running past the panel. The bar's
-   uppercase/letter-spacing must not leak into it. */
-/* It has to fit between the bar and the panel's top with one gesture hint line
-   (Already played off), so its rows are tight and its line height is set, or
-   a CJK font's taller lines push its title out of the window. */
-/* It sits flush on the bar, without the language list's 4px of air: a
-   two-line AI row in a long locale needs the room at the top. */
-.preset-menu {
-    left: 16px; right: 16px; bottom: 100%; min-width: 0; padding: 4px 8px 6px; cursor: default;
-    text-transform: none; letter-spacing: normal; white-space: normal; line-height: 16px;
-}
-/* It opens by fading in as it rises a few pixels into place, and closes the
-   same way back, whatever closes it (the icon, a click elsewhere in the panel,
-   a pick that stages a list). So it stays rendered when shut, hidden and out
-   of reach once it has faded. A shift only, no scale: the highlight is placed
-   from the rows' boxes on the first frame (popup_presets.js _placeHl). */
-.preset-menu {
-    display: block; visibility: hidden; opacity: 0; transform: translateY(6px);
-    transition: opacity .18s ease-in, transform .18s ease-in, visibility 0s linear .18s;
-}
-.preset-menu.open {
-    visibility: visible; opacity: 1; transform: none;
-    transition: opacity .2s ease-out, transform .2s ease-out, visibility 0s;
-}
-@media (prefers-reduced-motion: reduce) { .preset-menu, .preset-menu.open { transition: none; } }
-.preset-title { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px 2px; }
-.preset-opt {
-    position: relative;
-    display: flex; align-items: center; gap: 8px;
-    padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600;
-    color: var(--text); cursor: pointer;
-}
-.preset-opt:hover { background: #22303f; color: #fff; }
-/* The selected row's fill is its own block under the rows, sliding from row
-   to row on a pick (popup_presets.js _placeHl). The rows paint over it. */
-.preset-opt.selected, .preset-opt.selected:hover { background: transparent; color: #fff; }
-.preset-hl { position: absolute; left: 8px; right: 8px; border-radius: 6px; background: #1d3a59; pointer-events: none; }
-.preset-hl.moving { transition: top .22s ease, height .22s ease; }
-@media (prefers-reduced-motion: reduce) { .preset-hl.moving { transition: none; } }
-.preset-opt.disabled { opacity: .35; cursor: default; }
-.preset-opt.disabled:hover { background: transparent; color: var(--text); }
-.preset-dot {
-    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-    border: 1px solid var(--muted);
-}
-.preset-opt.selected .preset-dot { background: var(--accent); border-color: var(--accent); }
-.preset-name { flex: 1; }
-/* The AI row keeps its year button beside the name while both fit, and wraps
-   it onto a line of its own at the right when they don't ("2023 and earlier",
-   a German TBA). The name's basis is its whole text, so the row wraps before
-   the name would, and its cap keeps it beside the dot. popup_presets.js
-   _moveYear animates the switch. */
-.preset-opt[data-list="ai"] { flex-wrap: wrap; row-gap: 0; }
-.preset-opt[data-list="ai"] .preset-name { flex: 1 1 auto; max-width: calc(100% - 16px); }
-.preset-opt[data-list="ai"] .preset-year { margin-left: auto; }
-.preset-year {
-    display: inline-flex; align-items: center; gap: 5px;
+/* The AI row's year: a droplist button as wide as its year, on the right by
+   the count, with the caret the history box and the subcategories have,
+   turning down while its list is open. */
+.ai-year {
+    flex: none; max-width: 100%; margin-left: auto; display: inline-flex; align-items: center; gap: 8px;
     padding: 3px 8px; border-radius: 5px; background: var(--inset); border: 1px solid var(--border);
-    font-size: 11px; font-weight: 700; color: #fff; cursor: pointer;
-    white-space: nowrap; flex-shrink: 0;
+    color: #fff; font-family: inherit; font-size: 12px; font-weight: 700; text-align: left; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: border-color .15s ease;
 }
-.preset-year::after {
-    content: ''; width: 0; height: 0;
+.ai-year:hover, .ai-year[aria-expanded="true"] { border-color: var(--accent); }
+.ai-year:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ai-year::after {
+    content: ''; flex-shrink: 0; width: 0; height: 0;
     border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid var(--muted);
     transition: transform .2s ease;
 }
-.preset-year.open::after { transform: rotate(90deg); }
-.preset-opt.disabled .preset-year { cursor: pointer; }
-.preset-menu [role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-/* The open years list drops over the whole-list rows below the AI row, which
-   stay in place and in view to its left. It keeps within their height, so the
-   menu keeps its height (popup_presets.js _render), and scrolls when the years
-   outgrow it. A pick on one of those rows closes it. It hangs right under the year
-   button: flush with its right edge (the row's 8px padding) and as wide as
-   the widest year, never narrower than the button (popup_presets.js sets the
-   min-width from it). */
-.preset-flat { position: relative; }
-/* With no whole lists in this build there is nothing to drop over: room for
-   about three years. */
-.preset-flat.covered:not(:has(.preset-opt)) { min-height: 76px; }
-.preset-years {
-    position: absolute; top: 2px; right: 8px; max-height: calc(100% - 4px);
-    overflow-y: auto; width: max-content; box-sizing: border-box;
-    background: var(--inset); border: 1px solid var(--border); border-radius: 6px; padding: 2px;
-    box-shadow: 0 4px 12px rgba(0,0,0,.6);
+.ai-year[aria-expanded="true"]::after { transform: rotate(90deg); }
+/* The AI row keeps its year button beside the name while both fit, and wraps
+   it onto a line of its own at the right when they don't ("2023 and earlier",
+   a German TBA). The name's basis is its whole text, so the row wraps before
+   the name would. popup_presets.js _moveYear animates the switch. */
+.ai-head { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+/* The name and its blue dot wrap as one. */
+.ai-name { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.ai-name > .list-name { flex: 0 1 auto; }
+/* The years drop under the year button, against its right edge, over the
+   rows below, so the block keeps its height. ListPanes _placeYears sets
+   where, and how tall the box may be: down to the block's bottom, scrolling
+   inside itself past that. They stay drawn while shut, folded to no height,
+   faded out and out of reach, so opening and closing both move: the fold
+   opens or shuts as they fade. */
+#ai-pane { position: relative; }
+.ai-years {
+    position: absolute; z-index: 5; width: max-content; max-width: 100%;
+    display: grid; grid-template-rows: 0fr;
+    visibility: hidden; opacity: 0;
+    transition: grid-template-rows .2s ease, opacity .18s ease-in, visibility 0s linear .2s;
 }
-.preset-years .select-opt { padding: 5px 10px; font-size: 11px; }
-/* Add sits in the menu's lower right corner, as wide as its label, as tall as
-   the Un-ignore buttons. */
-.preset-go {
-    display: block; width: max-content; max-width: 100%; margin: 4px 0 0 auto; padding: 5px 22px;
-    background: var(--accent); color: #fff; border: none; border-radius: 6px;
-    font-size: 12px; font-weight: 700; font-family: inherit; line-height: inherit; cursor: pointer;
+.ai-years.open {
+    grid-template-rows: 1fr; visibility: visible; opacity: 1;
+    transition: grid-template-rows .2s ease, opacity .2s ease-out, visibility 0s;
 }
-.preset-go:disabled { opacity: .4; cursor: default; }
-/* In place of Add, at its height or less. */
-.preset-msg { font-size: 11px; color: #ffd21a; padding: 10px 4px 2px; white-space: normal; }
+.ai-years-in { min-height: 0; overflow: hidden; }
+.ai-years-box {
+    display: flex; flex-direction: column; padding: 3px;
+    overflow-y: auto; overscroll-behavior: contain;
+    background: var(--menu); border: 1px solid var(--border); border-radius: 8px;
+}
+.ai-years-box::-webkit-scrollbar { width: 6px; }
+.ai-years-box::-webkit-scrollbar-track { background: transparent; }
+@media (prefers-reduced-motion: reduce) { .ai-years, .ai-years.open { transition: none; } }
+.ai-opt {
+    flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; white-space: nowrap;
+    padding: 4px 8px; border: none; border-radius: 5px; background: none; text-align: left;
+    color: var(--text); font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: background-color .15s ease, color .15s ease;
+}
+.ai-opt:hover { background: var(--hover); color: #fff; }
+.ai-opt.selected { background: var(--selected); color: #fff; }
+.ai-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ai-opt.is-done { color: var(--muted); }
+.ai-opt-mark { font-size: 10px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.ai-opt.is-done .ai-opt-mark { color: #7bd96b; }
+/* A year in the queue: the row's ✓ beside it. The year is not run yet, so
+   it keeps its colour. */
+.ai-opt-mark.is-queued { display: inline-flex; color: var(--accent); }
+/* A year whose list changed since the user ran it (ListPanes _dot). */
+.ai-opt-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 
-/* One slim strip per job (popup_queue.js _row), all on one line: the name cut
-   to the name column (--qname-w, set by the applet), a mini progress bar, the
-   percent, the region skips and the actions. Three jobs keep the open queue
-   inside the 600px toolbar window (tests/popup/popup-height.spec.js). */
-/* --qglyph-w: a job's glyph (the lists glyph, the un-ignore arrow or a
-   curator's filter square) plus its gap. A name column is --qname-w and one
-   --qglyph-w of room more, after the glyph. A job with no glyph has the same
-   span with nothing in front, so all the mini bars start at one place. */
-/* The side padding is the panel's, given back under the full-width bar. */
-#queue-list { --qname-w: 90px; --qglyph-w: 22px; padding: 8px 16px 10px; display: flex; flex-direction: column; gap: 6px; }
-/* Frameless cards: the fill alone sets a job apart, the padding taking the
-   old 1px border's place so the rows keep their size. */
-.queue-job { position: relative; background: #17232f; border-radius: 8px; padding: 6px 7px 6px 10px; }
+/* The lists' rows (ui/popup_presets.js): a row per list, its game count and a
+   + that queues it. A list in the queue or run to its end says so in place of
+   the +. */
+#ai-tab-pane { position: relative; padding: 8px 16px 10px; }
+/* The AI tab's boxes: the text, then the panel's pill toggle on the right.
+   The whole row is the label. */
+.ai-check { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 4px; cursor: pointer; }
+.ai-check input { position: absolute; margin: 0; }
+.ai-check-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; font-weight: 600; line-height: 1.3; color: var(--text); }
+.ai-sub { font-size: 11px; font-weight: 400; color: var(--muted); }
+/* The AI level: a slider on five ticks, Off to Max, each named under its
+   tick (the names are its buttons too), and a round tick button that comes
+   in while a moved level waits for it. The thumb's centre runs from 7px to
+   the width less 7px, and the ticks stand on those points. Every level's
+   hint sits in one cell, so the pane keeps one height across them. */
+.ai-level { padding: 2px 4px 6px; --lvl: #8f98a0; }
+/* The level's colour on the slider: the track filled from the start up to the
+   level, and the thumb's ring. Off grey, Low blue (it only tells), Medium
+   yellow, High red, Max black. The AI flags on store pages take the same
+   colours (styles.css .ilap-ai-flag). */
+.ai-level[data-level="1"] { --lvl: #1a9fff; }
+.ai-level[data-level="2"] { --lvl: #ffd21a; }
+.ai-level[data-level="3"] { --lvl: #e3261f; }
+.ai-level[data-level="4"] { --lvl: #111111; }
+.ai-level-row { display: flex; align-items: flex-start; gap: 10px; }
+/* As wide as the save button on the right, so the slider stays centred. */
+.ai-level-row::before { content: ''; flex: none; width: 28px; }
+.ai-level-track { position: relative; flex: 1; min-width: 0; padding: 0 6px; }
+#ai-level {
+    position: relative; z-index: 1; display: block; width: 100%; height: 18px; margin: 0;
+    background: transparent; cursor: pointer; -webkit-appearance: none; appearance: none;
+    --fill: 0%;
+}
+#ai-level:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 9px; }
+#ai-level::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 2px;
+    background: linear-gradient(to right, var(--lvl) var(--fill), #3a4a5e var(--fill));
+}
+#ai-level::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; box-sizing: border-box;
+    border-radius: 50%; background: #fff; border: 3px solid var(--lvl);
+    transition: border-color .2s ease;
+}
+#ai-level::-moz-range-track { height: 4px; border-radius: 2px; background: #3a4a5e; }
+#ai-level::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--lvl); }
+#ai-level::-moz-range-thumb {
+    width: 14px; height: 14px; box-sizing: border-box;
+    border-radius: 50%; background: #fff; border: 3px solid var(--lvl);
+    transition: border-color .2s ease;
+}
+.ai-level-ticks { position: relative; height: 14px; }
+.ai-level-tick {
+    position: absolute; top: 2px; left: calc(7px + (100% - 14px) * var(--i) / 4); transform: translateX(-50%);
+    font-size: 10px; line-height: 1.2; color: var(--muted); white-space: nowrap; cursor: pointer;
+    transition: color .15s ease;
+}
+.ai-level-tick::before {
+    content: ''; position: absolute; left: 50%; top: -13px; width: 2px; height: 10px; margin-left: -1px;
+    background: #4b5b70; border-radius: 1px;
+}
+.ai-level-tick:hover, .ai-level-tick.on { color: var(--text); }
+.ai-level-tick.on { font-weight: 700; }
+/* The save button: a square centred on the slider. Once the level is stored
+   its floppy turns into a check mark drawn in (.saved), which then goes with
+   the button (popup_presets.js SAVED_MS, SAVED_FADE_MS). */
+#ai-level-ok {
+    position: relative; flex: none; display: inline-grid; place-items: center;
+    width: 28px; height: 28px; margin-top: -5px; padding: 0;
+    border: 1px solid var(--border); border-radius: 5px; background: var(--inset); color: var(--text); cursor: pointer;
+    opacity: 0; transform: scale(.6); pointer-events: none;
+    transition: opacity .3s ease, transform .3s ease, background-color .15s ease, color .15s ease;
+}
+#ai-level-ok.saved { color: var(--ok); }
+#ai-level-ok > span { grid-area: 1 / 1; display: block; transition: opacity .2s ease, transform .25s ease; }
+#ai-level-ok svg { display: block; width: 16px; height: 16px; }
+#ai-level-ok .ok-check { opacity: 0; transform: scale(.6); }
+#ai-level-ok .ok-check path { stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset .3s ease-out .1s; }
+#ai-level-ok.saved .ok-save { opacity: 0; transform: scale(.6) rotate(-12deg); }
+#ai-level-ok.saved .ok-check { opacity: 1; transform: none; }
+#ai-level-ok.saved .ok-check path { stroke-dashoffset: 0; }
+#ai-level-ok.shown { opacity: 1; transform: none; pointer-events: auto; }
+#ai-level-ok.saved { pointer-events: none; }
+#ai-level-ok:hover { background-color: var(--hover); color: #fff; }
+#ai-level-ok:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ai-level-hints { display: grid; margin-top: 8px; }
+.ai-level-hint {
+    grid-area: 1 / 1; font-size: 11px; line-height: 1.35; color: var(--muted);
+    opacity: 0; visibility: hidden; transition: opacity .2s ease, visibility .2s ease;
+}
+.ai-level-hint.shown { opacity: 1; visibility: visible; }
+/* MAX is the joke. The shot and the boxes fade out and its message takes
+   their room in large type, from the hints' top (--max-top, popup_ai.js) to
+   the pane's bottom, so the pane keeps its height. */
+.ai-level-hint[data-level="4"] {
+    position: absolute; left: 16px; right: 16px; top: var(--max-top, 0); bottom: 10px;
+    display: flex; align-items: center; justify-content: center; text-align: center; text-wrap: balance;
+    color: var(--text); font-size: 22px; font-weight: 600; line-height: 1.4;
+}
+/* Off the HIGH level the shot is dimmed. */
+.ai-shot-row, .ai-keep { transition: opacity .2s ease, visibility .2s ease; }
+.ai-shot-row.ai-dim { opacity: .45; pointer-events: none; }
+.ai-max :is(.ai-shot-row, .ai-keep) { opacity: 0; visibility: hidden; pointer-events: none; }
+/* One rule per engine's thumb: a pseudo-element a browser does not know
+   drops the whole rule. */
+@media (prefers-reduced-motion: reduce) {
+    .ai-level-tick, #ai-level-ok, .ai-level-hint, .ai-shot-row, .ai-keep { transition: none; }
+    #ai-level-ok > span, #ai-level-ok .ok-check path { transition: none; }
+    #ai-level::-webkit-slider-thumb { transition: none; }
+    #ai-level::-moz-range-thumb { transition: none; }
+}
+/* The shot, under the level: one row of thumbnails, a small dark capsule
+   each with its mark, as radios. The picked one has the accent frame, its
+   name stands by the caption. The emoji come from the system's emoji font. */
+.ai-shot-row { padding: 2px 4px 4px; font-size: 12px; }
+.ai-shot-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; }
+#ai-shot-name { color: var(--muted); font-size: 11px; }
+/* The animation's toggle at the line's right end, small enough to keep the
+   line's height, its name in our own tooltip over it. Off, the thumbnails dim. */
+.ai-shot-anim { position: relative; margin-left: auto; align-self: center; display: flex; }
+.switch.switch-sm { width: 28px; height: 16px; }
+.switch-sm .slider:before { height: 12px; width: 12px; left: 2px; bottom: 2px; }
+.switch-sm input:checked + .slider:before { transform: translateX(12px); }
+.ai-shot-tip {
+    bottom: 100%; right: 0; margin-bottom: 4px;
+    width: max-content; max-width: 200px;
+}
+.ai-shot-anim:hover .ai-shot-tip,
+.ai-shot-anim:has(input:focus-visible) .ai-shot-tip { visibility: visible; opacity: 1; transition-delay: .4s; }
+.ai-shots { display: flex; gap: 6px; transition: opacity .2s ease; }
+.ai-shots.ai-dim { opacity: .45; pointer-events: none; }
+.ai-shot-opt { position: relative; flex: 1 1 0; min-width: 0; height: 30px; cursor: pointer; }
+.ai-shot-opt input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
+.ai-shot-pic {
+    position: relative; display: flex; align-items: center; justify-content: center;
+    width: 100%; height: 100%; box-sizing: border-box; overflow: hidden;
+    border: 2px solid transparent; border-radius: 6px;
+    background: linear-gradient(160deg, #2a475e, #1b2838);
+    font-size: 17px; line-height: 1;
+    transition: border-color .15s ease;
+}
+.ai-shot-opt:hover .ai-shot-pic { border-color: #4b5b70; }
+.ai-shot-opt input:checked + .ai-shot-pic { border-color: var(--accent); }
+.ai-shot-opt input:focus-visible + .ai-shot-pic { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* A thumbnail's name over it after a second, kept inside the row at its two ends.
+   None while the emoji grid stands there. */
+.ai-opt-tip {
+    bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 6px;
+    width: max-content; max-width: 200px;
+}
+.ai-shots > :first-child .ai-opt-tip { left: 0; transform: none; }
+.ai-shot-opt:hover .ai-opt-tip,
+.ai-shot-opt:has(input:focus-visible) .ai-opt-tip { visibility: visible; opacity: 1; transition-delay: 1s; }
+.ai-shot-cell:has(.ai-emoji-grid.open) .ai-opt-tip { display: none; }
+.ai-shot-pic[data-shot="ai"]::before { content: ''; width: 28px; height: 28px; }
+.ai-shot-pic[data-shot="swipe"]::before {
+    content: ''; position: absolute; left: 12%; right: 12%; top: 50%; height: 4px; margin-top: -2px;
+    border-radius: 99px; transform: rotate(-12deg);
+    background: linear-gradient(90deg, rgba(255, 59, 48, 0) 0%, #ff3b30 24%, #ff8079 100%);
+    filter: drop-shadow(0 0 3px rgba(255, 59, 48, .8));
+}
+.ai-shot-pic svg { width: 24px; height: 24px; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .8)); }
+/* The random thumbnail is its name, as wide as the word takes (the longest
+   translation, Hungarian, too); the others share what is left. */
+.ai-shot-opt:has(> .ai-shot-pic[data-shot="random"]) { flex: 0 0 auto; }
+.ai-shot-pic[data-shot="random"] {
+    padding: 0 8px; white-space: nowrap;
+    font-size: 11px; font-weight: 700; color: var(--text);
+}
+/* The emoji thumbnail's cell: the thumbnail, the caret in its lower right
+   corner (the house caret, turning down while the grid is out), and the
+   grid of emoji over the panel, up from the thumbnail. The grid fades in
+   rising a little, and out the same way, out of the layout while shut, so
+   the AI tab keeps its height. */
+.ai-shot-cell { position: relative; flex: 1 1 0; min-width: 0; display: flex; }
+.ai-shot-cell > .ai-shot-opt { flex: 1 1 auto; }
+.ai-emoji-btn {
+    position: absolute; right: 2px; bottom: 2px; z-index: 1; width: 14px; height: 14px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; border-radius: 4px; cursor: pointer;
+}
+.ai-emoji-btn::after {
+    content: ''; width: 0; height: 0;
+    border-top: 3px solid transparent; border-bottom: 3px solid transparent; border-left: 4px solid var(--muted);
+    transition: transform .2s ease, border-left-color .15s ease;
+}
+.ai-emoji-btn:hover::after, .ai-emoji-btn[aria-expanded="true"]::after { border-left-color: #fff; }
+.ai-emoji-btn[aria-expanded="true"]::after { transform: rotate(90deg); }
+.ai-emoji-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.ai-emoji-btn:disabled { cursor: default; }
+.ai-emoji-grid {
+    display: none; position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 1000;
+    grid-template-columns: repeat(5, 30px); gap: 2px; padding: 4px;
+    background: var(--menu); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 8px 20px rgba(0,0,0,.55);
+    opacity: 0; transform: translateY(4px);
+    transition: opacity .2s ease, transform .2s ease, display .2s allow-discrete;
+}
+.ai-emoji-grid.open { display: grid; opacity: 1; transform: none; }
+@starting-style { .ai-emoji-grid.open { opacity: 0; transform: translateY(4px); } }
+.ai-emoji-opt {
+    width: 30px; height: 30px; padding: 0; display: flex; align-items: center; justify-content: center;
+    background: none; border: none; border-radius: 6px; cursor: pointer;
+    font-size: 18px; line-height: 1; transition: background-color .15s ease;
+}
+.ai-emoji-opt:hover { background: var(--hover); }
+.ai-emoji-opt.selected { background: var(--selected); }
+.ai-emoji-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) {
+    .ai-emoji-btn::after { transition: none; }
+    .ai-emoji-grid { transform: none; transition: opacity .2s ease, display .2s allow-discrete; }
+    @starting-style { .ai-emoji-grid.open { transform: none; } }
+}
+.ai-keep { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+@media (prefers-reduced-motion: reduce) { .ai-shot-pic, .ai-shots, .ai-shot-tip, .ai-opt-tip { transition: none; } }
+.list-title { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px 4px; }
+.list-row {
+    display: flex; align-items: center; gap: 8px; min-height: 24px;
+    padding: 2px 4px 2px 8px; border-radius: 6px;
+    transition: background-color .15s ease;
+}
+.list-row:hover { background: var(--strip); }
+.list-name { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--text); }
+.list-row.is-done .list-name { color: var(--muted); }
+/* A long name (FLAT_CUT) keeps to one line, cut with an ellipsis, and shows whole
+   over itself on hover of a cut name, as the queue's job names do. The whole
+   name stays inside the drawer's width. */
+.list-namebox { position: relative; flex: 1; min-width: 0; }
+.list-namebox .list-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.list-name-full {
+    max-width: 200px;
+    font-size: 12px; font-weight: 600; color: var(--text);
+}
+.list-row.is-done .list-name-full { color: var(--muted); }
+.list-namebox.is-cut:hover .list-name-full { visibility: visible; opacity: 1; transition-delay: .4s; }
+@media (prefers-reduced-motion: reduce) { .list-name-full { transition: none; } }
+/* A list's own tip, over its row from the name's edge, as the queue's tips
+   look. It stays inside the drawer's width, so the drawer never scrolls for
+   it. The + button's keyboard focus shows it too. */
+.list-row:has(.list-tip) { position: relative; }
+.list-name.has-tip { cursor: help; }
+.list-tip {
+    bottom: 100%; left: 8px; margin-bottom: 2px;
+    width: max-content; max-width: 200px;
+}
+.list-name.has-tip:hover + .list-tip,
+.list-row:has(.list-add:focus-visible) .list-tip { visibility: visible; opacity: 1; transition-delay: .4s; }
+/* A list run to its end at an older version of it (ListPanes _dot): a blue
+   dot right after its name, a button whose name is its tip. It grows in as it
+   fades in, with the row, and shrinks as it fades out (ListPanes _foldDot).
+   Its negative margin takes back the row's gap, so it sits by the name's end
+   and gives its whole room back as it shrinks. The tip shows over the row,
+   or under it on the block's top rows (.below), inside the drawer. */
+.list-row:has(.list-dot) { position: relative; }
+.list-row:has(> .list-dot) > :is(.list-name, .list-namebox) { flex: 0 1 auto; }
+.list-dot {
+    flex: none; width: 16px; height: 20px; margin: 0 auto 0 -8px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: none; border-radius: 5px; cursor: pointer; font-family: inherit;
+}
+.list-dot-in { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: ilap-dot-in .2s ease-out; }
+.list-dot.kept .list-dot-in { animation: none; }
+@keyframes ilap-dot-in { from { opacity: 0; transform: scale(0); } }
+@keyframes ilap-dot-fade { from { opacity: 0; } }
+.list-dot:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.list-dot.leaving { pointer-events: none; }
+.list-dot-tip {
+    bottom: 100%; left: 8px; margin-bottom: 2px;
+    width: max-content; max-width: 200px; text-align: left; white-space: normal;
+}
+.list-dot-tip.below { bottom: auto; top: 100%; margin: 2px 0 0; }
+.list-dot:is(:hover, :focus-visible):not(.leaving) .list-dot-tip { visibility: visible; opacity: 1; transition-delay: .4s; }
+@media (prefers-reduced-motion: reduce) { .list-dot-in { animation-name: ilap-dot-fade; } }
+.list-count { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.list-state { font-size: 11px; font-weight: 600; color: var(--muted); white-space: nowrap; padding-right: 4px; }
+.list-state.is-done { color: #7bd96b; }
+/* A list in the queue, not run yet: a ✓ in the + button's place and colour,
+   so the row keeps its layout in every language. A new one draws itself in
+   (ListPanes _render, `fresh`); reduced motion fades it in. */
+.list-state.is-queued {
+    flex-shrink: 0; width: 26px; height: 24px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center; color: var(--accent);
+}
+.list-state.is-queued svg path { stroke-dasharray: 1; }
+.list-state.is-queued.fresh svg path { animation: ilap-check-draw .3s ease-out both; }
+@keyframes ilap-check-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+    .list-state.is-queued.fresh svg path { animation: none; }
+    .list-state.is-queued.fresh svg { animation: ilap-dot-fade .2s ease-out; }
+}
+.list-add {
+    flex-shrink: 0; width: 26px; height: 24px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: none; border-radius: 6px; cursor: pointer;
+    color: var(--accent); font-family: inherit; font-size: 18px; font-weight: 700; line-height: 1;
+    transition: background-color .15s ease, color .15s ease;
+}
+.list-add:not([disabled]):hover { background-color: var(--hover); color: #fff; }
+.list-add[disabled] { opacity: .35; cursor: default; }
+.list-add:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* It opens its own height as it fades in: the drawer's block grows by it. */
+.list-msg { font-size: 11px; color: var(--warn); padding: 6px 4px 0; overflow: hidden; animation: ilap-msg-in .2s ease-out; }
+@keyframes ilap-msg-in { from { opacity: 0; max-height: 0; padding-top: 0; } to { max-height: 6em; } }
+/* Kept through a redraw, or put back to fold away (ListPanes _foldMsg): no second entrance. */
+.list-msg.kept { animation: none; }
+@media (prefers-reduced-motion: reduce) { .list-msg { animation: none; } }
+/* The added row's copy flying into the queue tab's count (ListPanes
+   _flyToQueue): shrinking from its top left corner, out of reach. */
+.list-ghost {
+    position: absolute; z-index: 1002; margin: 0; overflow: hidden;
+    background: var(--selected); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.5);
+    transform-origin: 0 0; pointer-events: none; white-space: nowrap;
+}
+
+/* The language tab's pane (popup_settings.js langGrid): every language by
+   its own name, two to a row. */
+#lang-pane { padding: 8px 12px 10px; }
+.lang-grid { display: grid; grid-template-columns: auto auto; gap: 1px 6px; }
+.lang-opt {
+    min-width: 0; padding: 3px 8px; border: none; border-radius: 6px; background: none;
+    text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--text); font-family: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+    transition: background-color .15s ease, color .15s ease;
+}
+.lang-opt:hover { background: var(--hover); color: #fff; }
+.lang-opt.selected { background: var(--selected); color: #fff; }
+.lang-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* One strip per job (popup_queue.js _strip, the .strips rules below). */
+#queue-list { padding-top: 4px; display: flex; flex-direction: column; gap: 8px; }
+/* Frameless: the fill alone sets a job apart. */
+.queue-job { position: relative; background: var(--strip); border-radius: 8px; padding: 9px 8px 7px 12px; }
 /* A curator's strip: a square in its filter's colour in front of the name
-   (popup_queue.js _row), with the filter's name on hover. It takes the lists
+   (popup_queue.js _parts), with the filter's name on hover. It takes the lists
    glyph's slot: 14px plus 1px each side is the glyph's 16px. */
 .queue-job-filter {
     position: relative; flex-shrink: 0; width: 14px; height: 14px; margin: 0 1px;
@@ -968,25 +1448,17 @@ select option { background: #16202d; color: #fff; }
 /* A wider hover target than the square itself. */
 .queue-job-filter::after { content: ''; position: absolute; inset: -4px; }
 .queue-filter-tip {
-    visibility: hidden; opacity: 0;
-    position: absolute; bottom: 100%; left: 0; margin-bottom: 4px; z-index: 1001;
-    width: max-content; max-width: 220px; padding: 5px 8px;
-    background: var(--inset); color: var(--text); border: 1px solid var(--accent); border-radius: 6px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; font-weight: 600; line-height: 1.35;
-    pointer-events: none; transition: opacity .2s, visibility .2s; transition-delay: 0s;
+    bottom: 100%; left: 0; margin-bottom: 4px;
+    width: max-content; max-width: 220px;
 }
 .queue-job-filter:hover .queue-filter-tip,
 .queue-job-glyph.has-tip:hover .queue-filter-tip { visibility: visible; opacity: 1; transition-delay: .4s; }
-/* The job for the curator page we're currently on gets a highlight ring. */
-.queue-job.current { box-shadow: 0 0 0 1px #45A1FA, 0 0 10px rgba(69,161,250,.3); }
 /* The special auto-filling gesture jobs (Manual ignores / un-ignores): their
-   name in the lime of a running job marks them apart from curator/undo jobs. */
-.queue-job.mi .queue-job-name, .queue-job.mi .queue-name-full { color: #48ff00; }
-.queue-job-line { display: flex; align-items: center; gap: 6px; }
+   name in the green of a running job marks them apart from curator/undo jobs. */
+.queue-job.mi .queue-job-name, .queue-job.mi .queue-name-full { color: var(--ok); }
+.queue-job-line { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 /* A paused job reads black-and-white: everything but its actions and a
-   curator's filter square loses its colour, the ring included. The bar's
-   filter sits on the line, not on .queue-mini, which must not become the
-   stretching track's containing block. */
+   curator's filter square loses its colour, the ring included. */
 .queue-job.paused { box-shadow: none; }
 /* A job that is actually running: a broad white sheen sweeps across its strip,
    under the content, so the work shows at a glance. The strip itself stands
@@ -998,21 +1470,17 @@ select option { background: #16202d; color: #fff; }
     background:
         linear-gradient(100deg, transparent 28%, rgba(255, 255, 255, .07) 40%, rgba(255, 255, 255, .19) 50%, rgba(255, 255, 255, .07) 60%, transparent 72%) 0 0 / 300% 100% no-repeat,
         linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, 0) 55%, rgba(0, 0, 0, .18)),
-        #17232f;
+        var(--strip);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1), inset 0 -1px 0 rgba(0, 0, 0, .35), 0 2px 6px rgba(0, 0, 0, .35);
     animation: ilap-job-sheen 2.4s linear infinite;
-}
-/* The current curator's ring stays on a running strip. */
-.queue-job.current.running {
-    box-shadow: 0 0 0 1px #45A1FA, 0 0 10px rgba(69,161,250,.3), inset 0 1px 0 rgba(255, 255, 255, .1), inset 0 -1px 0 rgba(0, 0, 0, .35);
 }
 @keyframes ilap-job-sheen { from { background-position: 100% 0, 0 0, 0 0; } to { background-position: 0% 0, 0 0, 0 0; } }
 @media (prefers-reduced-motion: reduce) { .queue-job.running { animation: none; } }
 /* Hover lightens a strip's base fill a little, fading in, running or not. */
 .queue-job { transition: background-color .4s ease; }
 .queue-job:hover, .queue-job.running:hover { background-color: #1e2c3b; }
-.queue-job.paused :is(.queue-job-glyph svg, .queue-mini-line, .queue-job-count, .queue-job-skip) { filter: grayscale(1); }
-.queue-job.paused :is(.queue-job-name, .queue-job-pct) { color: var(--muted); }
+.queue-job.paused :is(.queue-job-glyph svg, .queue-job-count, .queue-job-skip) { filter: grayscale(1); }
+.queue-job.paused .queue-job-name { color: var(--muted); }
 /* A job from a built-in list: the list glyph (no plus) in front of its name,
    centred in the same 16px slot as a curator's filter square, like an
    un-ignore job's green arrow. */
@@ -1022,30 +1490,104 @@ select option { background: #16202d; color: #fff; }
 .queue-job-glyph.has-tip { position: relative; }
 .queue-job-glyph.has-tip::after { content: ''; position: absolute; inset: -4px; }
 
-/* The name and the mini bar share one box, so the bar can stretch over the
-   name: the bar's track is positioned against this box, not against its slot.
-   The wider gap sets the bar and the percent off from the name. The row's
-   gaps and keys are trimmed so the ⚠ skip mark and a percent of 100 still fit
-   without squeezing the name column, which would move this row's bar off the
-   line the other bars start on (tests/popup/queue.spec.js). */
-.queue-job-area { position: relative; display: flex; align-items: center; gap: 10px; min-width: 0; }
-/* A width, not a flex-basis: the box around the name sizes to its content,
-   and a basis alone would let a short name pull the bar in after it. */
-.queue-job-namebox { position: relative; flex: 0 1 auto; width: calc(var(--qname-w) + 2 * var(--qglyph-w)); min-width: 0; }
-.queue-job:has(.queue-job-glyph, .queue-job-filter) .queue-job-namebox { width: calc(var(--qname-w) + var(--qglyph-w)); }
-.queue-job-name { display: block; font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity .2s ease; }
+/* The name takes the room the status word leaves, cut with an ellipsis. */
+.queue-job-namebox { position: relative; flex: 1 1 auto; min-width: 0; }
+.queue-job-name { display: block; font-size: 13px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The whole name over the cut one, in the same type, on hover of a cut name. */
 .queue-name-full {
-    visibility: hidden; opacity: 0;
-    position: absolute; left: -5px; top: -4px; z-index: 8;
-    width: max-content; max-width: 250px; padding: 3px 4px;
-    font-size: 12px; font-weight: 700; color: #fff; white-space: normal; overflow-wrap: anywhere;
-    background: var(--inset); border: 1px solid var(--accent); border-radius: 5px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.8); pointer-events: none;
-    transition: opacity .15s, visibility .15s; transition-delay: 0s;
+    max-width: 250px;
+    font-size: 13px; font-weight: 700; color: #fff;
 }
 .queue-job-namebox.is-cut:hover .queue-name-full { visibility: visible; opacity: 1; transition-delay: .4s; }
 
+.queue-job-count { flex: 1 1 auto; font-size: 12px; font-weight: 700; }
+/* The ⚠ or the clock, in one slot of its own width on every card, so all
+   the bars end at one place. */
+.queue-job-skip { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 18px; flex-shrink: 0; color: var(--warn); cursor: help; }
+.queue-job-skip:empty { cursor: default; }
+.queue-job-skip svg { display: block; }
+.queue-skip-tip {
+    bottom: 100%; right: -40px; margin-bottom: 6px;
+    width: max-content; max-width: 220px;
+}
+.queue-job-skip:hover .queue-skip-tip { visibility: visible; opacity: 1; transition-delay: .4s; }
+/* A pending job's clock, in the ⚠ slot. */
+.queue-job-wait { color: #fff; }
+.queue-job-wait b { font-weight: 800; }
+.queue-job-wait svg { display: block; flex-shrink: 0; fill: none; }
+/* Pause/Play and Remove sit well apart, so a slip meant for Pause does not
+   land on Remove (which asks first anyway). */
+.queue-job-actions { display: inline-flex; gap: 10px; flex-shrink: 0; }
+/* A rule between Pause/Play and Remove, in the middle of the gap. */
+.queue-act-del { position: relative; }
+.queue-act-del::before {
+    content: ''; position: absolute; left: -6px; top: 5px; bottom: 5px;
+    width: 1px; background: var(--border); pointer-events: none;
+}
+.queue-halt-hint { font-size: 10px; color: var(--warn); padding: 4px 2px 2px; }
+
+/* Bare glyphs at rest, with no frame or fill. Hover fills the button flat:
+   Pause, Play and Remove in the colour of what a click does, the rest in the
+   hover fill. */
+.queue-act {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 28px; padding: 0; cursor: pointer;
+    background: none; color: var(--text); border: none; border-radius: 6px;
+    transition: background-color .15s ease, color .15s ease;
+}
+.queue-act:not([disabled]):not(.is-confirm):not(.is-cancel):hover { background-color: var(--hover); }
+/* The key shows the action a click takes: a quiet grey ⏸ on a job that goes,
+   a ▶ waiting on a paused one. Hover fills either with its colour (yellow,
+   green) under a dark glyph. */
+.queue-act.is-pause { color: #737c85; }
+.queue-act.is-play { color: #fff; }
+.queue-act-del { color: var(--muted); }
+.queue-act svg { display: block; width: 16px; height: 16px; }
+.queue-act:is(.is-pause, .is-play) svg { width: 19px; height: 19px; }
+/* Hover = filled colour: play→green, pause→yellow, delete→the panel's red (--danger). */
+.queue-act.is-play:not([disabled]):hover { background-color: var(--ok); color: #0c1a07; }
+.queue-act.is-pause:not([disabled]):hover { background-color: #f7b500; color: #1a1300; }
+.queue-act-del:hover { background-color: var(--danger); color: #fff; }
+/* Remove asks first: ✓ removes (red, like Remove), ✕ keeps the job (green). Both pop
+   in over the two buttons they replace, as bare bold marks with no key under
+   them; hover only brightens the mark. */
+.queue-act.is-confirm, .queue-act.is-cancel {
+    background: none; box-shadow: none;
+    font-family: inherit; font-size: 20px; font-weight: 900; line-height: 1;
+    -webkit-text-stroke: .6px currentColor;
+}
+.queue-act.is-confirm { color: var(--danger); }
+.queue-act.is-confirm:hover { color: #ff4b53; }
+.queue-act.is-cancel { color: #4fd64f; }
+.queue-act.is-cancel:hover { color: #93f093; }
+.queue-act.is-confirm, .queue-act.is-cancel { animation: ilap-act-swap .18s ease; }
+@keyframes ilap-act-swap { from { transform: scale(.6); opacity: 0; } }
+/* Pause/Resume with the extension off (Remove stays live). The hover fills above
+   skip [disabled] via :not() instead of being overridden here, so the dead
+   button's look doesn't depend on rule order. */
+.queue-act[disabled] { opacity: .35; cursor: default; }
+
+/* === THE TOOLBAR POPUP'S STRIPS (1.3.5) === */
+/* popup_queue.js _strip: one slim strip per job, all on one line, so three
+   jobs fit the toolbar window with no scroll (the user's call). The cards'
+   rules above apply where these leave them alone. */
+#queue-list.strips { --qname-w: 90px; --qglyph-w: 22px; gap: 6px; }
+.strips .queue-job { padding: 6px 7px 6px 10px; }
+.strips .queue-job-line { margin-top: 0; gap: 6px; }
+.strips .queue-job.paused :is(.queue-mini-line, .queue-job-count, .queue-job-skip) { filter: grayscale(1); }
+.strips .queue-job.paused .queue-job-pct { color: var(--muted); }
+/* The name and the mini bar share one box, so the bar can stretch over the
+   name: the bar's track is positioned against this box, not against its slot.
+   The bars all start on one line, on every strip, in both surfaces: a design
+   rule the user has had to ask for more than once.
+   The name column has one width (--qname-w), and it is what gives way when a
+   row is out of room, so every other piece of a strip must take the same room
+   on every strip. A new piece gets a fixed slot on all of them, empty or not. */
+.queue-job-area { position: relative; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.strips .queue-job-namebox { flex: 0 1 auto; width: calc(var(--qname-w) + 2 * var(--qglyph-w)); }
+.strips .queue-job:has(.queue-job-glyph, .queue-job-filter) .queue-job-namebox { width: calc(var(--qname-w) + var(--qglyph-w)); }
+.strips .queue-job-name { font-size: 12px; transition: opacity .2s ease .1s; }
+.strips .queue-name-full { font-size: 12px; }
 /* The mini bar: a short slot after the name, pale for what is still to go. On
    hover its track stretches left across the name (the strip keeps its height),
    the line thickens and the name fades out under it. Off hover the count goes
@@ -1059,16 +1601,11 @@ select option { background: #16202d; color: #fff; }
 .queue-mini-line { width: 100%; height: 4px; background: #93a9c2; border-radius: 2px; overflow: hidden; transition: height .2s ease .1s; }
 .queue-mini-fill { display: block; height: 100%; border-radius: 2px; transition: width .3s ease; }
 .queue-mini:hover .queue-mini-track { width: 100%; transition-delay: 0s; }
-/* The name fades out under the stretching bar, in step with it. */
-.queue-job-area .queue-job-name { transition-delay: .1s; }
 .queue-job-area:has(.queue-mini:hover) .queue-job-name { opacity: 0; transition-delay: 0s; }
 .queue-mini:hover .queue-mini-line { height: 8px; border-radius: 4px; transition-delay: 0s; }
-/* "done/total" over the stretched bar, .1s after it has fully stretched (its
-   .2s). It grows into place from the centre with a slight overshoot, and off
-   hover it shrinks back as it fades. The slash sits on the bar's centre line:
-   the two numbers take equal columns, the done one growing to the left, so a
-   new digit moves nothing. The dark outline reads over the fill, the pale part
-   and the strip alike. */
+/* "done/total" over the stretched bar, after it has stretched, growing into
+   place from the centre. The slash sits on the bar's centre line, so a new
+   digit moves nothing. */
 .queue-mini-num {
     position: absolute; inset: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center;
     font-size: 12px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap;
@@ -1081,85 +1618,34 @@ select option { background: #16202d; color: #fff; }
     opacity: 1; transform: none;
     transition: opacity .2s ease .3s, transform .25s cubic-bezier(.34, 1.56, .64, 1) .3s;
 }
-
-.queue-job-pct, .queue-job-count { font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) {
+    .queue-mini-track, .queue-mini-line, .queue-mini-num, .strips .queue-job-name { transition: none; }
+}
+.strips :is(.queue-job-pct, .queue-job-count) { flex: 0 0 auto; font-size: 11px; font-weight: 700; color: #fff; }
 /* Room for "100%" at all times, so a job reaching its end moves nothing. */
 .queue-job-pct { min-width: 4.6ch; }
-.queue-job-skip { position: relative; font-size: 10px; font-weight: 700; color: #ffd21a; flex-shrink: 0; cursor: help; }
-/* The ⚠ alone (its count is in its tooltip) stands next to Pause: the
-   strip's free room goes before it. */
-.queue-job-skip { margin-left: auto; }
-.queue-job-skip + .queue-job-actions { margin-left: 0; }
-.queue-skip-tip {
-    visibility: hidden; opacity: 0;
-    position: absolute; bottom: 100%; right: -40px; margin-bottom: 6px; z-index: 1001;
-    width: max-content; max-width: 220px; padding: 5px 8px;
-    background: var(--inset); color: var(--text); border: 1px solid var(--accent); border-radius: 6px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; font-weight: 600; line-height: 1.35;
-    pointer-events: none; transition: opacity .2s, visibility .2s; transition-delay: 0s;
-}
-.queue-job-skip:hover .queue-skip-tip { visibility: visible; opacity: 1; transition-delay: .4s; }
-/* A pending job's clock, in the ⚠ slot. The slot keeps the ⚠'s width and
-   the larger clock spills over its edges evenly, so the bar does not move. */
-.queue-job-wait { display: inline-flex; justify-content: center; width: 8.6px; color: #fff; }
-.queue-job-wait b { font-weight: 800; }
-.queue-job-wait svg { display: block; flex-shrink: 0; fill: none; }
-/* Pause/Play and Remove sit well apart, so a slip meant for Pause does not
-   land on Remove (which asks first anyway). */
-.queue-job-actions { display: inline-flex; gap: 10px; flex-shrink: 0; margin-left: auto; }
-/* A rule between Pause/Play and Remove, in the middle of the gap. */
-.queue-act-del { position: relative; }
-.queue-act-del::before {
-    content: ''; position: absolute; left: -6px; top: 3px; bottom: 3px;
-    width: 1px; background: var(--border); pointer-events: none;
-}
-.queue-halt-hint { font-size: 10px; color: #ffd21a; padding: 4px 2px 2px; }
+/* The ⚠ (its count is in its tooltip) or the clock stands next to Pause:
+   the strip's free room goes before it. */
+.strips .queue-job-skip { width: 16px; margin-left: auto; }
+.strips .queue-job-skip svg { width: 14px; height: 14px; }
+.strips .queue-job-skip + .queue-job-actions { margin-left: 0; }
+.strips .queue-job-actions { margin-left: auto; }
+.strips .queue-act { width: 22px; height: 24px; }
+.strips .queue-act svg { width: 13px; height: 13px; }
+.strips .queue-act:is(.is-pause, .is-play) svg { width: 16px; height: 16px; }
+.strips .queue-act.is-confirm, .strips .queue-act.is-cancel { font-size: 17px; }
+.strips .queue-act-del::before { top: 3px; bottom: 3px; }
 
-/* Bare glyphs at rest, with no frame or fill. Hover raises a key under the
-   glyph (a top-lit gradient, a highlight along the top edge, a drop shadow)
-   and a click presses it in. Pause and Remove raise it in their own colour,
-   the language chip in the neutral --key-face. */
-.queue-act, .lang-chip {
-    --key-face: linear-gradient(180deg, #34495f 0%, #233446 100%);
-    --key-lift: inset 0 1px 0 rgba(255,255,255,.12), 0 2px 4px rgba(0,0,0,.45), 0 1px 1px rgba(0,0,0,.6);
-    --key-press: inset 0 1px 2px rgba(0,0,0,.45);
+/* Reduced motion, for the whole popup and the widget's panel: every animation
+   and transition runs in an instant and once, whatever rule above set it, so
+   a new one never lacks its fallback. Durations only: a delay is a dwell (a
+   tip's) and stays, and an animation still ends, so code waiting on
+   animationend or transitionend goes on. The motions run from script
+   (Element.animate) ask matchMedia themselves. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
 }
-.queue-act {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 22px; height: 24px; padding: 0; cursor: pointer;
-    background: none; color: var(--text); border: none; border-radius: 6px;
-    transition: box-shadow .15s ease, color .15s ease, transform .08s ease;
-}
-.queue-act:not([disabled]):not(.is-confirm):not(.is-cancel):hover { box-shadow: var(--key-lift); }
-.queue-act:not([disabled]):active { transform: translateY(1px); box-shadow: var(--key-press); }
-/* The key shows the action a click takes: a quiet grey ⏸ on a job that goes,
-   a ▶ waiting on a paused one. Hover inverts either into a key of its colour
-   (taxi yellow, lime) with a dark glyph. */
-.queue-act.is-pause { color: #737c85; }
-.queue-act.is-play { color: #fff; }
-.queue-act-del { color: var(--muted); }
-.queue-act svg { display: block; width: 13px; height: 13px; }
-.queue-act:is(.is-pause, .is-play) svg { width: 16px; height: 16px; }
-/* Hover = filled colour: play→lime, pause→taxi yellow, delete→the panel's red (--danger). */
-.queue-act.is-play:not([disabled]):hover { background: linear-gradient(180deg, #b4ff8c 0%, #48ff00 45%, #2bb000 100%); color: #0c1a07; }
-.queue-act.is-pause:not([disabled]):hover { background: linear-gradient(180deg, #ffd34d 0%, #f7b500 45%, #c48a00 100%); color: #1a1300; }
-.queue-act-del:hover { background: linear-gradient(180deg, #ff4b53 0%, #ee1c25 45%, #b8000a 100%); color: #fff; }
-/* Remove asks first: ✓ removes (red, like Remove), ✕ keeps the job (green). Both pop
-   in over the two buttons they replace, as bare bold marks with no key under
-   them; hover only brightens the mark. */
-.queue-act.is-confirm, .queue-act.is-cancel {
-    background: none; box-shadow: none;
-    font-family: inherit; font-size: 17px; font-weight: 900; line-height: 1;
-    -webkit-text-stroke: .6px currentColor;
-}
-.queue-act.is-confirm:active, .queue-act.is-cancel:active { box-shadow: none; }
-.queue-act.is-confirm { color: var(--danger); }
-.queue-act.is-confirm:hover { color: #ff4b53; }
-.queue-act.is-cancel { color: #4fd64f; }
-.queue-act.is-cancel:hover { color: #93f093; }
-.queue-act.is-confirm, .queue-act.is-cancel { animation: ilap-act-swap .18s ease; }
-@keyframes ilap-act-swap { from { transform: scale(.6); opacity: 0; } }
-/* Pause/Resume with the extension off (Remove stays live). The hover fills above
-   skip [disabled] via :not() instead of being overridden here, so the dead
-   button's look doesn't depend on rule order. */
-.queue-act[disabled] { opacity: .35; cursor: default; }

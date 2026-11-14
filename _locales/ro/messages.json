@@ -1,11 +1,11 @@
 {
   "extName": {
-    "message": "Steam Ignore Like A Pro — Ignoră jocuri rapid"
+    "message": "Steam Ignore Like a Pro — Filtru AI și ignorare"
   },
   "extNameChrome": {
-    "message": "Steam Ignore Like A Pro — Ignoră jocuri rapid și automat"
+    "message": "Steam Ignore Like a Pro — Steam fără rebuturi, filtru AI, ignorare în masă"
   },
   "extDescription": {
-    "message": "Adaugă jocuri în lista de ignorate Steam cu un gest al mouse-ului sau liste întregi deodată, alese de tine ori de curatori."
+    "message": "Filtrează jocurile făcute cu AI, ignoră orice joc cu un gest al mouse-ului sau liste întregi de jocuri nedorite și multe altele."
   }
 }

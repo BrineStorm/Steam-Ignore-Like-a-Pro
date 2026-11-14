@@ -1,0 +1,57 @@
+Filter AI-games in de Steam-winkel en negeer games met één muisgebaar, of hele lijsten tegelijk.
+
+Steam Ignore Like a Pro is een gratis, opensource-extensie die Steam handiger maakt en je privacy respecteert. Het tabblad AI markeert games die met AI zijn gemaakt, maakt ze wazig of negeert ze op elke winkelpagina. De extensie zet de knop "Negeren" van Steam op elke gamecapsule in de winkel, zodat je niet langer de pagina van een game opent om één keer op "Negeren" te klikken. Alles werkt precies zoals in Steam, omdat de extensie het negeren van Steam zelf gebruikt.
+
+ZO GEBRUIK JE HET:
+1. Open een willekeurige pagina in de Steam-winkel.
+2. Houd de rechtermuisknop ingedrukt op de capsule van een game en veeg naar rechts (of naar links om hem te negeren met de markering "Al gespeeld").
+3. Er verschijnt meteen een badge "IGNORED" op de game. Het negeren zelf komt een moment later bij Steam aan.
+4. Klik op de badge om het negeren terug te draaien als je van gedachten verandert.
+
+ZO FILTER JE AI-GAMES:
+1. Open het paneel van de extensie en het tabblad AI.
+2. Kies het filterniveau "Hoog" en klik op de opslaanknop naast de schuifregelaar.
+3. Open een willekeurige Steam-pagina met veel gamecapsules en scrol omlaag. Zodra een AI-game in beeld komt, zie je een animatie en wordt de game aan je negeerlijst toegevoegd.
+4. Als je wilt, kun je de animatie uitzetten of een niveau kiezen waarop de extensie AI-games alleen markeert en niet aan je negeerlijst toevoegt.
+
+FUNCTIES:
+▪ Gratis, privé en opensource - een lichte extensie zonder frameworks, zonder tracking en zonder telemetrie. Ze werkt in de sessie van je browser en geeft die nergens anders aan door.
+▪ Negeren met één gebaar - Houd de rechtermuisknop ingedrukt en veeg naar rechts om een game te negeren, overal waar zijn capsule staat.
+▪ Negeren met de markering "Al gespeeld" - Veeg naar links om een game die je op een ander platform hebt gespeeld meteen met die markering te negeren, in plaats van zijn pagina te openen en op "Negeren" -> "Op een ander platform gespeeld" te klikken.
+▪ Filter voor AI-games - De extensie kan games die met AI zijn gemaakt direct op hun capsules markeren, of ze automatisch aan de negeerlijst van je account toevoegen.
+▪ Ingebouwde negeerlijsten - Negeer in één keer elke game met AI-inhoud, Denuvo, kernel-toegang of opdringerige EULA-voorwaarden, plus bekende slechte games en meer, wat je ook kiest. De lijsten zijn vooraf samengesteld en worden met de extensie meegeleverd. Games in je bibliotheek en op je verlanglijst worden overgeslagen.
+▪ Massaal negeren via lijsten van curators - Negeer lijsten van Steam-curators rechtstreeks vanaf hun pagina's. Kies een curator die games markeert die je niet wilt zien, en de extensie negeert de hele lijst.
+▪ Makers negeren - Negeer een ontwikkelaar of uitgever met één klik op de knop direct naast zijn link op de pagina van een game.
+▪ Negeren in de ontdekkingswachtrij - Open de ontdekkingswachtrij op een pagina van een tag, genre of categorie, en de extensie negeert elke game in de wachtrij of alleen de slecht beoordeelde.
+▪ Hulp voor de klassieke ontdekkingswachtrij - De extensie negeert automatisch games terwijl je door je dagelijkse ontdekkingswachtrij van Steam gaat, volgens je negeercriteria (bijvoorbeeld slechte recensies), of negeert ze en zet de wachtrij meteen een stap verder.
+▪ Ongedaan maken - Je kunt het negeren van een game of maker op elk moment terugdraaien, direct op de capsule van de game of naast de link naar de maker, en recent negeren als lijst terugdraaien in een apart menu voor ongedaan maken door een taak voor ongedaan maken toe te voegen.
+▪ Aanpasbaar - Je kunt de extensie ruim naar je hand zetten, sneltoetsen wijzigen, losse modules en negeermodi aan- of uitzetten, de interface van de extensie op de pagina verplaatsen en nog veel meer.
+▪ 24 talen voor de interface - direct te wisselen, los van je Steam-taal.
+
+Q: Waarom dit gebruiken in plaats van het eigen negeren van Steam?
+A: De knop "Negeren" van Steam ontbreekt op veel pagina's en widgets van Steam, en waar hij er wel is, kost negeren een paar klikken (beweeg over de capsule van de game -> klik op ▪▪▪ -> klik op "Negeren"), zonder de optie "Op een ander platform gespeeld" in dat menu. Steam kan ook geen lijst met games in één keer negeren. De extensie geeft je negeren met één gebaar op elke pagina en widget van Steam, plus massaal negeren via ingebouwde lijsten en automatisering van het negeren.
+
+Q: Hoe negeer ik veel games op Steam tegelijk?
+A: Steam zelf negeert één game per keer. Met de extensie kun je bijvoorbeeld een ingebouwde lijst aan de negeerwachtrij toevoegen (games met AI-inhoud, Denuvo, kernel-toegang, opdringerige EULA-voorwaarden, bekende slechte games en meer), de hele lijst van een curator aan de negeerwachtrij toevoegen, een hele bundel met één gebaar negeren, een maker negeren, het hoge AI-filterniveau inschakelen, de hulp voor de ontdekkingswachtrij op een tag of genre laten lopen, of gewoon de capsules van ongewenste games wegvegen terwijl je door de winkel bladert.
+
+Q: Houdt het gebruik van deze extensie zich aan de regels van Steam?
+A: Ja, voor zover het gaat om negeren en negeren opheffen met een gebaar, knop of sneltoets. Elk daarvan gebeurt één keer per handeling die jij doet, zoals een klik op de knop "Negeren" van Steam. De wachtrijhulpen, het hoge AI-filterniveau, de negeerwachtrij (lijsten van curators, ingebouwde lijsten en bundels) en ongedaan maken in bulk zijn automatisering. Artikel 4.C van de Steam Subscriber Agreement verbiedt interactie met Steam die niet door een mens wordt gestuurd, waaronder beloningen of voortgang verdienen zonder echte invoer van de gebruiker. Gebruik de automatiseringsfuncties dus naar eigen inzicht en met het risico in gedachten. De extensie verdient geen uitverkoopbeloningen voor je en is daar ook niet voor gemaakt. Ze heeft ook een ingebouwde beveiliging die de verzoeken aan Steam doseert, één tegelijk. Het laatste woord is echter aan Valve, net als het standpunt en de maatregelen van het bedrijf tegenover deze of elke andere extensie die Steam automatiseert.
+
+Q: Kan ik negeren ongedaan maken?
+A: Ja, op elk moment. De knop "Negeren" van Steam op de pagina van de game blijft naast de extensie werken. Je kunt ook een cirkel of een zigzag over de capsule van een game tekenen, of op de badge IGNORED erop klikken, om één negeeractie terug te draaien. Of open de pop-up van de extensie, klik op de knop voor ongedaan maken (↩️) en kies welke recente negeeracties je terugdraait, de laatste N games of alles uit de laatste N uur of dagen. Genegeerde makers kun je op dezelfde plek terugzetten, op het tabblad "Makers".
+
+Q: Werkt het als mijn Steam-interface niet in het Engels is?
+A: Ja. De extensie is taalonafhankelijk. Ze werkt ongeacht de taalinstellingen in je Steam-account.
+
+Q: Werkt het op macOS en Linux?
+A: Ja. Op macOS en Linux gaat het rechtsklikmenu open zodra de rechterknop wordt ingedrukt, dus de extensie houdt dat menu tegen bij een klik op de capsule van een game wanneer negeren of ongedaan maken op een gebaar staat. Je kunt negeren ook aan andere toetsen koppelen (bijvoorbeeld Shift + linksklik) via INSTELLINGEN -> Handmatig negeren.
+
+Q: Kan ik een bundel of een set van meerdere games negeren?
+A: Ja. Veeg over de capsule van de bundel en veeg er dan nog een keer overheen om te bevestigen. Elke game en DLC in de bundel gaat naar de negeerwachtrij en wordt in het gewone tempo genegeerd. Games in je bibliotheek en op je verlanglijst worden overgeslagen.
+
+PRIVACY EN VEILIGHEID:
+▪ Werkt via Steam zelf, door op de eigen knoppen van Steam te klikken of door dezelfde verzoeken te sturen die Steam stuurt.
+▪ Geen tracking, geen analyse, geen externe servers. We verzamelen, ontvangen of delen geen persoonsgegevens van gebruikers. Je instellingen, negeergeschiedenis en openstaande wachtrij worden lokaal in je eigen browser opgeslagen, en verzoeken gaan rechtstreeks naar de officiële servers van Steam (store.steampowered.com en api.steampowered.com).
+▪ Er worden geen wachtwoorden of Steam API-sleutels opgeslagen, en er gaat niets ergens anders heen dan naar Steam. De extensie gebruikt je actieve Steam-sessie in de browser en, om de beloning te controleren voor het doorlopen van een ontdekkingswachtrij tijdens een uitverkoop, het toegangstoken dat de pagina van de Steam-winkel al bevat. Het token gaat alleen naar de eigen API van Steam en wordt nooit opgeslagen.
+
+Steam Ignore Like a Pro is niet verbonden aan of gesponsord door Valve Corporation of Steam.

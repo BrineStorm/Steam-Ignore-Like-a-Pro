@@ -9,21 +9,11 @@
 
     const t = window.ILAP.t;
 
-    // The language droplist drives the real <select> with its own synthetic
-    // `change`, like the settings droplists: one guard for both, in
-    // ui/popup_settings.js (the reasoning is there).
-    const { dispatchPick, isSelfPick, isPageReachable } = window.ILAP_Settings;
-
-    // How long an open queue takes to fold away before SETTINGS opens in its
-    // place. Matches #queue-accordion.solo-collapse.handoff in popup.css.
-    const QUEUE_HANDOFF_MS = 280;
-
     // Master toggle off, for every direct child of `parent` the markup does not
-    // mark `data-master-exempt`. What survives a disabled extension:
-    //   • the IGNORE QUEUE applet, at full strength, so staged work can still be dropped;
-    //   • the SETTINGS accordion, for the surface picker inside it;
-    //   • the language chip in that summary, undimmed: its droplist inherits the
-    //     chip's opacity and turns unreadable over the Steam page.
+    // mark `data-master-exempt`. What survives a disabled extension: the tab
+    // line and its panel, so staged work can still be dropped, the surface
+    // picker is in reach and the language can change. Only the lists button
+    // goes dead (ListPanes.setMasterOff).
     // The dim goes per level, never on an ancestor: an ancestor's filter/opacity
     // can't be undone inside it, and nested opacity compounds.
     const isMasterExempt = (el) => el.hasAttribute('data-master-exempt');
@@ -42,11 +32,6 @@
             child.inert = off && !isMasterExempt(child);
         });
     };
-
-    // Compact chip label: primary subtag only (pt-BR -> PT, zh-TW -> ZH).
-    // es-419 is the one exception: ES is already Spain's chip.
-    const langCode = (lang) => lang === 'es-419' ? 'LA'
-        : String(lang || 'en').split('-')[0].toUpperCase();
 
     // The one mouse glyph, for both shortcut hints: the swipe chip (right button
     // lit, sized for a .kbd-key row) and the modifier hint (left button lit,
@@ -92,83 +77,6 @@
     const ringSvg = (slot) => window.ILAP_Icons.ring(
         { gradientId: 'ring-' + slot, cls: 'sw-arrow', size: 17 });
 
-    // A history entry's source as a glyph, in the hint card's colours: Manual
-    // Ignore's two reasons as a stick fading in toward their default swipe
-    // direction like the card's swoosh (red right, blue left, popup.css
-    // .hist-stick), the two queue automators as the Undo button's turning
-    // arrow, in the lime of a job that is ignoring, fading in from its tail. An unknown or legacy source draws nothing and keeps its slot.
-    const histStick = (cls) => `<span class="hist-stick ${cls}" aria-hidden="true"></span>`;
-    // Drawn as the arc in six 45° pieces, each more opaque than the last: a
-    // linear gradient cannot follow a ring, it would fade one side backwards.
-    // The ring runs counter-clockwise from 9 o'clock to 12, where the head sits.
-    const HIST_LOOP = (() => {
-        const pt = (deg) => {
-            const r = deg * Math.PI / 180;
-            return `${(12 + 7 * Math.cos(r)).toFixed(2)} ${(14 + 7 * Math.sin(r)).toFixed(2)}`;
-        };
-        let arcs = '';
-        for (let i = 0; i < 6; i++) {
-            const from = 180 - 45 * i;
-            arcs += `<path d="M${pt(from)} A7 7 0 0 0 ${pt(from - 45)}" fill="none" stroke="#48ff00" stroke-width="2.2" opacity="${(0.15 + 0.17 * i).toFixed(2)}"/>`;
-        }
-        return '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' + arcs
-            + '<path d="M12.6 2.2 6.4 7l6.2 4.8z" fill="#48ff00"/></svg>';
-    })();
-    // A finished job's entry has its glyph from the queue: a built-in list as
-    // the lists glyph, a curator as a square in its filter's colour, an undo as
-    // the list with the green Undo arrow, a bundle as its two capsules.
-    function sourceIcon(entry) {
-        const S = window.ILAP.StatsLogic.SOURCE;
-        const source = entry && entry.source;
-        if (source === S.MI_DEFAULT) return histStick('is-ignore');
-        if (source === S.MI_PLAYED) return histStick('is-played');
-        if (source === S.DQ || source === S.EQ) return HIST_LOOP;
-        if (source === S.PRESET) return `<span class="hist-glyph">${window.ILAP_Icons.LIST}</span>`;
-        if (source === S.BUNDLE) return `<span class="hist-glyph">${window.ILAP_Icons.BUNDLE}</span>`;
-        if (source === S.CURATOR) return `<span class="hist-square" style="${window.ILAP_Filters.fillStyle(entry.filter)}"></span>`;
-        if (source === S.UNDO) return `<span class="hist-glyph">${window.ILAP_Icons.UNIGNORE}</span>`;
-        return '';
-    }
-
-    // An entry's text, unescaped. A game shows its name; a finished job is
-    // drawn in this language with its kind in front, so it never reads as a game.
-    function historyLabel(entry) {
-        const S = window.ILAP.StatsLogic.SOURCE;
-        if (entry.source === S.PRESET) return t('history_list', { name: window.ILAP_Presets.label(entry.presetKey) });
-        if (entry.source === S.CURATOR) return t('history_curator', { name: entry.name });
-        if (entry.source === S.BUNDLE) return t('history_bundle', { name: entry.name });
-        if (entry.source === S.UNDO) {
-            const scope = entry.scope;
-            if (!scope || !(Number(scope.n) > 0)) return t('history_unignore');
-            const key = scope.unit === 'h' ? 'history_unignore_hours' : scope.unit === 'd' ? 'history_unignore_days' : 'history_unignore_last';
-            return t(key, { n: Number(scope.n) });
-        }
-        return String(entry.name || '');
-    }
-
-    // The same text as escaped HTML. A finished job's kind ("Ignore:",
-    // "Curator:", "Un-ignore", up to the first colon in every language) is set
-    // in grey before the rest. A game's name is left whole.
-    function historyLabelHtml(entry) {
-        const S = window.ILAP.StatsLogic.SOURCE;
-        const text = historyLabel(entry);
-        if (![S.PRESET, S.CURATOR, S.BUNDLE, S.UNDO].includes(entry.source)) return Sanitizer.escapeHTML(text);
-        const m = text.match(/^[^:：]*[:：]/);
-        const kind = m ? m[0] : text;
-        return `<span class="hist-kind">${Sanitizer.escapeHTML(kind)}</span>${Sanitizer.escapeHTML(text.slice(kind.length))}`;
-    }
-
-    // The link an entry opens, as data attributes: its game, else its curator,
-    // else its bundle. Numeric ids only, since the URL is built from them
-    // (openHistoryEntry).
-    const BUNDLE_PATH = /^(bundle|sub)\/\d+$/;
-    function historyLink(entry) {
-        if (/^\d+$/.test(String(entry.appid))) return { appid: String(entry.appid) };
-        if (/^\d+$/.test(String(entry.curatorId))) return { curatorId: String(entry.curatorId) };
-        if (BUNDLE_PATH.test(String(entry.bundle))) return { bundle: String(entry.bundle) };
-        return {};
-    }
-
     // Build "Hold [mouse] & Swipe [swoosh]" from the localized label, dropping its
     // trailing text arrow in favour of the SVG motion glyph. `motion`: true/false
     // = swoosh right/left, 'circle' = the loop. The mouse goes after the first
@@ -187,7 +95,7 @@
     function getShortcutHintHtml(key, slot) {
         if (key === 'swipeRight') return gestureChip('hold_and_swipe_right', true, slot);
         if (key === 'swipeLeft') return gestureChip('hold_and_swipe_left', false, slot);
-        // The circle can carry an ignore now, so the hint has to be able to draw
+        // The circle can be bound to an ignore, so the hint has to be able to draw
         // it. Its own label ("Right-Click + Circle") already names the button, so
         // it goes through the same chip as the swipes — first word, mouse, rest.
         if (key === 'zigzag') return gestureChip('shortcut_zigzag', 'circle', slot);
@@ -225,8 +133,62 @@
         tip.innerHTML = `${onSteam}<br>${Sanitizer.escapeHTML(t('total_read_at', { time: formatReadTime(snapshot.ts) }))}`;
     }
 
+    // The Already Played line comes and goes with its shortcut. The card, and
+    // the panel round it, grow or shrink to the new height over 0.3 s as the
+    // line fades in or out, since nothing changes size in one frame. The
+    // first render, the same number of lines and reduced motion
+    // draw at once. A leaving line stays until the card has shrunk past it.
+    const HINT_MS = 300;
+    const hintAnims = new WeakMap();
+    function renderHint(box, html, lines) {
+        const live = hintAnims.get(box);
+        if (live && live.html === html) return;
+        const from = box.getBoundingClientRect().height;
+        if (live) live.stop();
+        const before = box.querySelectorAll('.hint-line').length;
+        if (!before || before === lines || !box.animate
+            || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            box.innerHTML = html;
+            return;
+        }
+        let to, line;
+        if (lines > before) {
+            box.innerHTML = html;
+            to = box.getBoundingClientRect().height;
+            line = box.querySelector('.hint-line.is-played');
+        } else {
+            // From its full height (an interrupted grow is cut short above).
+            line = box.querySelector('.hint-line.is-played');
+            const gap = parseFloat(getComputedStyle(box).rowGap) || 0;
+            to = box.getBoundingClientRect().height - (line ? line.getBoundingClientRect().height + gap : 0);
+        }
+        box.style.overflow = 'hidden';
+        const grow = box.animate([{ height: from + 'px' }, { height: to + 'px' }], { duration: HINT_MS, easing: 'ease' });
+        const fade = line && line.animate([{ opacity: lines > before ? 0 : 1 }, { opacity: lines > before ? 1 : 0 }],
+            { duration: HINT_MS, easing: 'ease', fill: 'forwards' });
+        let done = false;
+        const stop = () => {
+            if (done) return;
+            done = true;
+            hintAnims.delete(box);
+            grow.cancel();
+            if (fade) fade.cancel();
+            box.style.overflow = '';
+            if (lines < before) box.innerHTML = html;
+        };
+        hintAnims.set(box, { html, stop });
+        grow.finished.then(stop, () => {});
+    }
+
     function updateBasicUI(root, data) {
         const isEnabled = Settings.isOn(data[K.MASTER]);
+
+        // The panel speaks its own language, whatever the Steam page around the
+        // widget is in: screen readers pick their voice by it.
+        const lang = window.ILAP.i18n.getLang();
+        const shell = root.getElementById('ilap-shell');
+        if (shell) shell.lang = lang;
+        if (root === document) document.documentElement.lang = lang;
 
         const master = root.getElementById('master-toggle');
         if (master) master.checked = isEnabled;
@@ -236,15 +198,9 @@
             wrapper.classList.toggle('disabled', !isEnabled);
             // The settings rows inside get theirs from popup_settings.js.
             applyMasterInert(wrapper, !isEnabled);
-            // The SETTINGS summary stays clickable — it opens onto the surface
-            // picker — so its label only dims, around the exempt language chip.
-            const settingsSummary = root.querySelector('#settings-accordion > summary');
-            if (settingsSummary) applyMasterDim(settingsSummary, !isEnabled);
         }
 
-        const Stats = window.ILAP.StatsLogic;
         renderTotal(root, data);
-        const lastName = data[Stats.LAST_KEY];
 
         const defKey = Settings.normalizeShortcut(data[K.SHORTCUT]) || Settings.DEFAULTS.SHORTCUT;
         const platKey = Settings.normalizeShortcut(data[K.PLATFORM]) || Settings.DEFAULTS.PLATFORM;
@@ -253,7 +209,7 @@
         const safeAlreadyPlayedLabel = Sanitizer.escapeHTML(t('hint_already_played'));
 
         let hintHtml = `
-            <div class="hint-line">
+            <div class="hint-line is-ignore">
                 <span class="hint-label">${safeIgnoreLabel}</span>
                 ${getShortcutHintHtml(defKey, 'def')}
             </div>
@@ -261,8 +217,8 @@
 
         if (platKey !== 'off') {
             hintHtml += `
-                <div class="hint-line">
-                    <span class="hint-label" style="color: #3ca8fc;">${safeAlreadyPlayedLabel}</span>
+                <div class="hint-line is-played">
+                    <span class="hint-label">${safeAlreadyPlayedLabel}</span>
                     ${getShortcutHintHtml(platKey, 'plat')}
                 </div>
             `;
@@ -270,129 +226,23 @@
 
         const hintContainer = root.getElementById('dynamic-hint');
         if (hintContainer) {
-            hintContainer.innerHTML = hintHtml;
+            renderHint(hintContainer, hintHtml, platKey !== 'off' ? 2 : 1);
         }
 
-        const history = data[Stats.HISTORY_KEY] || [];
-        // The closed box shows the newest entry, with its icon, while that
-        // entry is the name it shows. The list then goes on from the next one,
-        // so the box and the list show four different games.
-        const boxed = !!history[0] && history[0].name === lastName;
-        root.getElementById('last-game').innerHTML = boxed ? historyLabelHtml(history[0]) : Sanitizer.escapeHTML(lastName || t('none'));
-        // The box opens its entry's page too, like the list's entries.
-        const lastRow = root.getElementById('last-ignored-row');
-        if (lastRow) {
-            delete lastRow.dataset.appid;
-            delete lastRow.dataset.curatorId;
-            delete lastRow.dataset.bundle;
-            Object.assign(lastRow.dataset, boxed ? historyLink(history[0]) : {});
-        }
-        const lastSrc = root.getElementById('last-src');
-        if (lastSrc) lastSrc.innerHTML = boxed ? sourceIcon(history[0]) : '';
-        const listed = history.slice(boxed ? 1 : 0, boxed ? 4 : 3);
-        // Nothing past the box: no list to drop down, and no chevron promising one.
-        const trigger = root.querySelector('.history-trigger');
-        if (trigger) trigger.classList.toggle('no-more', boxed && listed.length === 0);
-        const historyDiv = root.getElementById('history-list');
-        if (historyDiv) {
-            if (listed.length > 0) {
-                // innerHTML needs sanitization. An entry that knows its game
-                // or its curator opens that store page on a click (openHistoryEntry).
-                historyDiv.innerHTML = listed.map(i => {
-                    const safeName = historyLabelHtml(i);
-                    const to = historyLink(i);
-                    const link = to.appid ? ` data-appid="${to.appid}"` : to.curatorId ? ` data-curator-id="${to.curatorId}"`
-                        : to.bundle ? ` data-bundle="${to.bundle}"` : '';
-                    return `<div class="history-entry"${link}><span class="hist-bullet" aria-hidden="true">•</span><span class="hist-name">${safeName}</span><span class="hist-src">${sourceIcon(i)}</span></div>`;
-                }).join('');
-            } else {
-                const safeEmpty = Sanitizer.escapeHTML(t('no_recent_history'));
-                historyDiv.innerHTML = `<div class="history-entry"><i>${safeEmpty}</i></div>`;
-            }
-        }
+        window.ILAP_History.render(root, data);
 
         if (window.ILAP && window.ILAP.i18n) window.ILAP.i18n.applyDom(root);
-
-        // Keep the quick language chip in sync with external changes.
-        const chip = root.getElementById('lang-quick');
-        if (chip && window.ILAP && window.ILAP.i18n) {
-            const cur = window.ILAP.i18n.getLang();
-            if (chip.value !== cur) chip.value = cur;
-            const code = root.getElementById('lang-quick-code');
-            if (code) code.textContent = langCode(cur);
-        }
-    }
-
-    // The language chip in the SETTINGS summary. The native <select> holds the
-    // value, invisible; the visible list is our own .select-menu, so the OS
-    // dropdown never shows.
-    function setupLangChip(root) {
-        const chip = root.getElementById('lang-quick');
-        const code = root.getElementById('lang-quick-code');
-        if (!chip || !window.ILAP || !window.ILAP.i18n) return;
-
-        // List shows full native names; the chip itself only ever shows the short code.
-        chip.innerHTML = window.ILAP.i18n.getLanguages()
-            .filter(l => l.translated)
-            .map(l => {
-                const label = l.beta ? `${l.name}` : l.name;
-                return `<option value="${Sanitizer.escapeHTML(l.code)}">${Sanitizer.escapeHTML(label)}</option>`;
-            })
-            .join('');
-        const cur = window.ILAP.i18n.getLang();
-        chip.value = cur;
-        if (code) code.textContent = langCode(cur);
-
-        chip.addEventListener('change', (e) => {
-            if (!(e.isTrusted || isSelfPick(e) || !isPageReachable(root))) return;
-            if (code) code.textContent = langCode(e.target.value);
-            chrome.storage.local.set({ [K.LANG]: e.target.value });
-        });
-
-        const wrap = chip.parentElement; // .lang-chip (position:relative anchor)
-        const menu = document.createElement('div');
-        menu.className = 'select-menu lang-menu';
-        wrap.appendChild(menu);
-
-        // The chip lives inside the SETTINGS <summary>: preventDefault stops the
-        // native accordion toggle, stopPropagation keeps the exclusive-collapse
-        // logic and the outside-click menu closer (SettingsManager) out of it.
-        wrap.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.target.closest('.select-opt')) return; // picks are handled below
-            const wasOpen = menu.classList.contains('open');
-            root.querySelectorAll('.select-menu.open').forEach(m => m.classList.remove('open'));
-            if (wasOpen) return;
-            menu.innerHTML = Array.from(chip.options).map(opt =>
-                `<div class="select-opt${opt.value === chip.value ? ' selected' : ''}" data-value="${Sanitizer.escapeHTML(opt.value)}">${Sanitizer.escapeHTML(opt.textContent)}</div>`
-            ).join('');
-            menu.classList.add('open');
-            // Centre the current language in the scrollable list (menu.scrollTop,
-            // NOT scrollIntoView — that would also scroll the popup body).
-            const sel = menu.querySelector('.select-opt.selected');
-            if (sel) menu.scrollTop = sel.offsetTop - (menu.clientHeight - sel.offsetHeight) / 2;
-        });
-
-        menu.addEventListener('click', (e) => {
-            if (!e.isTrusted) return;   // a real pick; tests click this for real too
-            const item = e.target.closest('.select-opt');
-            if (!item) return;
-            menu.classList.remove('open');
-            const val = item.getAttribute('data-value');
-            if (val !== chip.value) {
-                chip.value = val;
-                dispatchPick(chip, val);
-            }
-        });
     }
 
     // Storage is read by name, never with get(null): the ignore log and the
     // curator cache are most of it, and only the undo applet reads the log
     // (through IgnoreLog).
 
+    // Settings a store page keeps for itself: no panel shows them, and the shot
+    // count moves with every game shot.
+    const NOT_SHOWN = new Set([K.AI_SHOT_COUNT, K.AI_NOTE_COLLAPSED]);
     // What the popup renders besides the queue: settings, surface, stats.
-    const uiKeys = () => Object.values(K).concat(window.ILAP.Surface.KEY,
+    const uiKeys = () => Object.values(K).filter(k => !NOT_SHOWN.has(k)).concat(window.ILAP.Surface.KEY,
         [window.ILAP.StatsLogic.COUNT_KEY, window.ILAP.StatsLogic.TOTAL_KEY,
             window.ILAP.StatsLogic.HISTORY_KEY, window.ILAP.StatsLogic.LAST_KEY]);
 
@@ -406,28 +256,15 @@
             const jobKeys = [];
             for (const j of jobs) {
                 jobKeys.push(Store.CURSOR_PREFIX + j.id, Store.SKIPPED_PREFIX + j.id, Store.WISHLISTED_PREFIX + j.id,
-                    Lease.LOCK_PREFIX + j.curatorId);
+                    Store.OWNED_PREFIX + j.id, Lease.LOCK_PREFIX + j.curatorId);
             }
             if (jobKeys.length === 0) { cb(res); return; }
             chrome.storage.local.get(jobKeys, (more) => cb(Object.assign(res, more)));
         });
     }
 
-    // A click on a history entry, or on the box above the list, opens its
-    // game's (or its curator's) store page in a new tab. The URL is built from
-    // the entry's numeric id, and only a real click counts: in the widget this
-    // list sits in an open shadow root on a Steam page (the same rule as the
-    // queue's curator square, popup_queue.js).
-    function openHistoryEntry(e) {
-        if (!e.isTrusted) return;
-        const entry = e.target.closest('.history-entry, #last-ignored-row');
-        if (!entry) return;
-        const { appid, curatorId, bundle } = entry.dataset;
-        const url = /^\d+$/.test(appid || '') ? 'https://store.steampowered.com/app/' + appid + '/'
-            : /^\d+$/.test(curatorId || '') ? 'https://store.steampowered.com/curator/' + curatorId + '/'
-            : BUNDLE_PATH.test(bundle || '') ? 'https://store.steampowered.com/' + bundle + '/' : null;
-        if (url) window.open(url, '_blank', 'noopener');
-    }
+    // What a panel reads of a module, by name: the rest stays out of its reach.
+    const pick = (from, names) => Object.fromEntries(names.map(n => [n, from[n]]));
 
     // Wire the popup UI against a query root: `document` for the browser popup
     // window, or a shadowRoot for the on-page widget. Both are views over the
@@ -437,22 +274,102 @@
     // toolbar popup is visible for as long as it exists.
     function initPopup(root, opts) {
         const isVisible = (opts && opts.isVisible) || (() => true);
-        const settings = window.ILAP_Settings.create(root, { applyMasterInert });
-        const queue = window.ILAP_Queue.create(root);
-        // Add in the lists menu flies the list into the queue's job count, which
-        // holds its old number until it lands.
-        const presets = window.ILAP_Presets.create(root, { holdCount: () => queue.holdCount() });
         const Log = window.ILAP.IgnoreLog;
         const Store = window.ILAP.Curator.Store;
         const Lease = window.ILAP.Curator.Lease;
+        const Marks = window.ILAP.Curator.DoneMarks;
         const Stats = window.ILAP.StatsLogic;
+        const Creators = window.ILAP.Creators;
+        // A language picked in the language tab folds it.
+        const settings = window.ILAP_Settings.create(root, { applyMasterInert, foldLang: () => tabs.select(null) });
+        // In the toolbar popup the lists drop down under the tab line where a
+        // tab's pane opens, so the two take turns there, the one coming in
+        // taking over the other's height (one move of the window).
+        const dropDown = root === document;
+        // Settings and the language grid render lazily, as their tabs open.
+        const tabs = window.ILAP_Tabs.create(root, {
+            onOpen: (name) => {
+                return name === 'settings' ? settings.init()
+                    : name === 'lang' ? settings.renderLang() : null;
+            },
+            takeOver: () => dropDown ? presets.foldNow() : 0,
+            // An AI level moved with no tick is dropped as its tab shuts.
+            onLeave: (name) => { if (name === 'ai') aiTab.dropDraft(); },
+        });
+        // The queue unrolls over whatever is out (a tab, in the toolbar popup
+        // the lists). In the toolbar popup it shuts at a click on any button
+        // of the tab line. In the widget it stays out: the lists' window moves
+        // down out from under it, the lists button opens it under the queue,
+        // and a tab of the line shuts the lists.
+        const Filters = window.ILAP_Filters;
+        const queue = window.ILAP_Queue.create(root, {
+            store: pick(Store, ['QUEUE_KEY', 'SW_HALT_KEY', 'removeJob', 'updateJob']),
+            settings: pick(Settings, ['KEYS', 'isOn']),
+            rows: window.ILAP_QueueRows.create({
+                store: pick(Store, ['JOB_TYPE', 'jobType', 'jobTraits', 'CURSOR_PREFIX', 'SKIPPED_PREFIX',
+                    'WISHLISTED_PREFIX', 'OWNED_PREFIX']),
+                lease: pick(Lease, ['LOCK_PREFIX']),
+                filters: pick(Filters, ['fillStyle', 'labelKey']),
+                presetLabel: window.ILAP_Presets.label,
+            }),
+            presetLabel: window.ILAP_Presets.label,
+            // Only the on-page widget can be on a curator's page.
+            currentCurator: () => Filters.curatorIdFromPath(location.pathname),
+            onToggle: () => presets.follow(),
+        });
+        const tabline = root.getElementById('tabline');
+        if (tabline) tabline.addEventListener('click', (e) => {
+            const tab = e.isTrusted && e.target.closest('.tab');
+            if (!tab) return;
+            if (dropDown) queue.toggle(false);
+            else if (tab.id !== 'lists-btn') presets.toggle(false);
+        });
+        // A + in the lists flies the list into the job count on the queue's
+        // icon, which holds its old number until it lands.
+        const presets = window.ILAP_Presets.create(root, {
+            store: pick(Store, ['getQueue', 'stagePreset']),
+            marks: pick(Marks, ['presetMarks', 'markPresetSeen']),
+            loadPresets: () => window.ILAP.loadPresets(),
+            aiGames: (data, keep) => window.ILAP.aiGames(data, keep),
+            holdCount: () => queue.holdCount(),
+            flyToQueue: (row, from) => queue.flyIn(row, from),
+            queueFoot: () => queue.foot(),
+            onOpen: () => {
+                if (!dropDown) return 0;
+                queue.toggle(false);
+                return tabs.foldNow();
+            },
+        });
+        // The AI tab. Its boxes as stored set what the AI lists count and queue.
+        const aiTab = window.ILAP_AiTab.create(root, {
+            onKeep: (keep) => presets.setKeep(keep),
+            // Rebuilt in a new language: the tab panel follows its height.
+            resizePane: (mutate) => tabs.resize(mutate),
+        });
+        // The extension's state reaches the lists button before the rest renders.
+        const renderBasic = (data) => {
+            presets.setMasterOff(!Settings.isOn(data[K.MASTER]));
+            updateBasicUI(root, data);
+            aiTab.render(data);
+        };
         const undoService = new window.ILAP.UndoService({ store: Store, log: Log, maxJobs: Store.MAX_JOBS });
-        const undo = window.ILAP_Undo.create(root, undoService);
-        const renderUndo = () => Log.getLog().then((log) => undo.render(log));
-        const historyList = root.getElementById('history-list');
-        if (historyList) historyList.addEventListener('click', openHistoryEntry);
-        const lastRow = root.getElementById('last-ignored-row');
-        if (lastRow) lastRow.addEventListener('click', openHistoryEntry);
+        // A rollback staged from the undo menu flies into the job count too.
+        const undo = window.ILAP_Undo.create(root, undoService, {
+            log: pick(Log, ['getLog', 'undoableCount']),
+            showQueue: () => queue.toggle(true),
+            holdCount: () => queue.holdCount(),
+            flyToQueue: (row, from) => queue.flyIn(row, from),
+            unignoreCreator: (clanid, name) => Store.enqueueCreator({ clanid, name, ignore: false }),
+        });
+        // The creators the account ignores, as the user sees them: the mirror
+        // with the creator job's waiting entries over it.
+        const readCreators = async () => {
+            const { mirror, job, cursor } = await Creators.readState(Store);
+            return Creators.effective(mirror, job, cursor);
+        };
+        const renderUndo = () => Promise.all([Log.getLog(), readCreators()])
+            .then(([log, creators]) => undo.render(log, creators));
+        window.ILAP_History.wire(root);
         // Mid-drain the log changes 1-3 times a second, and each re-read is every
         // chunk: one trailing re-read per second is plenty for a count.
         let undoTimer = null;
@@ -498,7 +415,11 @@
             // so rendering first would leave them in the previous language.
             queue.render(current);
             renderUndo();
-            updateBasicUI(root, current);
+            if (langChanged) {
+                tabs.relabel();
+                if (presets.isOpen) presets.refresh().catch(() => {});
+            }
+            renderBasic(current);
             // Reflect external setting changes (e.g. EQ "Disable" → q_master=false)
             // onto the open settings panel. Value-only, preserves CSS transitions.
             settings.syncValues(current);
@@ -508,9 +429,9 @@
         const readAll = (cb) => readQueueSnapshot(uiKeys(), cb);
 
         // Settles once the first render has landed: the UI keys, the undo button
-        // (the ignore log is its own read) and, if it restores open, the settings
-        // panel (its own read too). The widget reveals its panel on this, so the
-        // bare markup is never painted; the toolbar popup does not wait on it.
+        // (the ignore log is its own read) and the tab that was open last, with
+        // its pane filled. The widget reveals its panel on this, so the bare
+        // markup is never painted; the toolbar popup does not wait on it.
         let markReady;
         const ready = new Promise((resolve) => { markReady = resolve; });
 
@@ -520,45 +441,12 @@
             const icon = root.getElementById('ilap-header-icon');
             if (icon) icon.src = chrome.runtime.getURL('assets/icons/icon48.png');
 
-            setupLangChip(root);
-            updateBasicUI(root, res);
+            tabs.relabel();
+            renderBasic(res);
             queue.render(res);
             const undoRendered = renderUndo();
-
-            const accordion = root.getElementById('settings-accordion');
-            const queueAcc = root.getElementById('queue-accordion');
-            accordion.open = !!res[K.SETTINGS_OPEN];
-            const settingsRendered = accordion.open ? settings.init() : null;
             // allSettled: a failed read must not keep the panel from ever opening.
-            Promise.allSettled([undoRendered, settingsRendered]).then(() => markReady());
-
-            // The two applets are mutually exclusive: opening one collapses the other.
-            // We only act on the open transition, so closing the other can't loop back.
-            accordion.addEventListener('toggle', () => {
-                chrome.storage.local.set({ [K.SETTINGS_OPEN]: accordion.open });
-                if (accordion.open) {
-                    settings.init();
-                    if (queueAcc) queueAcc.open = false;
-                }
-            });
-
-            if (queueAcc) {
-                queueAcc.addEventListener('toggle', () => {
-                    if (queueAcc.open) accordion.open = false;
-                });
-            }
-
-            // Collapse the sibling SYNCHRONOUSLY on the summary click (shared helper;
-            // see wireExclusiveDetails in popup_settings.js for why in-frame). The
-            // `toggle` handlers above still own persistence + lazy settings.init()
-            // (and the lang-chip open path), so those keep working. The language chip
-            // sits in the SETTINGS summary and owns its own click, the lists icon
-            // the same in the queue's.
-            const wireExclusive = window.ILAP_Settings.wireExclusiveDetails;
-            // SETTINGS opens only once an open queue has folded away (the
-            // .handoff duration in popup.css).
-            wireExclusive(accordion, queueAcc, '.lang-chip', QUEUE_HANDOFF_MS);
-            wireExclusive(queueAcc, accordion, '.lang-chip, .preset-chip');
+            Promise.allSettled([undoRendered, tabs.restore()]).then(() => markReady());
 
             // Real user input only: in the on-page widget this panel lives in an
             // open shadow root, where page script could otherwise forge a
@@ -588,11 +476,12 @@
             //    and the count only — rebuilding every other panel's markup for a
             //    moving number is pure waste;
             //  - the ignore log: the undo applet, throttled.
-            // Apart from those, the queue and the lists' done marks redraw an open
-            // lists menu.
+            // Apart from those, the queue, the lists' done marks and their
+            // dismissed dots redraw an open lists drawer.
             const keys = Object.keys(changes || {});
-            if (keys.some(k => k === Store.QUEUE_KEY || k.indexOf(Store.PRESET_DONE_PREFIX) === 0)) {
-                presets.refresh();
+            if (presets.isOpen && keys.some(k => k === Store.QUEUE_KEY
+                || k.indexOf(Marks.PRESET_DONE_PREFIX) === 0 || k.indexOf(Marks.PRESET_SEEN_PREFIX) === 0)) {
+                presets.refresh().catch((e) => console.warn('[ILAP] built-in lists unavailable:', e));
             }
             const fullKeys = uiKeys().filter(k => k !== Stats.COUNT_KEY && k !== Stats.TOTAL_KEY);
             const isQueueKey = (k) => k === Store.QUEUE_KEY
@@ -603,15 +492,19 @@
                 || k.indexOf(Store.CURSOR_PREFIX) === 0
                 || k.indexOf(Store.SKIPPED_PREFIX) === 0
                 || k.indexOf(Store.WISHLISTED_PREFIX) === 0
+                || k.indexOf(Store.OWNED_PREFIX) === 0
                 || k.indexOf(Lease.LOCK_PREFIX) === 0;
             const isProgressKey = (k) => k.indexOf(Store.CURSOR_PREFIX) === 0
                 || k.indexOf(Store.SKIPPED_PREFIX) === 0
-                || k.indexOf(Store.WISHLISTED_PREFIX) === 0;
+                || k.indexOf(Store.WISHLISTED_PREFIX) === 0
+                || k.indexOf(Store.OWNED_PREFIX) === 0;
             if (keys.some(k => fullKeys.includes(k))) {
                 readAll((current) => renderAll(current, !!changes[K.LANG]));
                 return;
             }
-            if (keys.some(Log.isLogKey)) renderUndoSoon();
+            // The creators tab follows the mirror and the creator job.
+            if (keys.some(k => Log.isLogKey(k) || k === Creators.MIRROR_KEY || k === Store.QUEUE_KEY
+                || k === Store.CURSOR_PREFIX + Store.CREATOR_JOB_ID)) renderUndoSoon();
             const touched = keys.filter(isQueueKey);
             if (!touched.length) return;
             // Drain PROGRESS is the one write this panel cannot keep up with. A
@@ -632,8 +525,13 @@
             show() {
                 // A page click hides the panel without reaching the dropdowns'
                 // closer (it listens on this root), so one left open would
-                // greet the next open. Accordions keep their state; menus don't.
+                // greet the next open. The open tab keeps its state; menus don't.
                 root.querySelectorAll('.select-menu.open').forEach(m => m.classList.remove('open'));
+                // The queue and the lists, too: a click elsewhere on the page shuts them.
+                queue.shutNow();
+                presets.foldNow();
+                // The panel shut over an AI level moved with no tick: dropped too.
+                aiTab.dropDraft();
                 if (!stale) return;
                 const langChanged = staleLang;
                 stale = staleLang = false;
@@ -676,10 +574,14 @@
         const progress = mount.querySelector('#ilap-stub-progress');
         const progressText = mount.querySelector('#ilap-stub-progress-text');
         const haltHint = mount.querySelector('#ilap-stub-halt');
+        // The line and the halt hint are set as the window opens, and fold in
+        // and out after that: the window grows and shrinks with them.
+        let shown = false;
+        const show = (el, on) => { if (shown) window.ILAP_Tabs.fold(el, on); else el.hidden = !on; };
         const renderProgress = () => {
             readQueueSnapshot([], (res) => {
                 const jobs = Array.isArray(res[Store.QUEUE_KEY]) ? res[Store.QUEUE_KEY] : [];
-                if (jobs.length === 0) { progress.hidden = true; return; }
+                if (jobs.length === 0) { show(progress, false); shown = true; return; }
                 let done = 0;
                 let total = 0;
                 for (const j of jobs) {
@@ -689,9 +591,10 @@
                     done += Math.min(Number.isFinite(cur) ? cur : (j.cursor || 0), size);
                 }
                 progressText.textContent = `${t('ignore_queue')}: ${done} / ${total}`;
-                haltHint.hidden = !res[Store.SW_HALT_KEY];
-                if (!haltHint.hidden) haltHint.textContent = t('queue_sw_halt');
-                progress.hidden = false;
+                if (res[Store.SW_HALT_KEY]) haltHint.textContent = t('queue_sw_halt');
+                show(haltHint, !!res[Store.SW_HALT_KEY]);
+                show(progress, true);
+                shown = true;
             });
         };
         renderProgress();
@@ -719,6 +622,7 @@
         const Surface = window.ILAP.Surface;
         chrome.storage.local.get({ [Surface.KEY]: 'widget', [K.LANG]: null, ilap_update_glow: false }, (res) => {
             if (res[K.LANG]) window.ILAP.i18n.setLang(res[K.LANG]);
+            document.documentElement.lang = window.ILAP.i18n.getLang();
             const mode = Surface.resolve(res[Surface.KEY], navigator.userAgent);
             if (mode === 'popup') {
                 mount.innerHTML = window.ILAP_PopupMarkup;

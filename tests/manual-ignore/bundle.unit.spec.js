@@ -137,14 +137,18 @@ test.describe('BundleRequests (unit)', () => {
 
 test.describe('fetchBundle (unit)', () => {
 
-    function load(answer) {
+    // The page's own config says the language and the country. A cookie is not
+    // read (PRIVACY.md names the sessionid as the one cookie value read).
+    function load(answer, config = '{"LANGUAGE":"russian","COUNTRY":"RU"}') {
         const asked = [];
         const paced = [];
         const { MI, sandbox } = loadMI({
-            document: { cookie: 'Steam_Language=russian', getElementById: () => ({ dataset: { config: '{"COUNTRY":"RU"}' } }) },
+            document: { cookie: 'Steam_Language=german', getElementById: () => ({ dataset: { config } }) },
+            AbortController, setTimeout, clearTimeout,
+            fetch: async (url) => { asked.push(url); return answer; },
         });
+        vm.runInContext(src('steam-net.js'), sandbox);
         sandbox.window.ILAP.IgnoreGate = { paceRead: async () => { paced.push(1); } };
-        sandbox.window.ILAP.SteamNet = { fetchWithTimeout: async (url) => { asked.push(url); return answer; } };
         return { fetchBundle: MI.fetchBundle, asked, paced };
     }
 
@@ -168,5 +172,15 @@ test.describe('fetchBundle (unit)', () => {
             .toEqual({ name: 'V', apps: [{ appid: '10', name: '' }, { appid: '20', name: '' }] });
         expect(await load({ ok: false }).fetchBundle({ kind: 'bundle', id: '1' })).toBe(null);
         expect(await load({ ok: true, json: async () => ({ response: {} }) }).fetchBundle({ kind: 'bundle', id: '1' })).toBe(null);
+    });
+
+    test('a page config with no language or country, or an odd one, asks in English for the US', async () => {
+        const body = { response: { store_items: [{ name: 'V', included_appids: [10] }] } };
+        for (const config of ['{}', '{"LANGUAGE":"ru\\"x","COUNTRY":"ru"}', 'not json', null]) {
+            const { fetchBundle, asked } = load({ ok: true, json: async () => body }, config);
+            await fetchBundle({ kind: 'bundle', id: '232' });
+            const input = JSON.parse(decodeURIComponent(asked[0].split('input_json=')[1]));
+            expect(input.context).toEqual({ language: 'english', country_code: 'US' });
+        }
     });
 });

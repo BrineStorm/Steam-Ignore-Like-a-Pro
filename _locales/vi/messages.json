@@ -1,11 +1,11 @@
 {
   "extName": {
-    "message": "Steam Ignore Like A Pro — Phớt lờ trò chơi nhanh"
+    "message": "Steam Ignore Like a Pro — Bộ lọc AI và phớt lờ"
   },
   "extNameChrome": {
-    "message": "Steam Ignore Like A Pro — Phớt lờ trò chơi nhanh và tự động"
+    "message": "Steam Ignore Like a Pro — Steam không game rác, lọc AI và phớt lờ hàng loạt"
   },
   "extDescription": {
-    "message": "Thêm trò chơi trên cửa hàng Steam vào danh sách phớt lờ bằng một cử chỉ chuột, hoặc cả danh sách bạn chọn hay của thẩm định viên."
+    "message": "Lọc trò chơi AI, phớt lờ bất kỳ trò chơi nào bằng một cử chỉ chuột hoặc cả danh sách trò chơi không mong muốn và nhiều hơn thế nữa."
   }
 }

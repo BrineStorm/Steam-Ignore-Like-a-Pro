@@ -58,7 +58,18 @@
         if (!lock || lock.owner === owner) await remove(key);
     }
 
+    // Did these storage changes free a lease another host had? The one wake-up
+    // a lease write is worth. A host's own release must not wake it: its pass has
+    // just ended, and what ended it has not gone.
+    function freedByOther(changes, owner) {
+        return Object.keys(changes).some((key) => {
+            if (key.indexOf(LOCK_PREFIX) !== 0) return false;
+            const { oldValue, newValue } = changes[key];
+            return !newValue && !!oldValue && oldValue.owner !== owner;
+        });
+    }
+
     window.ILAP.Curator.Lease = {
-        lockFree, acquireLock, renewLock, holdsLock, releaseLock, LOCK_PREFIX, LEASE_MS,
+        lockFree, acquireLock, renewLock, holdsLock, releaseLock, freedByOther, LOCK_PREFIX, LEASE_MS,
     };
 })();

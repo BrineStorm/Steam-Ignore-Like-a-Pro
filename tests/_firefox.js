@@ -177,7 +177,7 @@ async function installTemporaryAddon(rdpPort, addonPath) {
 
 // Launch a persistent Firefox context from `userDataDir` with the test-flavor
 // extension installed. Mirrors the chromium launcher in _fixtures.js; the
-// returned context carries `_ilapFirefoxUuid` so _extension.js helpers can
+// returned context has `_ilapFirefoxUuid` so _extension.js helpers can
 // tell the platforms apart and build moz-extension:// URLs.
 async function launchFirefoxExtensionContext(userDataDir, options) {
     const rdpPort = await freePort();

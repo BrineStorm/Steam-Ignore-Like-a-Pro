@@ -1,0 +1,57 @@
+Filtruj gry AI w Sklepie Steam i ignoruj gry jednym gestem myszy albo całymi listami naraz.
+
+Steam Ignore Like a Pro to darmowe rozszerzenie open source, które sprawia, że Steam jest wygodniejszy, i szanuje twoją prywatność. Zakładka AI oznacza, rozmywa albo sama ignoruje gry stworzone z AI na każdej stronie sklepu. Rozszerzenie przenosi przycisk Steam „Ignoruj” na okładkę każdej gry w sklepie, więc nie musisz już otwierać strony gry dla jednego kliknięcia „Ignoruj”. Wszystko działa dokładnie tak samo jak w Steamie, bo rozszerzenie korzysta z własnego ignorowania Steama.
+
+JAK UŻYWAĆ:
+1. Otwórz dowolną stronę w Sklepie Steam.
+2. Przytrzymaj prawy przycisk myszy na okładce gry i przesuń w prawo (albo w lewo, żeby zignorować z oznaczeniem „Ograne”).
+3. Na grze od razu pojawia się plakietka „IGNORED”. Samo zignorowanie dociera do Steama po chwili.
+4. Kliknij plakietkę, żeby cofnąć zignorowanie, jeśli zmienisz zdanie.
+
+JAK FILTROWAĆ GRY AI:
+1. Otwórz panel rozszerzenia i zakładkę AI.
+2. Wybierz poziom filtra „Wysoki” i kliknij przycisk zapisu obok suwaka.
+3. Otwórz dowolną stronę Steam z dużą liczbą okładek gier i przewijaj. Gdy tylko gra AI pojawi się w twoim polu widzenia, zobaczysz animację, a gra zostanie dodana do listy ignorowanych.
+4. Jeśli chcesz, możesz wyłączyć animację albo wybrać poziom, na którym rozszerzenie tylko oznacza gry AI i nie dodaje ich do listy ignorowanych.
+
+FUNKCJE:
+▪ Darmowe, prywatne i open source - lekkie rozszerzenie bez frameworków, śledzenia i telemetrii. Działa w sesji twojej przeglądarki i nigdzie jej dalej nie przekazuje.
+▪ Ignorowanie jednym gestem - Przytrzymaj prawy przycisk myszy i przesuń w prawo, żeby zignorować grę wszędzie, gdzie jest jej okładka.
+▪ Ignorowanie z oznaczeniem „Ograne” - Przesuń w lewo, żeby od razu zignorować z tym oznaczeniem grę, w którą grałeś na innej platformie, zamiast otwierać jej stronę i klikać „Ignoruj” -> „Grane na innej platformie”.
+▪ Filtr gier AI - Rozszerzenie potrafi samo oznaczać gry stworzone z AI prosto na ich okładkach albo automatycznie dodawać je do listy ignorowanych twojego konta.
+▪ Gotowe listy do ignorowania - Zignoruj naraz wszystkie gry z treściami AI, Denuvo, dostępem do jądra, inwazyjnymi warunkami EULA, a także znane złe gry i nie tylko, według własnego wyboru. Listy są przygotowane z góry i wbudowane w rozszerzenie. Gry z twojej biblioteki i listy życzeń są pomijane.
+▪ Masowe ignorowanie z list kuratorów - Ignoruj listy kuratorów Steam prosto z ich stron. Wybierz kuratora, który oznacza gry, których nie lubisz, a rozszerzenie zignoruje całą listę.
+▪ Ignorowanie twórców - Zignoruj dewelopera albo wydawcę jednym kliknięciem przycisku tuż obok linku do niego na stronie gry.
+▪ Ignorowanie w kolejce odkryć - Otwórz kolejkę odkryć na stronie tagu, gatunku lub kategorii, a rozszerzenie zignoruje wszystkie gry w kolejce albo tylko te ze słabymi recenzjami.
+▪ Pomocnik klasycznej kolejki odkryć - Rozszerzenie automatycznie ignoruje gry, kiedy przeglądasz swój codzienny zestaw rekomendacji ze Steama, według twoich warunków (na przykład słabe recenzje), albo ignoruje je i od razu przewija kolejkę dalej.
+▪ Cofanie ignorowania - Zignorowanie gry lub twórcy możesz w każdej chwili cofnąć prosto na okładce gry albo obok linku do twórcy, a ostatnie zignorowania cofnąć listą w osobnym menu cofania, dodając zadanie cofnięcia.
+▪ Elastyczne ustawienia - Rozszerzenie możesz mocno dopasować do siebie, zmieniać skróty klawiszowe, włączać i wyłączać poszczególne moduły i tryby ignorowania, zmieniać miejsce rozszerzenia na stronie i wiele więcej.
+▪ 24 języki interfejsu - Przełączane w locie, niezależnie od języka Steama.
+
+P: Po co to zamiast wbudowanego ignorowania gier w Steamie?
+O: Wbudowanego przycisku „Ignoruj” nie ma na wielu stronach i w widżetach Steama, a tam, gdzie jest, ignorowanie zajmuje kilka kliknięć (najedź kursorem na okładkę gry -> kliknij ▪▪▪ -> kliknij „Ignoruj”), i w tym menu nie ma opcji „Grane na innej platformie”. Do tego w Steamie nie da się zignorować listy gier za jednym razem. Rozszerzenie daje ignorowanie jednym gestem na każdej stronie i w każdym widżecie Steama, a do tego masowe ignorowanie z gotowych list i automatyzację ignorowania.
+
+P: Jak zignorować naraz dużo gier na Steamie?
+O: Sam Steam ignoruje gry po jednej. Z rozszerzeniem możesz na przykład dodać gotową listę do kolejki zadań ignorowania (gry z treściami AI, Denuvo, dostępem do jądra, inwazyjnymi warunkami EULA, znane złe gry i nie tylko), dodać do niej całą listę kuratora, zignorować cały zestaw jednym gestem, zignorować twórcę, włączyć wysoki poziom filtra AI, puścić pomocnika kolejki odkryć po tagu lub gatunku albo po prostu szybko przeswipować okładki niechcianych gier w sklepie.
+
+P: Czy korzystanie z tego rozszerzenia jest zgodne z zasadami Steam?
+O: Tak, jeśli chodzi o ignorowanie albo jego cofanie gestami, przyciskami lub skrótami klawiszowymi. Każde z nich działa raz na jedną twoją akcję, jak kliknięcie przycisku Steam „Ignoruj”. Pomocnicy kolejki odkryć, wysoki poziom filtra AI, kolejka zadań ignorowania (listy kuratorów, gotowe listy i zestawy) i hurtowe cofanie to automatyzacja. Sekcja 4.C Umowy użytkownika Steam (Steam Subscriber Agreement) zabrania interakcji ze Steamem, których nie kontroluje człowiek, w tym zdobywania nagród lub postępów bez prawdziwych działań użytkownika. Dlatego z funkcji automatyzacji korzystaj według własnego uznania i ze świadomością ryzyka. Rozszerzenie nie zdobywa za ciebie nagród z wyprzedaży i nie jest do tego przeznaczone. Ma też wbudowane zabezpieczenie, które nadaje tempo zapytaniom do Steama, jedno po drugim. Ostatnie słowo należy jednak do Valve, podobnie jak stanowisko i działania firmy wobec tego i każdego innego rozszerzenia automatyzującego Steam.
+
+P: Czy można cofnąć zignorowanie?
+O: Tak, w każdej chwili. Przycisk ignorowania na stronie gry działa z rozszerzeniem jak zwykle. Możesz też narysować kółko albo zygzak na okładce gry lub kliknąć plakietkę IGNORED na grze, żeby cofnąć jedno zignorowanie. Albo otwórz popup rozszerzenia, kliknij przycisk cofania (↩️) i ustaw, które ostatnie zignorowania cofnąć, ostatnie N gier albo wszystko z ostatnich N godzin lub dni. Zignorowanych twórców przywrócisz w tym samym miejscu, na zakładce „Twórcy”.
+
+P: Czy rozszerzenie działa, jeśli Steam nie jest po angielsku?
+O: Tak. Rozszerzenie nie zależy od języka. Działa przy dowolnych ustawieniach języka twojego konta Steam.
+
+P: Czy rozszerzenie działa na macOS i Linuksie?
+O: Tak. Na macOS i Linuksie menu kontekstowe otwiera się od razu po wciśnięciu prawego przycisku, więc rozszerzenie przytrzymuje to menu przy kliknięciu na okładkę gry, jeśli ignorowanie lub jego cofanie jest ustawione na gesty. Ignorowanie możesz też przypisać do innych klawiszy (na przykład Shift + LPM) w USTAWIENIA -> Ręczne ignorowanie.
+
+P: Czy mogę zignorować zestaw albo pakiet kilku gier?
+O: Tak. Przesuń po okładce zestawu, a potem przesuń po niej jeszcze raz, żeby potwierdzić. Wszystkie gry i DLC z zestawu trafią do kolejki zadań ignorowania i zostaną zignorowane w zwykłym tempie. Gry z twojej biblioteki i listy życzeń są pomijane.
+
+PRYWATNOŚĆ I BEZPIECZEŃSTWO:
+▪ Działa przez sam Steam, klikając jego własne przyciski albo wysyłając te same zapytania, które wysyła on.
+▪ Bez śledzenia, bez analityki, bez zewnętrznych serwerów. Nie zbieramy, nie odbieramy i nie udostępniamy żadnych danych osobowych użytkowników. Twoje ustawienia, historia zignorowań i oczekująca kolejka zadań są zapisywane lokalnie w twojej przeglądarce, a zapytania trafiają bezpośrednio do oficjalnych serwerów Steam (store.steampowered.com i api.steampowered.com).
+▪ Nie są przechowywane żadne hasła ani klucze Steam API i nic nie jest wysyłane nigdzie poza Steamem. Rozszerzenie korzysta z twojej aktywnej sesji Steam, a do sprawdzenia nagrody za przejrzenie kolejki odkryć w czasie wyprzedaży z tokenu dostępu, który strona Sklepu Steam już zawiera. Token trafia tylko do własnego API Steama i nigdy nie jest przechowywany.
+
+Steam Ignore Like a Pro nie jest powiązane z Valve Corporation ani ze Steamem i nie jest przez nie sponsorowane.

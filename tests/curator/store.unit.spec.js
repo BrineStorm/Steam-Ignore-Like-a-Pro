@@ -4,8 +4,8 @@ const path = require('path');
 const vm = require('vm');
 const { loadEscape } = require('../_escape.js');
 
-// The curator storage model (src/curator/store.js) keeps its decision logic in
-// pure helpers — evictCache (TTL + LRU), isFresh, and lockFree (lease
+// The curator storage model (src/curator/store.js, cache.js) keeps its decision
+// logic in pure helpers — evictCache (TTL + LRU), isFresh, and lockFree (lease
 // takeability, src/curator/lease.js) — so they unit-test in Node without
 // chrome.storage. The queue RMW
 // path (mutateQueue serialization, cursor keys) is unit-tested below against an
@@ -20,6 +20,14 @@ function loadStore() {
     loadEscape(sandbox);
     vm.runInContext(code, sandbox);
     return sandbox.window.ILAP.Curator.Store;
+}
+
+function loadCache() {
+    const sandbox = { window: {} };
+    vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(
+        path.join(__dirname, '..', '..', 'src', 'curator', 'cache.js'), 'utf8'), sandbox);
+    return sandbox.window.ILAP.Curator.Cache;
 }
 
 // Load the store against an async chrome.storage.local stub. Every get/set/remove
@@ -52,19 +60,22 @@ function loadStoreWithChrome(initial) {
     vm.createContext(sandbox);
     loadEscape(sandbox);
     vm.runInContext(code, sandbox);
-    return { Store: sandbox.window.ILAP.Curator.Store, data: () => data };
+    // What a finished job leaves behind (src/curator/done-marks.js), on the same storage.
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'curator', 'done-marks.js'), 'utf8'), sandbox);
+    return { Store: sandbox.window.ILAP.Curator.Store, Marks: sandbox.window.ILAP.Curator.DoneMarks, data: () => data };
 }
 
 const DAY = 24 * 60 * 60 * 1000;
 
 test.describe('Curator storage — pure helpers (unit)', () => {
     const S = loadStore();
+    const C = loadCache();
 
     test('isFresh respects the TTL window', () => {
         const now = 1_000_000_000_000;
-        expect(S.isFresh({ fetchedAt: now - 1 * DAY }, now)).toBe(true);
-        expect(S.isFresh({ fetchedAt: now - 8 * DAY }, now)).toBe(false);
-        expect(S.isFresh(null, now)).toBe(false);
+        expect(C.isFresh({ fetchedAt: now - 1 * DAY }, now)).toBe(true);
+        expect(C.isFresh({ fetchedAt: now - 8 * DAY }, now)).toBe(false);
+        expect(C.isFresh(null, now)).toBe(false);
     });
 
     test('job types: an untyped job reads as curator, an unknown one has no traits', () => {
@@ -102,7 +113,7 @@ test.describe('Curator storage — pure helpers (unit)', () => {
             fresh: { fetchedAt: now - 1 * DAY, apps: {} },
             stale: { fetchedAt: now - 9 * DAY, apps: {} },
         };
-        const out = S.evictCache(cache, now);
+        const out = C.evictCache(cache, now);
         expect(Object.keys(out)).toEqual(['fresh']);
     });
 
@@ -113,7 +124,7 @@ test.describe('Curator storage — pure helpers (unit)', () => {
         for (let i = 0; i < 12; i++) {
             cache['c' + i] = { fetchedAt: now - (12 - i) * 1000, apps: {} };
         }
-        const out = S.evictCache(cache, now);
+        const out = C.evictCache(cache, now);
         const kept = Object.keys(out).sort();
         expect(kept).toHaveLength(10);
         // The two oldest (c0, c1) are evicted; the newest survive.
@@ -134,6 +145,45 @@ test.describe('Curator storage — pure helpers (unit)', () => {
         expect(L.lockFree({ owner: 'me', expiresAt: now + 5000 }, 'me', now)).toBe(true);
         expect(L.lockFree({ owner: 'other', expiresAt: now - 1 }, 'me', now)).toBe(true);   // expired
         expect(L.lockFree({ owner: 'other', expiresAt: now + 5000 }, 'me', now)).toBe(false); // held
+    });
+});
+
+test.describe('Curator storage — what a queue write says (unit)', () => {
+    test('undoJobLeft: a rollback job gone from the queue, and nothing else', () => {
+        const S = loadStore();
+        const mi = { id: 'job_mi', type: 'mi' };
+        const undo = { id: 'u1', type: 'undo' };
+        const solo = { id: 'job_mi_undo', type: 'miundo' };
+        const left = (oldValue, newValue) => S.undoJobLeft({ oldValue, newValue });
+        expect(left([undo, mi], [mi])).toBe(true);
+        expect(left([solo], undefined)).toBe(true);
+        expect(left([undo], [undo, mi])).toBe(false);
+        expect(left([mi], [])).toBe(false);
+        expect(left(undefined, [undo])).toBe(false);
+    });
+
+    test('updateJob: a patch with nothing to change writes nothing, its list included', async () => {
+        const { Store, data } = loadStoreWithChrome({ ilap_curator_queue: [{ id: 'x', status: 'enumerating', total: 5 }] });
+        const before = JSON.stringify(data());
+        await Store.updateJob('x', () => null, ['1']);
+        expect(JSON.stringify(data())).toBe(before);
+        await Store.updateJob('gone', { total: 1 }, ['1']);
+        expect(JSON.stringify(data())).toBe(before);
+    });
+
+    test('Lease.freedByOther: a lease another host let go, and nothing else', () => {
+        const sandbox = { window: {} };
+        vm.createContext(sandbox);
+        loadEscape(sandbox);
+        vm.runInContext(fs.readFileSync(
+            path.join(__dirname, '..', '..', 'src', 'curator', 'lease.js'), 'utf8'), sandbox);
+        const L = sandbox.window.ILAP.Curator.Lease;
+        const free = (change, key = 'ilap_curator_lock_1') => L.freedByOther({ [key]: change }, 'me');
+        expect(free({ oldValue: { owner: 'them' } })).toBe(true);
+        expect(free({ oldValue: { owner: 'me' } })).toBe(false);
+        expect(free({ oldValue: { owner: 'them' }, newValue: { owner: 'them' } })).toBe(false);
+        expect(free({ newValue: { owner: 'them' } })).toBe(false);
+        expect(free({ oldValue: { owner: 'them' } }, 'ilap_curator_cursor_1')).toBe(false);
     });
 });
 
@@ -241,13 +291,41 @@ test.describe('Curator storage — serialized queue writes (unit)', () => {
         expect(data().ilap_curator_skipped_j1).toBeUndefined();
     });
 
+    test('setOwned writes the count only when it changed, never for a job no longer queued', async () => {
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{ id: 'j1', appids: ['10', '11'], status: 'pending' }],
+        });
+        // 0 on a job with no key stays without one: nothing to show, no write.
+        expect(await Store.setOwned('j1', 0)).toBe(true);
+        expect('ilap_curator_owned_j1' in data()).toBe(false);
+        expect(await Store.setOwned('j1', 2)).toBe(true);
+        expect(data().ilap_curator_owned_j1).toBe(2);
+        expect(await Store.setOwned('j1', 1)).toBe(true);
+        expect(data().ilap_curator_owned_j1).toBe(1);
+        expect(await Store.setOwned('gone', 3)).toBe(false);
+        expect('ilap_curator_owned_gone' in data()).toBe(false);
+    });
+
+    test('the owned count goes with its job, removed or drained', async () => {
+        const { Store, data } = loadStoreWithChrome({
+            ilap_curator_queue: [{ id: 'j1', appids: ['10'], status: 'pending' },
+                { id: 'j2', appids: ['10'], status: 'pending' }],
+            ilap_curator_owned_j1: 1,
+            ilap_curator_owned_j2: 1,
+        });
+        await Store.removeJob('j1');
+        expect(data().ilap_curator_owned_j1).toBeUndefined();
+        expect(await Store.removeIfDrained('j2', 1)).toBe(true);
+        expect(data().ilap_curator_owned_j2).toBeUndefined();
+    });
+
     test('removeIfDrained keeps a job that grew past the drainer snapshot (MI append race)', async () => {
         const { Store, data } = loadStoreWithChrome({
             ilap_curator_queue: [{ id: 'job_mi', type: 'mi', appids: ['10', '11'], status: 'pending' }],
             ilap_curator_cursor_job_mi: 1,
         });
         // The drainer would complete on a snapshot where cursor(1) reached the end,
-        // but the fresh queue already carries an appended '11' → NOT drained: kept.
+        // but the fresh queue already has an appended '11' → NOT drained: kept.
         expect(await Store.removeIfDrained('job_mi', 1)).toBe(false);
         expect(data().ilap_curator_queue).toHaveLength(1);
         expect(data().ilap_curator_queue[0].appids).toEqual(['10', '11']);
@@ -410,7 +488,7 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         // listener stays silent for this one — the user asked for it.
         expect(pulse.reason).toBe('undo');
 
-        // A dropped MI ignore carries the reason that makes the tab explain
+        // A dropped MI ignore keeps the reason that makes the tab explain
         // itself instead of silently un-badging the game.
         await Store.signalUnignored(480, 'failed');
         expect(data()[Store.UNIGNORE_PULSE_KEY]).toMatchObject({ appids: ['480'], reason: 'failed' });
@@ -565,7 +643,7 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         expect(q.find(j => j.type === 'miundo').appids).toEqual(['20']);
     });
 
-    test('each un-ignore entry carries its OWN gesture time, not one job-level snapshot', async () => {
+    test('each un-ignore entry keeps its OWN gesture time, not one job-level snapshot', async () => {
         // The job auto-fills for as long as it lives, so a single job-level
         // snapshotTs would be the moment the FIRST gesture created it — a game
         // ignored after that and un-ignored by a later gesture would read as
@@ -586,6 +664,23 @@ test.describe('Curator storage — Manual-Ignore deferral job (unit)', () => {
         const out = await Store.enqueueMiUndo({ appid: 10 });
         expect(out.kind).toBe('added');   // accepted, but…
         expect(data().ilap_curator_queue[0].appids).toEqual(['10']);  // …not appended twice
+    });
+
+    test('waitingSwipes: the gestures still waiting in the MI job, not those drained, taken back or shot', async () => {
+        const { Store } = loadStoreWithChrome({
+            ilap_curator_queue: [{
+                id: 'job_mi', type: 'mi', curatorId: 'mi',
+                appids: ['10', '11', '12', '13', '14'],
+                meta: {
+                    10: { reason: 2 }, 11: { reason: 2 }, 12: { reason: 0, cancelled: true },
+                    13: { reason: 0, auto: true }, 14: { reason: 0, bundle: 'bundle_1' },
+                },
+                total: 5, status: 'pending',
+            }],
+            ilap_curator_cursor_job_mi: 1,
+        });
+        expect(await Store.waitingSwipes()).toEqual(['11', '14']);
+        expect(await loadStoreWithChrome({}).Store.waitingSwipes()).toEqual([]);
     });
 
     test('cancelMiEntry marks a still-pending swipe instead of splicing it out', async () => {
@@ -724,8 +819,12 @@ test.describe('Built-in list jobs (unit)', () => {
         const [job] = data().ilap_curator_queue;
         expect(job).toMatchObject({
             id: out.jobId, type: 'preset', curatorId: 'preset_ai_2025', presetKey: 'ai_2025',
-            presetRev: 'abcd1234', appids: ['10', '11'], total: 2, status: 'pending',
+            presetRev: 'abcd1234', total: 2, status: 'pending',
         });
+        // The list is under its own key, out of the queue the drainer reads on every step.
+        expect(job.appids).toBeUndefined();
+        expect(data()[Store.LIST_PREFIX + out.jobId]).toEqual(['10', '11']);
+        expect(await Store.getList(job)).toEqual(['10', '11']);
         expect(Store.jobTraits(job)).toEqual({ undo: false, gesture: false });
         expect(Store.cappedCount(data().ilap_curator_queue)).toBe(1);
     });
@@ -735,6 +834,7 @@ test.describe('Built-in list jobs (unit)', () => {
         await Store.stagePreset('denuvo', [10], 'r1');
         expect(await Store.stagePreset('denuvo', [10], 'r1')).toEqual({ kind: 'queued' });
         expect(data().ilap_curator_queue).toHaveLength(1);
+        expect(Object.keys(data()).filter(k => k.startsWith(Store.LIST_PREFIX))).toHaveLength(1);
     });
 
     test('a list waits for a free slot like a curator', async () => {
@@ -747,6 +847,30 @@ test.describe('Built-in list jobs (unit)', () => {
         });
         expect(await Store.stagePreset('ai_2025', [10], 'r1')).toEqual({ kind: 'full' });
         expect(data().ilap_curator_queue).toHaveLength(3);
+        // A refused list leaves nothing behind.
+        expect(Object.keys(data()).filter(k => k.startsWith(Store.LIST_PREFIX))).toEqual([]);
+    });
+
+    test('a stored list goes with its job, removed or drained', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        const a = await Store.stagePreset('denuvo', [10, 11], 'r1');
+        const b = await Store.stagePreset('vr', [20], 'r1');
+        await Store.removeJob(a.jobId);
+        expect(data()[Store.LIST_PREFIX + a.jobId]).toBeUndefined();
+        // Drained only once the cursor reaches `total`, the stored list's length.
+        expect(await Store.removeIfDrained(b.jobId, 0)).toBe(false);
+        expect(data()[Store.LIST_PREFIX + b.jobId]).toEqual(['20']);
+        expect(await Store.removeIfDrained(b.jobId, 1)).toBe(true);
+        expect(data()[Store.LIST_PREFIX + b.jobId]).toBeUndefined();
+        expect(data().ilap_curator_queue).toEqual([]);
+    });
+
+    test('a list for a job gone from the queue is not written', async () => {
+        const { Store, data } = loadStoreWithChrome({ ilap_curator_queue: [{ id: 'x', status: 'enumerating', total: 0 }] });
+        await Store.updateJob('gone', { total: 1, status: 'pending' }, ['10']);
+        expect(data()[Store.LIST_PREFIX + 'gone']).toBeUndefined();
+        await Store.updateJob('x', { total: 1, status: 'pending' }, ['10']);
+        expect(data()[Store.LIST_PREFIX + 'x']).toEqual(['10']);
     });
 
     test('an empty list stages nothing', async () => {
@@ -756,28 +880,84 @@ test.describe('Built-in list jobs (unit)', () => {
     });
 
     test('markPresetDone writes the list\'s rev under its key', async () => {
-        const { Store, data } = loadStoreWithChrome({});
-        await Store.markPresetDone({ presetKey: 'ai_2025', presetRev: 'abcd1234' });
-        expect(data()[Store.PRESET_DONE_PREFIX + 'ai_2025']).toBe('abcd1234');
+        const { Marks, data } = loadStoreWithChrome({});
+        await Marks.markPresetDone({ presetKey: 'ai_2025', presetRev: 'abcd1234' });
+        expect(data()[Marks.PRESET_DONE_PREFIX + 'ai_2025']).toBe('abcd1234');
     });
 
-    test('blockedPresets: a queued list and one done at the shipped rev, not one done at an older rev', async () => {
-        const { Store } = loadStoreWithChrome({
+    test('unmarkPresets clears the done mark of each built-in list named, nothing else', async () => {
+        const { Marks, data } = loadStoreWithChrome({
+            ilap_preset_done_ai_2023: 'r1',
+            ilap_preset_done_denuvo: 'd1',
+        });
+        await Marks.unmarkPresets(['preset_ai_2023', '1234', 'bundle_7']);
+        expect(data().ilap_preset_done_ai_2023).toBeUndefined();
+        expect(data().ilap_preset_done_denuvo).toBe('d1');
+        expect([...(await Marks.presetMarks({ ai_2023: 'r1', denuvo: 'd1' })).blocked]).toEqual(['denuvo']);
+    });
+
+    test('presetMarks: a queued list and one done at the shipped rev are blocked, not one done at an older rev', async () => {
+        const { Marks } = loadStoreWithChrome({
             ilap_curator_queue: [{ id: 'a', type: 'preset', curatorId: 'preset_denuvo', appids: ['1'] }],
             ilap_preset_done_ai_2025: 'r1',
             ilap_preset_done_ai_2024: 'old',
         });
-        const blocked = await Store.blockedPresets({ denuvo: 'd1', ai_2025: 'r1', ai_2024: 'r2', ai_2023: 'r3' });
+        const { blocked } = await Marks.presetMarks({ denuvo: 'd1', ai_2025: 'r1', ai_2024: 'r2', ai_2023: 'r3' });
         expect([...blocked].sort()).toEqual(['ai_2025', 'denuvo']);
     });
 
+    test('presetMarks: a list is done at any rev of its array', async () => {
+        const { Marks } = loadStoreWithChrome({
+            ilap_preset_done_ai_2025: 'r1',
+            ilap_preset_done_ai_2024: 'r2+t',
+            ilap_preset_done_ai_2023: 'r3+t',
+        });
+        const { blocked } = await Marks.presetMarks({ ai_2025: ['r1', 'r1+t'], ai_2024: ['r2', 'r2+t'], ai_2023: ['r3'] });
+        expect([...blocked].sort()).toEqual(['ai_2024', 'ai_2025']);
+    });
+
+    // The blue dot: run to its end at an older version of the list than the shipped one.
+    test('presetMarks: updated = done at an older base rev, keep tags cut off, not queued, not dismissed', async () => {
+        const { Marks } = loadStoreWithChrome({
+            ilap_curator_queue: [{ id: 'a', type: 'preset', curatorId: 'preset_vr', appids: ['1'] }],
+            ilap_preset_done_denuvo: 'old1',            // older: updated
+            ilap_preset_done_ai_2025: 'old2+t+l',       // older with tags: updated
+            ilap_preset_done_ai_2024: 'r2+t',           // a box cleared since: offered, no dot
+            ilap_preset_done_vr: 'old3',                // older, but queued again
+            ilap_preset_done_iap: 'old4',               // older, dot dismissed at this version
+            ilap_preset_seen_iap: 'i1',
+            ilap_preset_done_bad: 'old5',               // dismissed at an older version: back
+            ilap_preset_seen_bad: 'old5',
+            ilap_preset_done_ai_1999: 'old6',           // a list this build no longer ships
+        });
+        const { blocked, updated } = await Marks.presetMarks({
+            denuvo: 'd1', ai_2025: ['r1'], ai_2024: ['r2'], ai_2023: ['r3'], vr: 'v1', iap: 'i1', bad: 'b1',
+        });
+        expect([...updated].sort()).toEqual(['ai_2025', 'bad', 'denuvo']);
+        expect([...blocked]).toEqual(['vr']);
+    });
+
+    test('presetMarksOf: no done mark, or one that is no string, brings no dot', () => {
+        const { Marks } = loadStoreWithChrome({});
+        const res = { ilap_preset_done_iap: 5, ilap_preset_done_denuvo: '' };
+        // An empty rev from an old build is an older version too.
+        expect([...Marks.presetMarksOf(res, { denuvo: 'd1', vr: 'v1', iap: 'i1' }).updated]).toEqual(['denuvo']);
+    });
+
+    test('markPresetSeen stores the shipped rev without keep tags', async () => {
+        const { Marks, data } = loadStoreWithChrome({});
+        await Marks.markPresetSeen('ai_2025', 'r1+t');
+        await Marks.markPresetSeen('denuvo', 'd1');
+        expect(data()).toEqual({ ilap_preset_seen_ai_2025: 'r1', ilap_preset_seen_denuvo: 'd1' });
+    });
+
     test('removing a list job, drained or by the user, marks nothing by itself', async () => {
-        const { Store, data } = loadStoreWithChrome({});
+        const { Store, Marks, data } = loadStoreWithChrome({});
         const first = await Store.stagePreset('ai_2025', [10, 11], 'abcd1234');
         expect(await Store.removeIfDrained(first.jobId, 2)).toBe(true);
         const second = await Store.stagePreset('denuvo', [10], 'r1');
         await Store.removeJob(second.jobId);
-        expect(Object.keys(data()).filter(k => k.startsWith(Store.PRESET_DONE_PREFIX))).toEqual([]);
+        expect(Object.keys(data()).filter(k => k.startsWith(Marks.PRESET_DONE_PREFIX))).toEqual([]);
     });
 });
 
@@ -805,7 +985,7 @@ test.describe('Curator storage — bundles (unit)', () => {
         expect(out.kind).toBe('merged');
         const mi = data()[Store.QUEUE_KEY].find(j => j.type === 'mi');
         expect(mi.appids).toEqual(['30', '40']);
-        expect(mi.meta['30']).toMatchObject({ name: 'G30', reason: 0, bundle: true });
+        expect(mi.meta['30']).toMatchObject({ name: 'G30', reason: 0, bundle: 'sub_5' });
     });
 
     test('a bundle merged into the MI job leaves a swipe already waiting there as it was', async () => {
@@ -817,7 +997,39 @@ test.describe('Curator storage — bundles (unit)', () => {
         const mi = data()[Store.QUEUE_KEY].find(j => j.type === 'mi');
         expect(mi.appids).toEqual(['30', '40']);
         expect(mi.meta['30']).toEqual({ name: 'Swiped', reason: 2, ts: 111 });
-        expect(mi.meta['40']).toMatchObject({ reason: 0, bundle: true });
+        expect(mi.meta['40']).toMatchObject({ reason: 0, bundle: 'sub_5' });
+    });
+
+    test('games shot while browsing join the MI job marked auto, and a swipe waiting there keeps its entry', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        await Store.enqueueMi({ appid: '30', name: 'Swiped', reason: 2, ts: 111 });
+        const out = await Store.enqueueMiMany([
+            { appid: '30', name: 'A', reason: 0, ts: 222, auto: true },
+            { appid: '40', name: 'B', reason: 0, ts: 222, auto: true },
+        ]);
+        expect(out.kind).toBe('added');
+        const mi = data()[Store.QUEUE_KEY].find(j => j.type === 'mi');
+        expect(mi.appids).toEqual(['30', '40']);
+        expect(mi.meta['30']).toEqual({ name: 'Swiped', reason: 2, ts: 111 });
+        expect(mi.meta['40']).toEqual({ name: 'B', reason: 0, ts: 222, auto: true });
+        // A swipe on a game shot before it takes the entry over: the user's own gesture.
+        await Store.enqueueMi({ appid: '40', name: 'B', reason: 2, ts: 333 });
+        expect(data()[Store.QUEUE_KEY].find(j => j.type === 'mi').meta['40']).toEqual({ name: 'B', reason: 2, ts: 222 });
+    });
+
+    test('games shot while browsing fit only into their share of the MI job, and a swipe still fits', async () => {
+        const S = loadStore();
+        const half = S.MI_MAX / S.AUTO_SHARE;
+        const waiting = Array.from({ length: half - 1 }, (_, i) => String(1000 + i));
+        const mi = { id: 'job_mi', type: 'mi', curatorId: 'mi', status: 'pending', appids: waiting, meta: {}, total: waiting.length };
+        const { Store, data } = loadStoreWithChrome({ ilap_curator_queue: [mi] });
+        const auto = (...ids) => ids.map(a => ({ appid: a, name: 'G', reason: 0, ts: 1, auto: true }));
+        expect((await Store.enqueueMiMany(auto('30', '40'))).kind).toBe('full');
+        expect((await Store.enqueueMiMany(auto('30'))).kind).toBe('added');
+        expect((await Store.enqueueMiMany(auto('40'))).kind).toBe('full');
+        // The user's own swipes have the rest of the room.
+        expect((await Store.enqueueMi({ appid: '50', name: 'S', reason: 0 })).kind).toBe('added');
+        expect(data()[Store.QUEUE_KEY].find(j => j.type === 'mi').appids).toHaveLength(half + 1);
     });
 
     test('a bundle bigger than the MI job has room for is refused as a whole', async () => {
@@ -833,22 +1045,112 @@ test.describe('Curator storage — bundles (unit)', () => {
     });
 });
 
-// The IGNORED badge on a finished bundle's capsules (Store.markBundleDone) and
+// The IGNORED badge on a finished bundle's capsules (DoneMarks.markBundleDone) and
 // the rollback that takes it off (unmarkBundlesWith).
-test.describe('Curator storage — bundle marks (unit)', () => {
+test.describe('Done marks — bundles (unit)', () => {
 
     test('a finished bundle is marked with its apps; a rollback of one of them takes the mark off', async () => {
-        const { Store, data } = loadStoreWithChrome({});
-        await Store.markBundleDone({ curatorId: 'bundle_232', appids: ['10', '20'] });
-        await Store.markBundleDone({ curatorId: 'sub_7', appids: [30] });
+        const { Marks, data } = loadStoreWithChrome({});
+        await Marks.markBundleDone({ curatorId: 'bundle_232', appids: ['10', '20'] });
+        await Marks.markBundleDone({ curatorId: 'sub_7', appids: [30] });
         // Only a bundle's key is a mark: a curator or a list job writes nothing.
-        await Store.markBundleDone({ curatorId: '1234', appids: ['1'] });
-        expect(Object.keys(data()[Store.IGNORED_BUNDLES_KEY]).sort()).toEqual(['bundle_232', 'sub_7']);
-        expect(data()[Store.IGNORED_BUNDLES_KEY].sub_7.appids).toEqual(['30']);
+        await Marks.markBundleDone({ curatorId: '1234', appids: ['1'] });
+        expect(Object.keys(data()[Marks.IGNORED_BUNDLES_KEY]).sort()).toEqual(['bundle_232', 'sub_7']);
+        expect(data()[Marks.IGNORED_BUNDLES_KEY].sub_7.appids).toEqual(['30']);
 
-        await Store.unmarkBundlesWith(['20']);
-        expect(Object.keys(await Store.getBundleMarks())).toEqual(['sub_7']);
-        await Store.unmarkBundlesWith(['999']);
-        expect(Object.keys(await Store.getBundleMarks())).toEqual(['sub_7']);
+        await Marks.unmarkBundlesWith(['20']);
+        expect(Object.keys(await Marks.getBundleMarks())).toEqual(['sub_7']);
+        await Marks.unmarkBundlesWith(['999']);
+        expect(Object.keys(await Marks.getBundleMarks())).toEqual(['sub_7']);
+    });
+
+    test('past IGNORED_BUNDLES_MAX the oldest marks go, the newest stays', async () => {
+        const { Marks: M } = loadStoreWithChrome({});
+        const max = M.IGNORED_BUNDLES_MAX;
+        const old = {};
+        for (let i = 0; i < max; i++) old['bundle_' + i] = { ts: 1000 + i, appids: [String(i)] };
+        const { Marks, data } = loadStoreWithChrome({ [M.IGNORED_BUNDLES_KEY]: old });
+        await Marks.markBundleDone({ curatorId: 'bundle_9999', appids: ['1'] });
+        const keys = Object.keys(data()[Marks.IGNORED_BUNDLES_KEY]);
+        expect(keys).toHaveLength(max);
+        expect(keys).toContain('bundle_9999');
+        expect(keys).not.toContain('bundle_0');      // the oldest went
+        expect(keys).toContain('bundle_1');
+    });
+});
+
+// A game the AI tab's HIGH level queued and Steam refused (DoneMarks.markAiRefused):
+// the browsing switch leaves it unshot while the refusal holds.
+test.describe('Done marks — AI games Steam refused (unit)', () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+
+    test('a refusal holds by its kind: a region lock for a month, any other for a day', () => {
+        const { Marks } = loadStoreWithChrome({});
+        const now = 100 * DAY_MS;
+        const map = {
+            10: { ts: now - 29 * DAY_MS, why: 'unavailable' },
+            11: { ts: now - 31 * DAY_MS, why: 'unavailable' },
+            12: { ts: now - DAY_MS / 2, why: 'failed' },
+            13: { ts: now - 2 * DAY_MS, why: 'failed' },
+            14: { ts: now + 5000, why: 'failed' },          // a time from the future holds nothing
+            15: { ts: now - 1000, why: 'something else' },  // an unknown kind holds like a failure
+            abc: { ts: now, why: 'failed' },                // not an appid
+        };
+        expect([...Marks.aiHeld(map, now)].sort()).toEqual(['10', '12', '15']);
+        expect([...Marks.aiHeld(null, now)]).toEqual([]);
+    });
+
+    test('a refusal is written with its kind; the ones that no longer hold are dropped on the way', async () => {
+        const now = Date.now();
+        const { Marks, data } = loadStoreWithChrome({
+            ilap_ai_refused: { 20: { ts: now - 3 * DAY_MS, why: 'failed' }, 21: { ts: now - DAY_MS / 4, why: 'failed' } },
+        });
+        await Marks.markAiRefused('480', 'unavailable');
+        await Marks.markAiRefused(481, 'failed');
+        await Marks.markAiRefused('not-an-appid', 'failed');
+        const stored = data()[Marks.AI_REFUSED_KEY];
+        expect(Object.keys(stored).sort()).toEqual(['21', '480', '481']);
+        expect(stored['480'].why).toBe('unavailable');
+        expect(stored['481'].why).toBe('failed');
+        expect([...await Marks.aiRefusedNow()].sort()).toEqual(['21', '480', '481']);
+    });
+
+    test('past AI_REFUSED_MAX the oldest refusals go', () => {
+        const { Marks } = loadStoreWithChrome({});
+        const now = 50 * DAY_MS;
+        const map = {};
+        for (let i = 0; i < Marks.AI_REFUSED_MAX; i++) map[String(1000 + i)] = { ts: now - 1000 - i, why: 'unavailable' };
+        const next = Marks.withRefusal(map, '7', 'failed', now);
+        expect(Object.keys(next)).toHaveLength(Marks.AI_REFUSED_MAX);
+        expect(next['7']).toEqual({ ts: now, why: 'failed' });
+        expect(next[String(1000 + Marks.AI_REFUSED_MAX - 1)]).toBeUndefined();   // the oldest
+    });
+});
+
+test.describe('Curator storage — creators (unit)', () => {
+    test('a creator gesture gets its own gesture job; a second one for the same creator takes the new direction', async () => {
+        const { Store, data } = loadStoreWithChrome({});
+        expect(await Store.enqueueCreator({ clanid: 33019580, name: '8floor ltd', ignore: true }))
+            .toMatchObject({ kind: 'added', total: 1 });
+        expect(await Store.enqueueCreator({ clanid: '33019580', name: '8floor ltd', ignore: false }))
+            .toMatchObject({ kind: 'added', total: 1 });
+        const q = data().ilap_curator_queue;
+        expect(q).toHaveLength(1);
+        expect(q[0]).toMatchObject({ id: Store.CREATOR_JOB_ID, type: 'creator', curatorId: Store.CREATOR_ID,
+            appids: ['33019580'] });
+        expect(q[0].meta['33019580']).toMatchObject({ name: '8floor ltd', ignore: false });
+        // A gesture job: outside the three-job cap.
+        expect(Store.cappedCount(q)).toBe(0);
+    });
+
+    test('CREATOR_MAX caps what waits, on its own budget', async () => {
+        const S = loadStore();
+        const appids = Array.from({ length: S.CREATOR_MAX }, (_, i) => String(i + 1));
+        const { Store } = loadStoreWithChrome({
+            ilap_curator_queue: [{ id: S.CREATOR_JOB_ID, type: 'creator', curatorId: S.CREATOR_ID,
+                appids, meta: {}, total: appids.length, status: 'pending' }],
+        });
+        expect(await Store.enqueueCreator({ clanid: 99999, ignore: true })).toEqual({ kind: 'full' });
+        expect(await Store.enqueueMi({ appid: 10, reason: 0 })).toMatchObject({ kind: 'added' });
     });
 });

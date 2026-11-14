@@ -36,7 +36,7 @@ test.describe('Discovery Queue — sale reward bound to the signed-in account', 
         });
         expect(me && me.logged_in, 'the store page is signed out: refresh the session (npm run test:auth)').toBe(true);
         const steamid = String(me.steamid);
-        expect(steamid, 'data-userinfo carries no SteamID64 to compare with').toMatch(/^7656119\d{10}$/);
+        expect(steamid, 'data-userinfo has no SteamID64 to compare with').toMatch(/^7656119\d{10}$/);
 
         const btn = page.locator(SEL.button);
         await expect(btn).toBeVisible({ timeout: 10000 });

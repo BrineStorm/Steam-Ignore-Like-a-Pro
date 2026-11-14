@@ -96,7 +96,7 @@ test.describe('Steam markup canary', () => {
         const first = rows.first();
         expect(await first.getAttribute('href'), 'a search row no longer links to /app/<id>')
             .toMatch(/\/app\/\d+/);
-        expect(await first.locator('img').count(), 'a search row carries no img — nothing to anchor a badge to')
+        expect(await first.locator('img').count(), 'a search row has no img — nothing to anchor a badge to')
             .toBeGreaterThan(0);
     });
 
@@ -202,9 +202,9 @@ test.describe('Steam markup canary', () => {
     // the user gets a generic "couldn't build a list" toast with nothing naming
     // the cause. A curator id is discovered live rather than pinned, so the test
     // does not rot when one curator goes away.
-    test('curator recommendations still carry the rows the enqueue path parses', async ({ page }) => {
+    test('curator recommendations still include the rows the enqueue path parses', async ({ page }) => {
         // Land on the curator page first, so the ajax call below is same-origin
-        // and carries the Referer a real enumeration carries.
+        // and sends the Referer a real enumeration sends.
         await page.goto(curatorPath(), { waitUntil: 'domcontentloaded' });
 
         const data = await page.evaluate(async (url) => {
@@ -278,7 +278,7 @@ test.describe('Steam markup canary', () => {
     // anything else gives 'unknown', which keeps both queue helpers from
     // advancing on their own — fail-closed, so this is the alarm for it. A copy
     // of the parsing rules here would drift from the product's (it already did
-    // once: numbers sent as strings). The answer must also carry the CORS header
+    // once: numbers sent as strings). The answer must also include the CORS header
     // for the store's origin: the content script's request is cross-origin, and
     // without it the browser hides the answer, which reads 'unknown' just the same.
     test('sale reward API still answers the store in a shape the reward check reads', async ({ request }) => {

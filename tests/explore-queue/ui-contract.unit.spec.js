@@ -13,7 +13,7 @@ const vm = require('vm');
 //      script calling .click() on any of them must get nothing. The master
 //      switch and the rate gate are checked LATER and would let a forged click
 //      through;
-//   2. it reaches its own nodes through its own subtree. A page carrying an
+//   2. it reaches its own nodes through its own subtree. A page with an
 //      element with the same id used to take the handler while the real button
 //      sat dead, because the toast looked its children up by document id.
 //

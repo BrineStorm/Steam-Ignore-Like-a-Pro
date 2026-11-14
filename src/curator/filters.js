@@ -21,7 +21,7 @@
 
     // Per-category accent — Steam's own review-type label colours. Null-prototype
     // because the lookup key is a job's stored `filter`, and colorStyle's result
-    // goes into a style ATTRIBUTE unescaped: a record carrying 'constructor' would
+    // goes into a style ATTRIBUTE unescaped: a record with 'constructor' would
     // otherwise resolve to Object and stringify a function into it.
     const COLORS = Object.assign(Object.create(null), {
         not_recommended: '#ec976c',

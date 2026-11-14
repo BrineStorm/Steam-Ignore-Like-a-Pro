@@ -30,14 +30,14 @@ test.describe('i18n — dictionary integrity (unit)', () => {
     const DICT = i18n.DICT;
     const enKeys = Object.keys(DICT.en);
 
-    test('every locale carries every en key (no silent English fallback)', () => {
+    test('every locale has every en key (no silent English fallback)', () => {
         for (const loc of Object.keys(DICT)) {
             const missing = enKeys.filter(k => !Object.prototype.hasOwnProperty.call(DICT[loc], k));
             expect(missing, `${loc} is missing keys`).toEqual([]);
         }
     });
 
-    test('no locale carries keys unknown to en (catches typo\'d key names)', () => {
+    test('no locale has keys unknown to en (catches typo\'d key names)', () => {
         for (const loc of Object.keys(DICT)) {
             const extra = Object.keys(DICT[loc]).filter(k => !Object.prototype.hasOwnProperty.call(DICT.en, k));
             expect(extra, `${loc} has extra keys`).toEqual([]);

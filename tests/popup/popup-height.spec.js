@@ -15,22 +15,21 @@ const {
 // has to fit, and this spec measures the real thing against the number instead of
 // trusting a CSS read.
 //
-// The tallest state is SETTINGS open on ONE feature subcategory: Discovery Queue
-// and Manual Ignore are mutually exclusive (popup_settings.js), so the budget is
-// "base + the taller of the two", never both. Manual Ignore is the taller one, and
-// its third gesture select (solo un-ignore) is what first pushed the panel past
-// 600 — the vertical trim that bought it back (no "Interface:" caption, no
-// subcategory margins doubling the flex gap, no .stat-row margin inside the flex
-// column) is what this spec pins down.
+// The tallest state is the SETTINGS tab open on ONE feature subcategory, under
+// the "Interface:" caption and the surface switch: Discovery Queue and Manual
+// Ignore are mutually exclusive (popup_settings.js), so the budget is "base +
+// the taller of the two", never both. Manual Ignore is the taller one, and its
+// third gesture select (solo un-ignore) is what first pushed the panel past
+// 600 — the vertical trim that bought it back (no subcategory margins doubling
+// the flex gap, no .stat-row margin inside the flex column) and the language
+// leaving the settings for the tab line are what this spec pins down.
 //
 // Every shipped locale is walked, not just English: the panel is 320px wide, so a
-// longer label wraps and costs height. English measures ~575px, Japanese ~594px.
-// The queue bar is always on screen (it shows the built-in lists icon), so it
-// is in that number, and in sr/pl/uk its title wraps.
+// longer label wraps and costs height.
 //
-// The other tall state is the queue applet open with three jobs, the most the
-// cap allows. Its rows are slim strips for that reason (~460px). The two gesture
-// jobs can add two more rows past the cap; a scroll there is accepted.
+// The language tab's grid is the other tall pane. The two drawers (the lists,
+// the queue) are as tall as the panel and never grow the window: their blocks
+// scroll inside themselves.
 //
 // The on-page widget is deliberately NOT covered here — it caps itself to the
 // viewport and scrolls its own panel (src/widget/main.js); the 600px ceiling is
@@ -68,12 +67,12 @@ async function openPopup(page, context) {
     await page.locator('#popup-root').waitFor({ timeout: 5000 });
 }
 
-// body carries no margin and #popup-root is its only child, so this is exactly
-// the height the popup window would have to show.
+// body has no margin and the shell (#popup-root and the lists drawer) is its
+// only child, so this is exactly the height the popup window would have to show.
 const panelHeight = (page) => page.evaluate(() => document.body.scrollHeight);
 
 async function openSettings(page) {
-    await page.locator('#settings-accordion > summary').click();
+    await page.locator('#tab-settings').click();
     await page.locator('#dq-section summary').waitFor({ timeout: 5000 });
 }
 
@@ -104,6 +103,58 @@ function shippedLocales(page) {
 
 test.describe('Popup — toolbar window height budget', () => {
 
+    // The language menu opens upward over the settings. Its top must stay in
+    // the window (nothing scrolls up to it), and it must not grow the panel.
+    test('the open language grid fits the window in every locale', async ({ page, context }) => {
+        await openPopup(page, context);
+        await page.locator('#tab-lang').click();
+        await expect(page.locator('#lang-pane')).toBeVisible();
+        const locales = await shippedLocales(page);
+        const tall = [];
+        for (const code of locales) {
+            await setExtensionStorage(context, { ilap_lang: code });
+            await expect(page.locator('.lang-opt.selected')).toHaveAttribute('data-lang', code);
+            await page.waitForTimeout(300);
+            const h = await panelHeight(page);
+            tall.push(`${code}=${h}`);
+            expect(h, `the language grid must fit the ${POPUP_MAX_H}px popup window (${code})`).toBeLessThanOrEqual(POPUP_MAX_H);
+        }
+        console.log('[height] language grid per locale: ' + tall.join(' '));
+    });
+
+    test('the lists drawer and its open year list fit the 600px window in every locale', async ({ page, context }) => {
+        // The lists drop down under the tab line and grow the window down; the
+        // year list drops over the block's rows and ends inside it, scrolling
+        // in its own box, so the window does not grow for it.
+        await openPopup(page, context);
+        const locales = await shippedLocales(page);
+        await page.locator('#lists-btn').click();
+        await expect(page.locator('#lists-drawer')).toHaveClass(/open/);
+        const tall = [];
+        for (const code of locales) {
+            await setExtensionStorage(context, { ilap_lang: code });
+            await expect(page.locator('html')).toHaveAttribute('lang', code);
+            await page.locator('.ai-year').click();
+            await expect(page.locator('.ai-years')).toHaveClass(/open/);
+            await page.waitForTimeout(300);
+            const m = await page.evaluate(() => ({
+                panel: document.getElementById('popup-root').getBoundingClientRect().bottom,
+                drawer: document.getElementById('lists-drawer').getBoundingClientRect().bottom,
+                block: document.querySelector('#lists-drawer .drawer-inner').getBoundingClientRect().bottom,
+                years: document.querySelector('.ai-years').getBoundingClientRect().bottom,
+                page: document.documentElement.scrollHeight > document.documentElement.clientHeight,
+            }));
+            const h = await panelHeight(page);
+            tall.push(`${code}=${h}`);
+            expect(h, `the lists drawer must fit the ${POPUP_MAX_H}px popup window (${code})`).toBeLessThanOrEqual(POPUP_MAX_H);
+            expect(m.years, `the year list must end inside the block (${code})`).toBeLessThanOrEqual(m.block + 0.5);
+            expect(m.page, `the window never scrolls (${code})`).toBe(false);
+            await page.keyboard.press('Escape');
+            await expect(page.locator('.ai-years')).not.toHaveClass(/open/);
+        }
+        console.log('[height] panel with the lists drawer per locale: ' + tall.join(' '));
+    });
+
     test('tallest state (SETTINGS + Manual Ignore) fits the 600px window in every locale', async ({ page, context }) => {
         await openPopup(page, context);
         const locales = await shippedLocales(page);
@@ -114,7 +165,7 @@ test.describe('Popup — toolbar window height budget', () => {
         const tall = [];
         for (const code of locales) {
             await setExtensionStorage(context, { ilap_lang: code });
-            await expect(page.locator('#lang-quick')).toHaveValue(code);
+            await expect(page.locator('html')).toHaveAttribute('lang', code);
             await expandSubcat(page, 'mi');
 
             const h = await panelHeight(page);
@@ -137,21 +188,46 @@ test.describe('Popup — toolbar window height budget', () => {
             ilap_sw_halt: true,
         });
         await openPopup(page, context);
-        await page.locator('#queue-accordion > summary').click();
+        await page.locator('#queue-btn').click();
         await expect(page.locator('.queue-job')).toHaveCount(3);
         const locales = await shippedLocales(page);
 
         const tall = [];
         for (const code of locales) {
             await setExtensionStorage(context, { ilap_lang: code });
-            await expect(page.locator('#lang-quick')).toHaveValue(code);
+            await expect(page.locator('html')).toHaveAttribute('lang', code);
             await page.waitForTimeout(400);
             const h = await panelHeight(page);
             tall.push(`${code}=${h}`);
             expect(h, `the open queue with three jobs must fit the ${POPUP_MAX_H}px popup window (${code})`)
                 .toBeLessThanOrEqual(POPUP_MAX_H);
+            expect(await page.evaluate(() => (el => el.scrollHeight > el.clientHeight)(document.querySelector('#queue-drawer .drawer-inner'))),
+                `the queue does not scroll (${code})`).toBe(false);
         }
         console.log('[height] queue with 3 jobs per locale: ' + tall.join(' '));
+    });
+
+    test('the AI tab\'s Max message fits its room in every locale', async ({ page, context }) => {
+        await openPopup(page, context);
+        const locales = await shippedLocales(page);
+        await page.locator('#tab-ai').click();
+        await expect(page.locator('#ai-tab-pane')).toBeVisible();
+        const note = page.locator('.ai-level-hint[data-level="4"]');
+
+        for (const code of locales) {
+            await setExtensionStorage(context, { ilap_lang: code });
+            await expect(page.locator('html')).toHaveAttribute('lang', code);
+            await page.locator('.ai-level-tick[data-level="4"]').click();
+            await expect(note).toHaveClass(/shown/);
+            const m = await note.evaluate((el) => {
+                const range = document.createRange();
+                range.selectNodeContents(el);
+                const text = range.getBoundingClientRect();
+                const box = el.getBoundingClientRect();
+                return { text: text.height, box: box.height };
+            });
+            expect(m.text, `the message must fit its room (${code})`).toBeLessThanOrEqual(m.box);
+        }
     });
 
     test('the two subcategories are mutually exclusive, so the budget is base + the taller one', async ({ page, context }) => {
@@ -182,7 +258,13 @@ test.describe('Popup — toolbar window height budget', () => {
         await setExtensionStorage(context, fatHistory());
         await openPopup(page, context);
 
-        const tip = () => page.evaluate(() => {
+        // Measured while it shows: hidden, the tooltip is out of the layout.
+        const tip = async () => {
+            await page.locator('.history-trigger').hover();
+            await expect(page.locator('#history-list')).toBeVisible();
+            return measure();
+        };
+        const measure = () => page.evaluate(() => {
             const el = document.getElementById('history-list');
             const r = el.getBoundingClientRect();
             const lines = [...el.querySelectorAll('.hist-name')].map((n) =>
@@ -204,6 +286,9 @@ test.describe('Popup — toolbar window height budget', () => {
         expect(closed.cap).not.toBe('none');
         expect(closed.bottom).toBeLessThanOrEqual(closed.panel);
         expect(closed.scrolls, 'the worst-case history must fit the collapsed cap').toBe(false);
+        // Off the box first: the open tooltip lies over the tab line.
+        await page.mouse.move(0, 0);
+        await expect(page.locator('#history-list')).toBeHidden();
 
         // Settings open: a taller panel gives the tooltip more room, but the cap
         // stays a NUMBER — an uncapped tooltip in a panel that already runs to

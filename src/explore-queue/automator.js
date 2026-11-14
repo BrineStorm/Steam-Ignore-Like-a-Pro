@@ -33,6 +33,7 @@
             need(deps.notice, ['confirmOnce'], 'notice');         // src/queue-common/automation-notice.js
             need(deps.runs, ['open', 'isLive', 'close'], 'runs'); // explore-queue/utils.js RunLedger
             need(deps.wishlist, ['has'], 'wishlist');             // has(appid) → true | false | null (read failed)
+            need(deps.ai, ['isAi'], 'ai');                        // explore-queue/utils.js AiVerdict
 
             this.settings = deps.settings;   // explore-queue/utils.js QueueSettings
             this.ui = deps.ui;
@@ -48,6 +49,7 @@
             this.notice = deps.notice;
             this.runs = deps.runs;
             this.wishlist = deps.wishlist;
+            this.ai = deps.ai;
 
             this.processedSession = new Set();
             this.nextTimeoutId = null;
@@ -240,10 +242,23 @@
             const autoNext = this.currentSettings.autoNext;
             
             const reviewState = this.analyzer.getState();
-            const decision = this.decisionEngine.decide(reviewState, mode);
+            let decision = this.decisionEngine.decide(reviewState, mode);
 
             // Ensure start prompt is cleared if logic executes via navigation token
             this.ui.clearStartPrompt();
+
+            // On the AI tab's HIGH level an AI game goes whatever its reviews.
+            // A failed read spares it. A stop during the read ends the pass, and
+            // so does another pass that took the game meanwhile.
+            if (decision !== 'SHOULD_IGNORE') {
+                const stops = this._stops;
+                const ai = await this.ai.isAi(appid).catch((e) => {
+                    console.warn('[ILAP] EQ AI check failed:', e);
+                    return false;
+                });
+                if (stops !== this._stops || this.processedSession.has(appid)) return;
+                if (ai) decision = 'SHOULD_IGNORE';
+            }
 
             if (decision === 'SHOULD_IGNORE') {
                 // Pre-mark to keep the in-flight re-entrancy dedupe (run() skips

@@ -6,7 +6,7 @@
 //
 // Playwright CSS selectors pierce the open shadow root, so .ilap-launcher /
 // .ilap-panel resolve straight through #ilap-widget-host. No ignore API is
-// ever reachable here (the panel carries no ignore action), so no route
+// ever reachable here (the panel has no ignore action), so no route
 // interception is needed.
 //
 // WHEN THIS SUITE GOES RED, SUSPECT THE SAVED SESSION FIRST — refresh it with

@@ -16,7 +16,7 @@
 // account, and globalSetup/globalTeardown remove it afterwards (tests/_cleanup.js).
 
 const { test, expect } = require('../_fixtures.js');
-const { SEL, NEXT_ARROW, IGNORE_ICON, CONFIRM_PRIMARY_MS, openQueueModal } = require('./_modal.js');
+const { SEL, NEXT_ARROW, IGNORE_ICON, HASHED_CLASS, CONFIRM_PRIMARY_MS, openQueueModal } = require('./_modal.js');
 const { randomTag } = require('../_tags.js');
 const { readUserdata, pollUserdata } = require('../_steam-live.js');
 
@@ -27,7 +27,7 @@ const PAINT_MS = 9000;
 
 // What the automator's primary paths find in the modal right now, mirroring
 // SlideScanner in src/discovery-queue/logic.js.
-const PROBE = ({ S, IGNORE, NEXT }) => {
+const PROBE = ({ S, IGNORE, NEXT, HASHED }) => {
     const dialog = document.querySelector(S.modal);
     if (!dialog) return null;
     const paths = (root, d) => [...root.querySelectorAll('path')]
@@ -45,11 +45,11 @@ const PROBE = ({ S, IGNORE, NEXT }) => {
         children: carousel ? carousel.children.length : 0,
         appid: link ? ((link.getAttribute('href').match(/\/app\/(\d+)/) || [])[1] || null) : null,
         ignoreButton: !!ignoreBtn,
-        ignoreHashed: ignoreBtn ? [...ignoreBtn.classList].filter((c) => c.startsWith('_')).length : null,
+        ignoreHashed: ignoreBtn ? [...ignoreBtn.classList].filter((c) => new RegExp(HASHED).test(c)).length : null,
         nextButton: !!focusable(next[next.length - 1]),
     };
 };
-const ARGS = { S: SEL, IGNORE: IGNORE_ICON, NEXT: NEXT_ARROW };
+const ARGS = { S: SEL, IGNORE: IGNORE_ICON, NEXT: NEXT_ARROW, HASHED: HASHED_CLASS };
 const probe = (page) => page.evaluate(PROBE, ARGS).catch(() => null);
 const allFound = (p) => p && p.appid && p.ignoreButton && p.nextButton;
 
@@ -140,7 +140,7 @@ test.describe('Discovery Queue — Steam markup (live)', () => {
 
         // The automator's own wait starts after its click, so this one does too.
         const readClasses = () => btn.evaluate((el) => el.className).catch(() => '(detached)');
-        const hashedIn = (cls) => cls.split(/\s+/).filter((c) => c.startsWith('_')).length;
+        const hashedIn = (cls) => cls.split(/\s+/).filter((c) => new RegExp(HASHED_CLASS).test(c)).length;
         const deadline = Date.now() + CONFIRM_PRIMARY_MS;
         let classes = await readClasses();
         while (hashedIn(classes) < 2 && Date.now() < deadline) {

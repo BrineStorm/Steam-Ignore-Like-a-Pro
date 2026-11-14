@@ -48,13 +48,17 @@ const STALE = packagePath('chromium', '0.0.1-stale');
 // and a drift is invisible until two packages with different numbers on them sit
 // in dist/ waiting to be uploaded.
 test.describe('build.js — version (unit)', () => {
-    test('both manifests carry the same version', () => {
+    test('both manifests have the same version', () => {
         expect(manifestVersion('firefox'), 'manifest version drift')
             .toBe(manifestVersion('chromium'));
     });
 });
 
 test.describe('build.js — store packages (unit)', () => {
+
+    // One worker for the block, under a fullyParallel config too: each worker
+    // runs beforeAll, and two builds over the one dist/ fail each other.
+    test.describe.configure({ mode: 'default' });
 
     // Packaging is pinned to System32's bsdtar. Another host's tar may have no
     // zip writer (GNU tar on the ubuntu CI runner writes a plain tar and exits 0),

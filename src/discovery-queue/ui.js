@@ -13,6 +13,19 @@
     // The colour of a lock the user can lift: the sale's queue reward, theirs to earn.
     const LOCK = '#f2c94c';
 
+    // The panel folds into Steam's modal and out of it (height, margins,
+    // opacity) in FOLD_MS, or comes and goes at once with reduced motion.
+    const FOLD_MS = 200;
+    const still = (el) => !el.animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    function fold(el, show) {
+        const s = getComputedStyle(el);
+        const full = { height: el.getBoundingClientRect().height + 'px', marginTop: s.marginTop, marginBottom: s.marginBottom, opacity: 1 };
+        const none = { height: '0px', marginTop: '0px', marginBottom: '0px', opacity: 0 };
+        el.style.overflow = 'hidden';
+        return el.animate(show ? [none, full] : [full, none], { duration: FOLD_MS, easing: 'ease', fill: show ? 'none' : 'forwards' })
+            .finished.catch(() => {});
+    }
+
     // The panel's ONLY stylesheet: styles/styles.css has no rules for it. Two
     // sheets setting the same properties would leave the look to injection
     // order, and neither could be read on its own.
@@ -69,7 +82,7 @@
                 
                 .ilap-checkbox-label {
                     display: flex; align-items: center; font-size: 12px;
-                    font-family: Arial, sans-serif;
+                    font-family: "Motiva Sans", Arial, Helvetica, sans-serif;
                     cursor: pointer; user-select: none; margin-right: 8px;
                     color: #ffffff;
                     font-weight: 600;
@@ -110,6 +123,7 @@
         constructor(resources) {
             this.resources = resources;
             this.container = null;
+            this._leaving = null;     // the panel folding out (unmount)
             this.button = null;
             this.checkbox = null;
             this._refuseTimer = null;
@@ -145,6 +159,7 @@
 
         mount(insertionPoint, events) {
             if (this.isMounted()) return;
+            if (this._leaving) { this._leaving.remove(); this._leaving = null; }
 
             this.container = document.createElement('div');
             this.container.className = 'ilap-controls-container';
@@ -194,14 +209,28 @@
 
             if (insertionPoint.parent && !insertionPoint.parent.contains(this.container)) {
                 insertionPoint.parent.insertBefore(this.container, insertionPoint.referenceNode);
+                const box = this.container;
+                if (!still(box)) fold(box, true).then(() => { box.style.overflow = ''; });
             }
         }
 
+        // The panel on its way out keeps its ids, which its styles go by, and
+        // takes no clicks. A panel mounted meanwhile takes it off at once.
         unmount() {
             clearTimeout(this._refuseTimer);
             this._refuseTimer = null;
             if (this.container) {
-                this.container.remove();
+                const box = this.container;
+                if (still(box) || !box.isConnected) {
+                    box.remove();
+                } else {
+                    box.style.pointerEvents = 'none';
+                    this._leaving = box;
+                    fold(box, false).then(() => {
+                        box.remove();
+                        if (this._leaving === box) this._leaving = null;
+                    });
+                }
                 this.container = null;
                 this.button = null;
                 this.checkbox = null;

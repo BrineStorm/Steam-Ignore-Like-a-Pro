@@ -1,11 +1,11 @@
 {
   "extName": {
-    "message": "Steam Ignore Like A Pro — 快速自動的遊戲忽略"
+    "message": "Steam Ignore Like a Pro — AI 篩選與批次忽略"
   },
   "extNameChrome": {
-    "message": "Steam Ignore Like A Pro — 快速自動的遊戲忽略"
+    "message": "Steam Ignore Like a Pro — 沒有劣質遊戲的 Steam，AI 遊戲篩選與批次忽略"
   },
   "extDescription": {
-    "message": "用一個滑鼠手勢就能把 Steam 商店中的遊戲加入忽略清單，也能一次加入你自選或鑑賞家的整份清單。"
+    "message": "篩選 AI 遊戲，用一個滑鼠手勢忽略任何遊戲，或一次忽略整份不想要的遊戲清單，還有更多功能。"
   }
 }

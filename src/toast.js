@@ -3,7 +3,7 @@
     'use strict';
 
     // The bottom-right push card, shared by the two fire-and-forget notifiers:
-    // the curator page button (job added / switched / queue full / enumerate
+    // the curator page button (job added / queue full / enumerate
     // error) and Manual Ignore (the MI queue is stuck at its cap). It slides in,
     // then fades out on its own — no buttons, no state.
     //

@@ -19,7 +19,7 @@ function loadEnumerator() {
 }
 
 // One recommendation row, shaped like Steam's real results_html: the wrapper is
-// class="recommendation" (inner nodes carry suffixes), data-ds-appid appears
+// class="recommendation" (inner nodes have suffixes), data-ds-appid appears
 // TWICE on the capsule <a>, and the type is a SINGLE-quoted color_* class.
 function row(appid, color) {
     return `

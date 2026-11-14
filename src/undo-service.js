@@ -49,18 +49,19 @@
             const appids = snapshot(await this.log.getLog());
             if (appids.length === 0) return { kind: 'empty' };
             const snapshotTs = Date.now();
+            const id = 'job_undo_' + snapshotTs;
 
             let outcome = null;
+            // The list goes under its own key (Store.getList).
             await this.store.mutateQueue((queue) => {
                 if (queue.some(j => this.store.jobType(j) === this.store.JOB_TYPE.UNDO)) { outcome = { kind: 'exists' }; return null; }
                 if (this.store.cappedCount(queue) >= this.maxJobs) { outcome = { kind: 'full' }; return null; }
                 outcome = { kind: 'added', total: appids.length };
                 queue.push({
-                    id: 'job_undo_' + snapshotTs,
+                    id,
                     type: this.store.JOB_TYPE.UNDO,
                     curatorId: UNDO_ID,
                     curatorName: '',
-                    appids,
                     total: appids.length,
                     status: 'pending',
                     snapshotTs,          // the "last user intent wins" boundary
@@ -68,7 +69,7 @@
                     addedAt: snapshotTs
                 });
                 return queue;
-            });
+            }, { [id]: appids });
             return outcome;
         }
     }

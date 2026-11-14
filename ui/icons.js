@@ -30,6 +30,21 @@
     // A bundle: two capsules, one behind the other. A queued bundle job and its history entry.
     const BUNDLE = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" opacity=".45" d="M4 1h12v9H4z"/><path fill="currentColor" d="M0 5h12v10H0z"/></svg>';
 
+    // A creator (developer, publisher, franchise): a studio's building with a
+    // saw-tooth roof. A creator ignore's history entry and the creator job.
+    const CREATOR = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M0 15V6l4-3v3l4-3v3l4-3v-2h3v14zM3 9v2h2V9zm4 0v2h2V9zm4 0v2h2V9z"/></svg>';
+
+    // A floppy disk drawn in line, as office suites draw Save: the body with
+    // its cut corner, the shutter at the top and the label below. The AI tab's
+    // button that stores the level.
+    const SAVE = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round">'
+        + '<path d="M3.2 1.9h7.4l3.5 3.5v7.5a1.2 1.2 0 0 1-1.2 1.2H3.2A1.2 1.2 0 0 1 2 12.9V3.1a1.2 1.2 0 0 1 1.2-1.2z"/>'
+        + '<path d="M5 1.9v3.3h5.2V1.9M4.6 14.1V9.6h6.8v4.5"/></g></svg>';
+
+    // A check mark as one stroke, so it can be drawn in (pathLength 1). What
+    // the save button turns into once the level is stored.
+    const CHECK = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" pathLength="1" d="M3.2 8.6l3.1 3.1 6.5-7"/></svg>';
+
     // The swipe glyph: a gradient swoosh arrow, flipped for a left swipe. `gradientId`
     // must be unique in its document — several swooshes share one panel.
     function swoosh({ isRight, gradientId, cls, width, height }) {
@@ -58,5 +73,5 @@
             + '</svg>';
     }
 
-    window.ILAP_Icons = { PAUSE, PLAY, TRASH, PRESETS, UNIGNORE, LIST, BUNDLE, swoosh, ring };
+    window.ILAP_Icons = { PAUSE, PLAY, TRASH, PRESETS, UNIGNORE, LIST, BUNDLE, CREATOR, SAVE, CHECK, swoosh, ring };
 })();

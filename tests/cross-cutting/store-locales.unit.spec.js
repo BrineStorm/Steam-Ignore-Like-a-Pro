@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-// _locales/ carries the extension's name and short description per language:
+// _locales/ has the extension's name and short description per language:
 // the stores build their per-language listings from it. Chrome refuses to load
 // a package whose __MSG_…__ has no message in the default locale, and the
 // store dashboards reject a name or summary over their limits — neither shows
@@ -12,7 +12,7 @@ const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..', '..');
 const LOCALES = path.join(ROOT, '_locales');
-const BRAND = 'Steam Ignore Like A Pro — ';
+const BRAND = 'Steam Ignore Like a Pro — ';
 const NAME_MAX = 50;          // AMO, per locale: extName (Firefox build)
 const CHROME_NAME_MAX = 75;   // CWS: extNameChrome (Chromium build)
 const SUMMARY_MAX = 132;      // CWS (AMO allows 250)

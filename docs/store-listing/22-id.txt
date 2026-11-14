@@ -1,0 +1,57 @@
+Filter game AI di toko Steam, dan abaikan game dengan satu gerakan mouse atau seluruh daftar sekaligus.
+
+Steam Ignore Like a Pro adalah ekstensi gratis dan open-source yang membuat Steam lebih praktis dan menghargai privasimu. Tab AI menandai, memburamkan, atau mengabaikan game buatan AI di setiap halaman toko. Ekstensi ini membawa tombol "Abaikan" milik Steam ke sampul setiap game di toko, jadi kamu tidak perlu lagi membuka halaman game hanya untuk menekan "Abaikan" sekali. Semuanya bekerja persis seperti di Steam, karena ekstensi ini memakai fitur abaikan milik Steam sendiri.
+
+CARA PAKAI:
+1. Buka halaman mana saja di toko Steam.
+2. Tahan tombol kanan mouse di sampul game lalu geser ke kanan (atau ke kiri untuk mengabaikannya dengan tanda "Sudah dimainkan").
+3. Lencana "IGNORED" langsung muncul di game tersebut. Proses abaikannya sendiri sampai ke Steam beberapa saat kemudian.
+4. Kalau berubah pikiran, klik lencana itu untuk membatalkan abaikan.
+
+CARA MEMFILTER GAME AI:
+1. Buka panel ekstensi dan tab AI-nya.
+2. Pilih tingkat filter "Tinggi" lalu klik tombol simpan di sebelah penggeser.
+3. Buka halaman Steam mana pun yang berisi banyak sampul game, lalu gulir. Begitu game AI muncul di layar, kamu melihat animasi dan game itu ditambahkan ke daftar abaikanmu.
+4. Kalau mau, kamu bisa mematikan animasinya atau memilih tingkat yang hanya menandai game AI dan tidak memasukkannya ke daftar abaikanmu.
+
+FITUR:
+▪ Gratis, privat, dan open-source - ekstensi ringan tanpa framework, tanpa pelacakan, dan tanpa telemetri. Ekstensi ini bekerja di sesi browser-mu dan tidak meneruskannya ke tempat lain.
+▪ Abaikan dengan satu gerakan - Tahan klik kanan lalu geser ke kanan untuk mengabaikan game di mana pun sampulnya muncul.
+▪ Abaikan dengan tanda "Sudah dimainkan" - Geser ke kiri untuk langsung mengabaikan game yang sudah kamu mainkan di platform lain dengan tanda ini, tanpa membuka halamannya lalu menekan "Abaikan" -> "Dimainkan di Platform Lain".
+▪ Filter game AI - Ekstensi ini bisa menandai game buatan AI langsung di sampulnya, atau menambahkannya ke daftar abaikan akunmu secara otomatis.
+▪ Daftar abaikan bawaan - Abaikan sekaligus semua game dengan konten AI, Denuvo, akses kernel, ketentuan EULA invasif, game buruk terkenal, dan lainnya, sesuai pilihanmu. Daftar ini disusun lebih dulu dan disertakan bersama ekstensi. Game di pustaka dan wishlist-mu dilewati.
+▪ Abaikan massal dari daftar kurator - Abaikan daftar dari kurator Steam langsung dari halaman mereka. Pilih kurator yang menandai game yang tidak kamu suka, dan ekstensi akan mengabaikan seluruh daftarnya.
+▪ Abaikan kreator - Abaikan developer atau publisher dengan satu klik pada tombol tepat di sebelah tautannya di halaman game.
+▪ Abaikan di Daftar Temuan (Discovery Queue) - Buka Daftar Temuan di halaman tag, genre, atau kategori, dan ekstensi akan mengabaikan semua game di daftar itu atau hanya game dengan ulasan buruk.
+▪ Asisten Daftar Temuan klasik - Saat kamu menelusuri Daftar Temuan harian dari Steam, ekstensi otomatis mengabaikan game sesuai syaratmu (misalnya ulasan buruk), atau mengabaikannya lalu langsung lanjut ke game berikutnya.
+▪ Batalkan abaikan - Abaikan game atau kreator bisa dibatalkan kapan saja langsung di sampul game atau di sebelah tautan kreator, dan abaikan terbaru bisa dibatalkan sebagai daftar di menu pembatalan terpisah dengan menambahkan tugas pembatalan.
+▪ Bisa diatur sesukamu - Ekstensi ini bisa disesuaikan cukup luas. Kamu bisa mengganti hotkey, menyalakan atau mematikan modul dan mode abaikan satu per satu, memindahkan antarmuka ekstensi di halaman, dan banyak lagi.
+▪ 24 bahasa antarmuka - Bisa diganti langsung, tidak bergantung pada bahasa Steam-mu.
+
+T: Kenapa pakai ini, bukan fitur abaikan bawaan Steam?
+J: Tombol "Abaikan" bawaan Steam tidak ada di banyak halaman dan widget Steam, dan di tempat yang ada pun, mengabaikan butuh beberapa klik (arahkan kursor ke sampul game -> klik ▪▪▪ -> klik "Abaikan"). Menu itu juga tidak punya opsi "Dimainkan di Platform Lain". Selain itu, Steam tidak bisa mengabaikan satu daftar game sekaligus. Ekstensi ini memberimu abaikan dengan satu gerakan di halaman dan widget Steam mana pun, ditambah abaikan massal dari daftar bawaan dan otomatisasi abaikan.
+
+T: Bagaimana cara mengabaikan banyak game sekaligus di Steam?
+J: Steam sendiri hanya mengabaikan game satu per satu. Dengan ekstensi ini kamu bisa, misalnya, menambahkan daftar bawaan ke antrean abaikan (game dengan konten AI, Denuvo, akses kernel, ketentuan EULA invasif, game buruk terkenal, dan lainnya), menambahkan seluruh daftar seorang kurator ke sana, mengabaikan satu bundel penuh dengan satu gerakan, mengabaikan seorang kreator, menyalakan filter AI tingkat tinggi, menjalankan asisten Daftar Temuan untuk tag atau genre tertentu, atau cukup menggeser cepat sampul game yang tidak kamu mau di toko.
+
+T: Apakah memakai ekstensi ini sesuai dengan aturan Steam?
+J: Ya, untuk abaikan atau pembatalan abaikan lewat gerakan, tombol, atau hotkey. Masing-masing hanya berjalan sekali untuk setiap tindakanmu, sama seperti menekan tombol "Abaikan" di Steam. Asisten Daftar Temuan, filter AI tingkat tinggi, antrean abaikan (daftar kurator, daftar bawaan, dan bundel), serta pembatalan massal termasuk otomatisasi. Bagian 4.C Perjanjian Pelanggan Steam (Steam Subscriber Agreement) melarang interaksi dengan Steam yang tidak dikendalikan manusia, termasuk mendapatkan hadiah atau progres tanpa tindakan pengguna yang sebenarnya, jadi gunakan fitur otomatisasi atas pertimbanganmu sendiri dan dengan menyadari risikonya. Ekstensi ini tidak mengambilkan hadiah obral untukmu dan tidak dibuat untuk itu. Ekstensi ini juga punya pengaman bawaan yang mengatur tempo permintaan ke Steam, satu per satu. Meski begitu, keputusan akhir tetap ada di tangan Valve, begitu pula sikap dan tindakan perusahaan itu terhadap ekstensi ini dan ekstensi otomatisasi Steam lainnya.
+
+T: Bisakah saya membatalkan abaikan?
+J: Bisa, kapan saja. Tombol abaikan di halaman game tetap berfungsi bersama ekstensi. Kamu juga bisa menggambar lingkaran atau zigzag di sampul game, atau mengklik lencana IGNORED di game itu, untuk membatalkan satu abaikan. Atau buka popup ekstensi, tekan tombol batalkan (↩️), lalu pilih abaikan terbaru mana yang mau dibatalkan, N game terakhir atau semuanya dari N jam atau hari terakhir. Kreator yang diabaikan bisa dikembalikan di tempat yang sama, di tab "Kreator".
+
+T: Apakah ekstensi ini berfungsi kalau Steam saya tidak berbahasa Inggris?
+J: Ya. Ekstensi ini tidak bergantung pada bahasa. Ekstensi ini berfungsi dengan pengaturan bahasa apa pun di akun Steam-mu.
+
+T: Apakah ekstensi ini berfungsi di macOS dan Linux?
+J: Ya. Di macOS dan Linux, menu klik kanan langsung terbuka begitu tombol kanan ditekan, jadi ekstensi menahan menu itu saat sampul game diklik jika abaikan atau pembatalannya diatur ke gerakan. Kamu juga bisa memasang abaikan ke tombol lain (misalnya Shift + klik kiri) di PENGATURAN -> Abaikan manual.
+
+T: Bisakah saya mengabaikan bundel atau paket berisi beberapa game?
+J: Bisa. Geser di sampul bundel, lalu geser sekali lagi untuk konfirmasi. Semua game dan DLC di bundel itu masuk ke antrean abaikan dan diabaikan dengan tempo biasa. Game di pustaka dan wishlist-mu dilewati.
+
+PRIVASI & KEAMANAN:
+▪ Bekerja lewat Steam sendiri, dengan menekan tombol milik Steam atau mengirim permintaan yang sama seperti yang dikirim Steam.
+▪ Tanpa pelacakan, tanpa analitik, tanpa server eksternal. Kami tidak mengumpulkan, menerima, atau membagikan data pribadi pengguna apa pun. Pengaturan, riwayat abaikan, dan antrean yang tertunda disimpan secara lokal di browser-mu sendiri, dan permintaan langsung dikirim ke server resmi Steam (store.steampowered.com dan api.steampowered.com).
+▪ Tidak ada kata sandi atau kunci Steam API yang disimpan, dan tidak ada apa pun yang dikirim ke mana pun selain Steam. Ekstensi ini memakai sesi Steam aktif di browser-mu dan, untuk memeriksa hadiah dari menelusuri Daftar Temuan saat obral, token akses yang sudah ada di halaman toko Steam. Token itu hanya dikirim ke API milik Steam dan tidak pernah disimpan.
+
+Steam Ignore Like a Pro tidak berafiliasi dengan dan tidak disponsori oleh Valve Corporation maupun Steam.

@@ -1,3 +1,7 @@
+// A swiped game keeps its badge through a reload: the badge is drawn again
+// from the tab's session map (ilap_session_map_v2, sessionStorage) with no
+// second ignore POST. The POST and userdata are stubbed (_helpers.js).
+
 const { test, expect } = require('../_fixtures.js');
 const {
     SEL,

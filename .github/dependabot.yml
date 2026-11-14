@@ -1,6 +1,6 @@
 # Dependabot is a reminder, not an author: its PRs are read, then the bump is
 # committed by hand (or its PR closed). Nothing here auto-merges — an auto-merged
-# bump would carry a compromised upstream into the tree unseen, which is the one
+# bump would bring a compromised upstream into the tree unseen, which is the one
 # failure mode this whole file is meant to keep visible.
 #
 # Actions are SHA-pinned in the workflows; Dependabot rewrites the SHA and the

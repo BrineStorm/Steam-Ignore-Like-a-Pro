@@ -2,8 +2,8 @@
 (function() {
     'use strict';
 
-    // Keeps Steam's ignore-list size (StatsLogic.TOTAL_KEY) from going stale
-    // while nothing drains. A drain pass records it for free from the userdata
+    // Keeps Steam's ignore-list size (StatsLogic.TOTAL_KEY), and the creator
+    // mirror with it, from going stale while nothing drains. A drain pass records it for free from the userdata
     // read it makes anyway; this covers the rest: on a store page load, at most
     // once per TTL across all tabs. The store page reads the same userdata on
     // every load itself, so one more read per TTL is noise to Steam.
@@ -51,6 +51,9 @@
         // likely to be missing from it.
         if (readAt - (await I.IgnoreGate.lastSlotAt()) < USERDATA_LAG_MS) return;
         await I.recordIgnoredTotal(ignored.size);
+        // The same read has the ignored and followed creators (src/creators.js),
+        // as fresh as the total for the same reason.
+        await I.Creators.syncFromAccount(ignored);
     }
 
     if (document.readyState === 'loading') {

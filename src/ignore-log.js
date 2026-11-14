@@ -4,12 +4,17 @@
 
     // Every ignore this extension performed, with a timestamp: the undo feature's
     // data (Steam's rgIgnoredApps has no dates).
-    //   { appid, name?, ts, source, curatorId?, undoneAt?, skipped? }
+    //   { appid, name?, ts, source, curatorId?, auto?, undoneAt?, skipped? }
     // source ∈ 'mi' | 'eq' | 'dq' | 'curator'. A built-in list's and a bundle
     // job's ignores are 'curator' too, with curatorId 'preset_<key>', or
-    // 'bundle_<id>' / 'sub_<id>'. `undoneAt`: rolled back, kept so a
+    // 'bundle_<id>' / 'sub_<id>'. A bundle's app that went into the MI job is
+    // 'mi' with the bundle's curatorId, and a game the AI tab's HIGH level shot
+    // while browsing is 'mi' with `auto`. `undoneAt`: rolled back, kept so a
     // later undo does not repeat it. `skipped` ('unavailable' | 'failed'): a drain
     // could not ignore it; inert for every undo selector.
+    // A creator ignore or its rollback is { creator, name?, ignore, ts, source:
+    // 'creator' }: no appid, so every selector below passes it by, and it
+    // never counts as a game.
 
     window.ILAP = window.ILAP || {};
 
@@ -23,8 +28,9 @@
     const CHUNK_SIZE = 100;
     // A single-array log under this key is migrated into chunks (see loadIndex).
     const LEGACY_KEY = 'ilap_ignore_log';
-    // FIFO cap, large enough for a big curator drain. Enforced a chunk at a time.
-    const LOG_CAP = 5000;
+    // FIFO cap. Undo reaches only what is still here, and one built-in list
+    // ignores thousands of games. About 2 MB at the cap. Enforced a chunk at a time.
+    const LOG_CAP = 20000;
     const MAX_CHUNKS = LOG_CAP / CHUNK_SIZE;
 
     const chunkKey = (seq) => CHUNK_PREFIX + seq;
@@ -110,7 +116,7 @@
         const undone = new Map();
         const bump = (map, appid, at) => { if (!map.has(appid) || at > map.get(appid)) map.set(appid, at); };
         for (const e of (log || [])) {
-            if (!e) continue;
+            if (!e || !e.appid) continue;
             const appid = String(e.appid);
             if (e.undoneAt > 0) bump(undone, appid, e.undoneAt);
             else if (!e.undoneAt && !e.skipped) bump(ignored, appid, e.ts || 0);
@@ -220,82 +226,291 @@
         return readChunks(await serialized(loadIndex));
     }
 
-    // One performed ignore, or with `skipped` one refusal. The name is optional
-    // and sanitized here. No appid, no entry: it could never be undone.
+    // Appids of the live ignores logged since `sinceTs`. Reads back from the newest
+    // chunk and stops at one that begins earlier, so a page's scan, which asks this
+    // often, does not read the whole log.
+    async function ignoredSince(sinceTs) {
+        const index = await serialized(loadIndex);
+        const out = new Set();
+        for (let seq = index.last; seq >= index.first; seq--) {
+            const key = chunkKey(seq);
+            const chunk = asArray((await get(key))[key]);
+            for (const e of undoable(chunk)) if ((e.ts || 0) >= sinceTs) out.add(String(e.appid));
+            if (chunk.length && (chunk[0].ts || 0) < sinceTs) break;
+        }
+        return out;
+    }
+
+    // One performed ignore, or with `skipped` one refusal, or one creator
+    // ignore or rollback. The name is optional and sanitized here. No appid and
+    // no creator, no entry: it could never be undone.
     function append(entry) {
-        if (!entry || !entry.appid) return Promise.resolve();
-        const safe = {
-            appid: String(entry.appid),
-            ts: entry.ts || Date.now(),
-            source: entry.source
-        };
+        return appendEntry(entry, null);
+    }
+
+    // `own` (the drainer hooks) hears the plan before it is written and again
+    // once it landed, inside the write chain.
+    function appendEntry(entry, own) {
+        if (!entry || !(entry.appid || entry.creator)) return Promise.resolve();
+        const safe = entry.appid
+            ? { appid: String(entry.appid), ts: entry.ts || Date.now(), source: entry.source }
+            : { creator: String(entry.creator), ignore: !!entry.ignore, ts: entry.ts || Date.now(), source: entry.source };
         if (entry.name) safe.name = window.ILAP.Sanitizer.sanitizeName(entry.name);
         if (entry.curatorId) safe.curatorId = String(entry.curatorId);
+        if (entry.auto) safe.auto = true;
         if (entry.skipped) safe.skipped = String(entry.skipped);
         return serialized(async () => {
             const index = await loadIndex();
             const tailKey = chunkKey(index.last);
             const tail = asArray((await get(tailKey))[tailKey]);
-            const { writes, removes } = appendPlan(index, tail, safe);
-            await set(writes);
-            if (removes.length) await remove(removes);
+            const plan = appendPlan(index, tail, safe);
+            if (own) own.sending(plan);
+            await set(plan.writes);
+            if (plan.removes.length) await remove(plan.removes);
+            if (own) own.landed(index, tail, plan, safe);
         });
     }
 
     // After a confirmed un-ignore; rewrites only the chunks that change.
+    // Resolves to the curatorIds of the entries it marked, so a built-in list
+    // that ignored the game can be offered again.
     function markUndone(appid, snapshotTs) {
         const now = Date.now();
         return serialized(async () => {
             const keys = chunkKeys(await loadIndex());
             const res = await get(keys);
             const writes = {};
+            const by = new Set();
             for (const k of keys) {
                 const chunk = asArray(res[k]);
                 const next = markedUndone(chunk, appid, snapshotTs, now);
-                if (next.some((entry, i) => entry !== chunk[i])) writes[k] = next;
+                next.forEach((entry, i) => {
+                    if (entry === chunk[i]) return;
+                    writes[k] = next;
+                    if (entry.curatorId) by.add(entry.curatorId);
+                });
             }
             if (Object.keys(writes).length) await set(writes);
+            return [...by];
         });
     }
 
-    // The drainer asks these two per ENTRY, and an undo job is up to the whole
-    // undoable list — "un-ignore everything" on a full log is 5000 entries, each
-    // re-reading all 50 chunks and rebuilding a 5000-object array, i.e. O(n²).
-    // The gate hides it while POSTs are being sent; a dedupe pass skips the gate
-    // entirely and runs that loop flat out.
+    // --- the drainer's view -------------------------------------------------
+    // The drainer asks lastIgnoredAt / lastUndoneAt / wasReIgnoredAfter for
+    // every entry and marks every rollback, and an undo job can be the whole
+    // log. A full read for each made it O(n²). On 5000 games already off the
+    // list, a pass that skips the gate spent a minute of worker CPU.
     //
-    // So: one snapshot, dropped whenever the log changes. Own writes drop it
-    // synchronously (onChanged is delivered a tick later, and `append` here is
-    // exactly what a re-ignore mid-pass goes through); the listener covers the
-    // other context — a tab draining MI while the worker drains the undo job.
-    // Only the drainer's hooks share it. `getLog` stays a fresh read for the
-    // popup, which must not show a stale undoable count.
-    // The times index rides the same snapshot: a pass asks it on every dedupe
-    // skip, and a scan of the full log each time is seconds per pass.
-    let snapshot = null;
-    let times = null;
-    const dropSnapshot = () => { snapshot = null; times = null; };
-    function cachedLog() {
-        if (!snapshot) snapshot = getLog().catch((e) => { dropSnapshot(); throw e; });
-        return snapshot;
+    // So the hooks keep a copy of the log in memory, read once:
+    //   - their own writes (append, markUndone) update the copy in place, and
+    //     the onChanged echo of each is recognized and passed by;
+    //   - any other write to a log key (another context, or this one outside
+    //     the hooks) drops the copy, and the next question reads it again;
+    //   - markUndone reads and rewrites only the chunks with the appid in
+    //     them, plus every chunk from the copy's tail on. So it also marks what
+    //     another context appended before that write's onChanged arrives, and a
+    //     chunk that reads back different from the copy drops the copy;
+    //   - a copy with no question or own write for IDLE_MS is dropped too.
+    // Reads of the copy and own writes share the write chain, so a read never
+    // sees half of an own write. `getLog` stays a fresh read for the popup.
+    const GONE = {};       // the echo of a removed key
+    const ECHO_MAX = 16;   // own writes to one key whose echo may still be on its way
+    // At the cap the copy takes several MB (7.6 MB measured), and a host that
+    // drained once (a Firefox store tab) would keep it as long as the page lives.
+    const IDLE_MS = 60000;
+
+    // Values are compared by content: Chromium hands a stored object back with
+    // its keys in its own order. A log value is a chunk (an array of flat
+    // entries) or the index (one flat object).
+    function sameFlat(a, b) {
+        if (a === b) return true;
+        if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+        const keys = Object.keys(a);
+        return keys.length === Object.keys(b).length && keys.every(k => a[k] === b[k]);
     }
-    function cachedTimes() {
-        if (!times) times = cachedLog().then(timesIndex).catch((e) => { dropSnapshot(); throw e; });
-        return times;
+    function sameValue(a, b) {
+        if (!Array.isArray(a) && !Array.isArray(b)) return sameFlat(a, b);
+        return Array.isArray(a) && Array.isArray(b) && a.length === b.length
+            && a.every((e, i) => sameFlat(e, b[i]));
+    }
+    const seqOf = (key) => Number(key.slice(CHUNK_PREFIX.length));
+
+    // The copy's times, and which chunks each appid is in, from all its chunks.
+    function reindex(copy) {
+        const where = new Map();
+        for (const [seq, chunk] of copy.chunks) {
+            for (const e of chunk) {
+                if (!e || !e.appid) continue;
+                const appid = String(e.appid);
+                if (!where.has(appid)) where.set(appid, new Set());
+                where.get(appid).add(seq);
+            }
+        }
+        return Object.assign(copy, timesIndex([].concat(...copy.chunks.values())), { where });
+    }
+
+    // Every chunk, inside the write chain.
+    async function readCopy() {
+        const index = await loadIndex();
+        const res = await get(chunkKeys(index));
+        const chunks = new Map();
+        for (let seq = index.first; seq <= index.last; seq++) chunks.set(seq, asArray(res[chunkKey(seq)]));
+        return reindex({ index, chunks });
+    }
+
+    // The chunks of the copy with the appid in them, and its times again from those.
+    const seqsWith = (copy, appid) => [...(copy.where.get(appid) || [])];
+    function retime(copy, appid) {
+        const own = [];
+        for (const seq of seqsWith(copy, appid)) {
+            for (const e of copy.chunks.get(seq) || []) if (e && String(e.appid) === appid) own.push(e);
+        }
+        const t = timesIndex(own);
+        for (const map of ['ignored', 'undone']) {
+            if (t[map].has(appid)) copy[map].set(appid, t[map].get(appid));
+            else copy[map].delete(appid);
+        }
     }
 
     // The curator drainer's `log` dependency. Identical for its two hosts (a
     // store tab and the service worker), both of which load this file.
     function drainerHooks() {
+        // { index, chunks: Map seq -> entries, where: Map appid -> Set of seqs, ignored, undone }
+        let copy = null;
+        let reading = null;   // the read of it in flight
+        let gen = 0;          // bumped by every drop: a read begun before one is not kept
+        const echoes = new Map();   // key -> what this context wrote there, oldest first
+
+        const drop = () => { copy = null; reading = null; gen++; };
+        let idle = null;
+        // Every question and own write keeps the copy another IDLE_MS.
+        const touch = () => { clearTimeout(idle); idle = setTimeout(drop, IDLE_MS); };
+        const expectEcho = (key, value) => {
+            const list = echoes.get(key) || [];
+            list.push(value === undefined ? GONE : value);
+            echoes.set(key, list.slice(-ECHO_MAX));
+        };
+        const isEcho = (key, change) => {
+            const list = echoes.get(key);
+            const got = change.newValue;
+            const at = list ? list.findIndex(v => (v === GONE ? got === undefined : sameValue(v, got))) : -1;
+            if (at < 0) return false;
+            list.splice(0, at + 1);
+            if (!list.length) echoes.delete(key);
+            return true;
+        };
         chrome.storage.onChanged.addListener((changes, area) => {
-            if (area === 'local' && Object.keys(changes).some(isLogKey)) dropSnapshot();
+            if (area !== 'local') return;
+            let foreign = false;
+            for (const k of Object.keys(changes)) {
+                if (isLogKey(k) && !isEcho(k, changes[k])) foreign = true;
+            }
+            if (foreign) drop();
         });
+
+        function load() {
+            touch();
+            if (copy) return Promise.resolve(copy);
+            if (!reading) {
+                const at = gen;
+                reading = serialized(readCopy).then((c) => {
+                    if (at === gen) { copy = c; reading = null; }
+                    return c;
+                }, (e) => {
+                    if (at === gen) reading = null;
+                    throw e;
+                });
+            }
+            return reading;
+        }
+
+        function appendOwn(entry) {
+            touch();
+            let at = -1;
+            return appendEntry(entry, {
+                sending(plan) {
+                    at = gen;
+                    for (const k of Object.keys(plan.writes)) expectEcho(k, plan.writes[k]);
+                    for (const k of plan.removes) expectEcho(k, undefined);
+                },
+                landed(index, tail, plan, safe) {
+                    const c = copy;
+                    if (!c || at !== gen) return;
+                    if (index.first !== c.index.first || index.last !== c.index.last
+                        || !sameValue(c.chunks.get(index.last), tail)) { drop(); return; }
+                    const next = plan.writes[INDEX_KEY] || index;
+                    c.chunks.set(next.last, plan.writes[chunkKey(next.last)]);
+                    for (const k of plan.removes) c.chunks.delete(seqOf(k));
+                    c.index = next;
+                    // Retired chunks can take any appid's newest time with them.
+                    if (plan.removes.length) reindex(c);
+                    else if (safe.appid) {
+                        if (!c.where.has(safe.appid)) c.where.set(safe.appid, new Set());
+                        c.where.get(safe.appid).add(next.last);
+                        retime(c, safe.appid);
+                    }
+                },
+            });
+        }
+
+        // Mark every not-yet-undone entry of `appid` up to `snapshotTs`, as
+        // markUndone does. Resolves to the curatorIds of the entries it marked.
+        function markUndoneOwn(appid, snapshotTs) {
+            touch();
+            appid = String(appid);
+            const now = Date.now();
+            return serialized(async () => {
+                const at = gen;
+                const index = await loadIndex();
+                // Seqs only grow: a copy past the live index predates a migration.
+                const c = copy && index.first >= copy.index.first && index.last >= copy.index.last ? copy : null;
+                const seqs = [];
+                if (c) {
+                    for (const seq of seqsWith(c, appid)) if (seq >= index.first) seqs.push(seq);
+                    for (let seq = Math.max(c.index.last, index.first); seq <= index.last; seq++) {
+                        if (!seqs.includes(seq)) seqs.push(seq);
+                    }
+                } else {
+                    for (let seq = index.first; seq <= index.last; seq++) seqs.push(seq);
+                }
+                const res = await get(seqs.map(chunkKey));
+                let fresh = !!c && index.first === c.index.first && index.last === c.index.last;
+                const read = new Map();
+                const writes = {};
+                const by = new Set();
+                for (const seq of seqs) {
+                    const chunk = asArray(res[chunkKey(seq)]);
+                    if (c && !sameValue(c.chunks.get(seq), chunk)) fresh = false;
+                    const next = markedUndone(chunk, appid, snapshotTs, now);
+                    next.forEach((entry, i) => {
+                        if (entry === chunk[i]) return;
+                        writes[chunkKey(seq)] = next;
+                        if (entry.curatorId) by.add(entry.curatorId);
+                    });
+                    read.set(seq, writes[chunkKey(seq)] || chunk);
+                }
+                const keys = Object.keys(writes);
+                if (keys.length) {
+                    keys.forEach(k => expectEcho(k, writes[k]));
+                    await set(writes);
+                }
+                if (at !== gen) return [...by];        // another write came in: the copy is gone
+                if (!c) copy = reindex({ index, chunks: read });   // a full read: the copy anew
+                else if (!fresh) drop();
+                else if (keys.length) {
+                    for (const [seq, chunk] of read) c.chunks.set(seq, chunk);
+                    retime(c, appid);
+                }
+                return [...by];
+            });
+        }
+
         return {
-            append: (entry) => { dropSnapshot(); return append(entry); },
-            markUndone: (appid, ts) => { dropSnapshot(); return markUndone(appid, ts); },
-            lastIgnoredAt: async (appid) => (await cachedTimes()).ignored.get(String(appid)) || 0,
-            lastUndoneAt: async (appid) => (await cachedTimes()).undone.get(String(appid)) || 0,
-            wasReIgnoredAfter: async (appid, ts) => liveIgnoreAfter(await cachedTimes(), appid, ts),
+            append: appendOwn,
+            markUndone: markUndoneOwn,
+            lastIgnoredAt: async (appid) => (await load()).ignored.get(String(appid)) || 0,
+            lastUndoneAt: async (appid) => (await load()).undone.get(String(appid)) || 0,
+            wasReIgnoredAfter: async (appid, ts) => liveIgnoreAfter(await load(), appid, ts),
         };
     }
 
@@ -305,7 +520,7 @@
         reIgnoredAfter, lastIgnoredAt, lastUndoneAt, lastUndoneForCurator, markedUndone,
         appendPlan, chunkedPlan,
         // storage
-        getLog, append, markUndone, drainerHooks,
+        getLog, ignoredSince, append, markUndone, drainerHooks,
         // keys
         isLogKey, INDEX_KEY, CHUNK_PREFIX, LEGACY_KEY, CHUNK_SIZE, LOG_CAP
     };

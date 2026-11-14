@@ -5,7 +5,7 @@ const vm = require('vm');
 
 // window.ILAP.resolveGameName (src/game-name.js) — async name resolution: the five
 // DOM strategies first, then the store's appdetails endpoint when they ALL miss
-// (some React capsules — e.g. the front-page release-calendar carousel — carry
+// (some React capsules — e.g. the front-page release-calendar carousel — have
 // no alt text, no title node, no name slug, so the DOM has nothing to extract).
 // game-name.js is loaded in Node (vm + a window stub) with fetch stubbed, so
 // the fallback contract is asserted without a browser or Steam.

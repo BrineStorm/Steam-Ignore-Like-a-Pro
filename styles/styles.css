@@ -12,10 +12,10 @@
     position: absolute; 
     bottom: 0; 
     right: 0;
-    background-color: #D32F2F; 
+    background-color: #D32F2F;
     color: white;
-    padding: 3px 6px; 
-    font-size: 11px; 
+    padding: calc(3px * var(--ilap-k)) calc(6px * var(--ilap-k));
+    font-size: calc(11px * var(--ilap-k));
     font-weight: 800; 
     border-radius: 4px 0 0 0; /* Rounded top-left corner only */
     text-transform: uppercase;
@@ -32,6 +32,274 @@
     animation: ilap-pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
     transform-origin: bottom right;
     line-height: 1;
+}
+
+/* The IGNORED badge and the crossed AI mark grow with their capsule.
+   --ilap-side is the side of a square as big as the capsule, set when the
+   mark goes on (manual-ignore/mark-dom.js sizeToCapsule), so a wide capsule's
+   marks grow as a tall one's do. The badge grows from a 260 px side, up to
+   1.6 times. A search row, a small capsule or one not laid out yet keeps
+   the base size. */
+.ilap-ignored-overlay,
+.ilap-ai-tag {
+    --ilap-k: clamp(1, calc(var(--ilap-side, 0) / 260), 1.6);
+}
+
+@keyframes ilap-ai-tag-in {
+    from { opacity: 0; }
+}
+
+/* The AI tab's flag on an AI game's capsule (manual-ignore/ai-marks.js tag,
+   LOW and up). Steam's own flag (.ds_flag, shared_global.css) gives it the
+   place Steam gives IN LIBRARY on each surface, folds it to its icon on a
+   small capsule and hides it while a hover trailer plays. This gives its size,
+   which grows with the capsule (14% of the layer's height, 18px to 34px), its
+   colour, the level's as on the AI tab's slider (Low blue, Medium yellow, High
+   red, from <html data-ilap-ai-level>, manual-ignore/main.js), a warning sign
+   for its icon and its words. It stands under Steam's flag when the capsule
+   has one. The layer it rides covers the flag's holder, takes no pointer, and
+   sits over the blur veil (40) and a shot (49), so the flag stays sharp. */
+.ilap-ai-flagbox {
+    position: absolute;
+    inset: 0;
+    z-index: 51;
+    pointer-events: none;
+    container-type: size;
+}
+:root {
+    --ilap-ai-bg: #ffd21a;
+    --ilap-ai-ink: #111111;
+    --ilap-ai-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='%23111' fill-rule='evenodd' d='M10 1.2 19.4 18.4H.6zM8.9 6.6h2.2l-.35 6.4h-1.5zM8.9 14.4h2.2v2.2H8.9z'/%3E%3C/svg%3E");
+}
+:root[data-ilap-ai-level="1"] {
+    --ilap-ai-bg: #1a9fff;
+}
+:root[data-ilap-ai-level="3"] {
+    --ilap-ai-bg: #e3261f;
+    --ilap-ai-ink: #ffffff;
+    --ilap-ai-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='%23fff' fill-rule='evenodd' d='M10 1.2 19.4 18.4H.6zM8.9 6.6h2.2l-.35 6.4h-1.5zM8.9 14.4h2.2v2.2H8.9z'/%3E%3C/svg%3E");
+}
+/* Steam's own .ds_flag values, for a surface whose holder Steam does not flag
+   (a React grid). Steam's rules for a surface outrank these and move the flag
+   as they move theirs. */
+.ilap-ai-flag {
+    position: absolute;
+    left: 0;
+    top: 14px;
+    z-index: 5;
+    height: 18px;
+    line-height: 19px;
+    padding: 0 0 0 18px;
+    font-size: 10px;
+    white-space: nowrap;
+    color: #111111;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.9);
+}
+/* --h is the flag's height. The sign fills a square of it on the left, which
+   is all that stays where Steam folds its flags (their max-width or width
+   goes to 0, the left padding stays). The kind of AI use is in the words
+   only. The flag stands out a little, like a running queue strip: lit from
+   the top with a light top edge, shaded to a dark bottom edge. The relief is
+   drawn in the background over the level's colour, which stays the
+   background-color, so no box-shadow of Steam's surfaces is fought. */
+:is(.ilap-ai-flagbox, .ilap-ai-note-head, .ilap-ai-mini) > .ilap-ai-flag {
+    --h: 18px;
+    height: var(--h);
+    line-height: calc(var(--h) + 1px);
+    padding: 0 calc(var(--h) * .36) 0 var(--h);
+    font-size: calc(var(--h) * .56);
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    pointer-events: none;
+    color: var(--ilap-ai-ink);
+    background:
+        var(--ilap-ai-icon) no-repeat calc(var(--h) * .2) 50% / calc(var(--h) * .62),
+        linear-gradient(180deg, rgba(255, 255, 255, .5) 0 1px, transparent 1px calc(100% - 1px), rgba(0, 0, 0, .3) calc(100% - 1px)),
+        linear-gradient(180deg, rgba(255, 255, 255, .24), rgba(255, 255, 255, 0) 55%, rgba(0, 0, 0, .16)),
+        var(--ilap-ai-bg);
+    animation: ilap-ai-tag-in .25s ease-out;
+}
+.ilap-ai-flagbox > .ilap-ai-flag {
+    --h: clamp(18px, 14cqh, 34px);
+}
+/* Under Steam's own flag (IN LIBRARY, ON WISHLIST, IGNORED) when the holder has one. */
+.ds_flagged > .ilap-ai-flagbox > .ilap-ai-flag {
+    margin-top: 20px;
+}
+/* Where Steam folds its flags to the icon, ours folds to its icon too: the
+   pad after the words goes with them. */
+.ds_collapse_flag.ds_flagged:not(:hover) > .ilap-ai-flagbox > .ilap-ai-flag {
+    padding-right: 0;
+}
+@container ds_flagged_capsule (max-width: 250px) {
+    .ilap-ai-flagbox > .ilap-ai-flag { padding-right: 0; }
+}
+
+/* The AI tab's note on an AI game's own page (manual-ignore/ai-page.js): the
+   flag and the button that folds the note, the developers' words (as many
+   lines as keep the air under the description, four at most, set in
+   --ilap-note-lines by aiNoteFit) and the way down to Steam's block, among
+   the facts at the top of the right column. Folded, the flag and a button
+   that brings the note back sit on the game's header image, where Steam's
+   flags sit on a capsule (.ilap-ai-mini). */
+.ilap-ai-note {
+    display: grid;
+    justify-items: start;
+    gap: 6px;
+    margin: 10px 0 0;
+    padding: 8px 10px 9px;
+    background: rgba(0, 0, 0, 0.2);
+    font-size: 12px;
+    line-height: 1.45;
+    color: #c6d4df;
+}
+.ilap-ai-note-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.ilap-ai-mini {
+    --h: clamp(18px, 14cqh, 34px);
+    position: absolute;
+    left: 0;
+    top: 14px;
+    display: flex;
+    pointer-events: auto;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.9);
+    animation: ilap-ai-tag-in .25s ease-out;
+}
+.ilap-ai-mini > .ilap-ai-flag {
+    --h: inherit;
+    animation: none;
+}
+/* Their flag explains itself on hover (FloatTip in manual-ignore/ui.js). */
+:is(.ilap-ai-note-head, .ilap-ai-mini) > .ilap-ai-flag {
+    position: static;
+    box-shadow: none;
+    pointer-events: auto;
+    cursor: help;
+}
+/* The fold button: a caret like the panel's, up to fold the note, down to
+   bring it back. */
+.ilap-ai-fold {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #66c0f4;
+    cursor: pointer;
+}
+.ilap-ai-fold::before {
+    content: '';
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 5px solid currentColor;
+}
+.ilap-ai-fold[aria-expanded="false"]::before { transform: rotate(180deg); }
+.ilap-ai-fold:hover { color: #ffffff; }
+.ilap-ai-fold:focus-visible { outline: 1px solid #66c0f4; outline-offset: 1px; }
+/* On the header image: a square as tall as the flag, on a dark shade. */
+.ilap-ai-mini > .ilap-ai-fold {
+    width: var(--h);
+    height: var(--h);
+    background: rgba(0, 0, 0, 0.7);
+    color: #ffffff;
+}
+.ilap-ai-mini > .ilap-ai-fold::before {
+    border-left-width: calc(var(--h) * .2);
+    border-right-width: calc(var(--h) * .2);
+    border-bottom-width: calc(var(--h) * .25);
+}
+.ilap-ai-mini > .ilap-ai-fold:hover { color: #66c0f4; }
+.ilap-ai-note-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: var(--ilap-note-lines, 4);
+    overflow: hidden;
+    font-style: italic;
+    color: #b8c6d1;
+}
+.ilap-ai-note-text[hidden] { display: none; }
+/* A game marked by hand: our own line, so no quote's italics. */
+.ilap-ai-note-own { font-style: normal; }
+.ilap-ai-note-more {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    color: #66c0f4;
+    cursor: pointer;
+}
+.ilap-ai-note-more:hover { color: #ffffff; }
+.ilap-ai-note-more:focus-visible { outline: 1px solid #66c0f4; outline-offset: 2px; }
+
+/* A game the HIGH level ignored: the crossed mark in the top right corner of
+   its cover (AiMarks.tag's flag goes then). Its square grows with the capsule,
+   from 20px up to 68px. It takes 16% of the capsule's height, or a share of
+   its size (--ilap-side) as big as a tall list cover's 16% when that is more,
+   so a wide capsule's mark is as big for its area. Its tooltip (FloatTip in
+   manual-ignore/ui.js) comes on hover. */
+.ilap-ai-tag {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    z-index: 51;
+    height: max(16%, calc(var(--ilap-side, 0) * .176px));
+    min-height: 20px;
+    max-height: 68px;
+    aspect-ratio: 1;
+    pointer-events: auto;
+    cursor: help;
+    background: center / contain no-repeat;
+}
+
+/* On a wide row (Steam search, the front page's tabs) the mark sits in the
+   row's cover, a strip whose share above comes out at the 20px floor and read
+   as a speck: there it is twice that, 40px on a 184x69 cover. */
+.ilap-ai-tag.ilap-ai-tag-row {
+    height: max(32%, calc(var(--ilap-side, 0) * .352px));
+    min-height: 40px;
+}
+
+/* A game the HIGH level ignored: white AI struck through by a red slash that
+   widens to the right and lightens like the red swipe. It fades in once the
+   game's flag has faded out (UNMARK_MS, 0.2 s, manual-ignore/mark-dom.js), so the
+   two never show together. The same image is the AI tab's mark (popup.css
+   #tab-ai .tab-word), and big, the shot that stamps it (shot.js). */
+.ilap-ai-tag-ignored,
+.ilap-shot-aimark,
+.ilap-fly-aimark {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cdefs%3E%3ClinearGradient id='s' gradientUnits='userSpaceOnUse' x1='2.54' y1='14.08' x2='19.46' y2='7.92'%3E%3Cstop offset='0' stop-color='%23e3261f' stop-opacity='0.8'/%3E%3Cstop offset='0.05' stop-color='%23e3261f'/%3E%3Cstop offset='1' stop-color='%23e93831'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='%23fff' d='M5.17 16.5 7.25 5.5H10.02L12.07 16.5H9.83L9.46 14.18H7.85L7.47 16.5ZM8.06 12.72H9.23L8.65 8.43ZM14.4 16.5V5.5H16.83V16.5Z'/%3E%3Cg fill='url%28%23s%29' opacity='.85'%3E%3Cpolygon points='2.88,15.02 20.04,9.52 18.88,6.32 2.2,13.14'/%3E%3Ccircle cx='2.54' cy='14.08' r='1'/%3E%3Ccircle cx='19.46' cy='7.92' r='1.7'/%3E%3C/g%3E%3C/svg%3E");
+}
+.ilap-ai-tag-ignored {
+    filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, .9));
+    animation: ilap-ai-tag-in .3s ease-out .2s both;
+}
+
+/* The tag page's top carousel has Steam's wishlist star in the cover's top
+   right corner, so the mark sits in its bottom right: 3px over the IGNORED
+   badge (17px tall at its line-height of 1 and base size, growing with the
+   capsule as the badge does) while the same box has one, in the corner when
+   it has none, gliding between the two. */
+.contenthubmaincarousel .ilap-ai-tag {
+    top: auto;
+    bottom: 3px;
+    transform-origin: bottom right;
+    transition: bottom .25s ease;
+}
+.contenthubmaincarousel :has(> .ilap-ignored-overlay) > .ilap-ai-tag {
+    bottom: calc(17px * var(--ilap-k) + 3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ilap-ai-tag, .ilap-ai-mini, :is(.ilap-ai-flagbox, .ilap-ai-note-head) > .ilap-ai-flag { animation: none; }
+    .contenthubmaincarousel .ilap-ai-tag { transition: none; }
 }
 
 /* Layout Safety:
@@ -68,7 +336,7 @@
 
 /* A gesture on a capsule Steam already greys out sets that ignore's reason, and
    Steam's own IGNORED flag takes the gesture's colour: the badge's red for an
-   ignore, its blue for Already Played. !important: Steam's flag rules carry
+   ignore, its blue for Already Played. !important: Steam's flag rules set
    their own background. */
 .ilap-steam-tint-ignore .ds_ignored_flag {
     background-color: #D32F2F !important;
@@ -96,11 +364,18 @@
     filter: opacity(0.3);
 }
 
-.ilap-ignored-blur {
-    /* !important: some capsules (e.g. the top carousel's _8JfsVa2qql image) carry
+.ilap-ignored-blur,
+.ilap-ai-blur {
+    /* !important: some capsules (e.g. the top carousel's _8JfsVa2qql image) have
        Steam's own filter: brightness(1) at equal specificity but later source order,
        which would otherwise cancel our blur. */
     filter: blur(5px) !important;
+}
+
+/* The AI tab's blur (MEDIUM and up) comes in softly. At HIGH it comes with the
+   badge, after the shot lands, over a cover already in view. */
+.ilap-ai-blur {
+    transition: filter .4s ease-out;
 }
 
 /* Some capsules paint their cover as a CSS background on the very element that
@@ -116,6 +391,22 @@
     backdrop-filter: blur(5px);
     -webkit-backdrop-filter: blur(5px);
     pointer-events: none;
+}
+
+/* The AI tab's veil (data-ilap-ai-blur) fades in. When it meets the badge's on
+   one capsule, the later one blurs nothing, so the art is blurred once. */
+.ilap-blur-backdrop[data-ilap-ai-blur] {
+    animation: ilap-ai-tag-in .4s ease-out;
+}
+
+.ilap-blur-backdrop ~ .ilap-blur-backdrop {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ilap-ai-blur { transition: none; }
+    .ilap-blur-backdrop[data-ilap-ai-blur] { animation: none; }
 }
 
 /* =========================================
@@ -172,7 +463,7 @@
     transition: opacity 0.2s ease-in-out 1.5s, visibility 0s linear 1.5s;
 }
 
-/* The tinted Steam flag's tooltip (TintTip in manual-ignore/ui.js): one element
+/* The tinted Steam flag's tooltip and the AI mark's (FloatTip in manual-ignore/ui.js): one element
    on <body>, since inside Steam's greyed capsule it would be dimmed and clipped.
    `top`/`left` are the flag's top-left corner; it sits above that, arrow at its
    left. Same dwell as the badge's. */
@@ -190,6 +481,17 @@
     left: 10px;
 }
 
+/* The AI mark's: `left` is the mark's right edge, and the tooltip ends there,
+   its arrow over the mark. */
+.ilap-tooltip.ilap-tooltip-floating.ilap-tooltip-end {
+    transform: translate(-100%, calc(-100% - 8px));
+}
+
+.ilap-tooltip-floating.ilap-tooltip-end::after {
+    left: auto;
+    right: 5px;
+}
+
 .ilap-tooltip-floating img {
     width: 16px;
     height: 16px;
@@ -200,6 +502,11 @@
     visibility: visible;
     opacity: 1;
     transition: opacity 0.2s ease-in-out 1.5s, visibility 0s linear 1.5s;
+}
+
+/* The AI note's flag and buttons: aimed at, so the panel's 0.4 s dwell. */
+.ilap-tooltip-floating.show.ilap-tooltip-quick {
+    transition-delay: 0.4s;
 }
 
 /* =========================================
@@ -219,14 +526,14 @@
 
 /* For Standard Grids (Store Front, Category Pages) */
 .ilap-grid-badge {
-    font-size: 10px;
-    padding: 2px 5px;
+    font-size: calc(10px * var(--ilap-k));
+    padding: calc(2px * var(--ilap-k)) calc(5px * var(--ilap-k));
 }
 
 /* For Large Banners (Hero / Spotlight / Daily Deal) */
 .ilap-hero-badge {
-    font-size: 12px;
-    padding: 4px 8px;
+    font-size: calc(12px * var(--ilap-k));
+    padding: calc(4px * var(--ilap-k)) calc(8px * var(--ilap-k));
 }
 
 /* =========================================
@@ -234,6 +541,374 @@
    =========================================
    The queue panel (#queue-auto-ignore-btn, .ilap-controls-container,
    .ilap-checkbox*) styles itself from src/discovery-queue/ui.js, which injects
-   them with the panel it builds. This file used to carry a second, diverging
+   them with the panel it builds. This file used to have a second, diverging
    copy of the same selectors; which values won was decided by injection order.
    One owner: put panel styles there, not here. */
+
+/* =========================================
+   5. Shot (the AI tab's browsing switch)
+   =========================================
+   src/manual-ignore/shot.js. A layer inside the capsule, as big as it, that
+   takes no pointer and clips to it: a mark moves with the page and never
+   draws outside its capsule. Marks are placed in the capsule's pixels by the
+   script, which skips the whole shot under reduced motion. Under the badge
+   (z-index 50), which lands while a mark still shows. The stamp's flight is
+   the one part drawn over the window, on .ilap-shot-sky. */
+.ilap-shot-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 49;
+    contain: strict;
+}
+
+.ilap-shot,
+.ilap-shot-ring {
+    position: absolute;
+    will-change: transform, opacity;
+}
+
+/* The flight of a stamp or the tomato over the window: a fixed layer that takes no pointer and
+   clips what flies past the window, so it never opens a scrollbar. The
+   wrapper follows the capsule on a scroll. */
+.ilap-shot-sky {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 2147483000;
+    contain: strict;
+}
+.ilap-shot-follow {
+    position: absolute;
+    inset: 0;
+}
+.ilap-shot-fly {
+    position: absolute;
+    will-change: transform, opacity, filter;
+}
+
+/* The tomato: the fruit in flight, then its splat and the drips of juice
+   under it. A drip is a clipped box whose bar (--w wide) slides down into
+   it, its round end first. */
+.ilap-fly-tomato {
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cdefs%3E%3CradialGradient id='t' cx='.38' cy='.36' r='.7'%3E%3Cstop offset='0' stop-color='%23ff7a5c'/%3E%3Cstop offset='.45' stop-color='%23e8331f'/%3E%3Cstop offset='1' stop-color='%23a5160b'/%3E%3C/radialGradient%3E%3C/defs%3E%3Cpath d='M20 9c9.5 0 16 5.8 16 13.6S29 36 20 36 4 30.4 4 22.6 10.5 9 20 9Z' fill='url%28%23t%29'/%3E%3Cellipse cx='13' cy='17' rx='4' ry='2.4' fill='%23fff' opacity='.45' transform='rotate%28-30 13 17%29'/%3E%3Cpath d='M20 13l2.5-4.5 4.5 1-3.4 3.2 5.6 1.2-6 1.6L20 17l-3.2-2.5-6-1.6 5.6-1.2L13 10.5l4.5-1Z' fill='%233f9a2b' stroke='%2324561a' stroke-width='.8' stroke-linejoin='round'/%3E%3Cpath d='M20 9.5 21 4' stroke='%232f6e1f' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.ilap-shot-tomato {
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .6));
+}
+.ilap-shot-tomato svg { display: block; width: 100%; height: 100%; }
+.ilap-shot-splash {
+    border-radius: 50%;
+    background: radial-gradient(circle at 38% 34%, #f0503a, #c21b10 60%, #a8150c);
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .45));
+}
+.ilap-shot-drip {
+    overflow: hidden;
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .45));
+}
+.ilap-shot-drip i {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: calc(var(--w) * .8);
+    width: var(--w);
+    margin-left: calc(var(--w) * -.5);
+    border-radius: 0 0 99px 99px;
+    background: linear-gradient(90deg, #9c130b, #e0392c 45%, #b5170f);
+    transform: translateY(calc(-100% - var(--w) * 1.6));
+}
+.ilap-shot-drip i::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: calc(var(--w) * -.7);
+    width: calc(var(--w) * 1.5);
+    height: calc(var(--w) * 1.5);
+    margin-left: calc(var(--w) * -.75);
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #f0503a, #b5170f 70%);
+}
+
+/* The rank stamp. Its size comes from the script (font-size). */
+.ilap-shot-stamp {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    transform-origin: 50% 50%;
+}
+
+.ilap-shot-emoji,
+.ilap-fly-emoji {
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .6));
+}
+
+.ilap-shot-aimark,
+.ilap-fly-aimark {
+    background-position: center;
+    background-size: contain;
+    background-repeat: no-repeat;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .7));
+}
+
+.ilap-shot-sixseven,
+.ilap-fly-sixseven {
+    font-family: Impact, "Arial Black", sans-serif;
+    font-style: italic;
+    font-weight: 900;
+    letter-spacing: -.02em;
+    color: #ff3b30;
+    -webkit-text-stroke: 1.5px #fff;
+    text-shadow: 0 0 12px rgba(255, 59, 48, .9), 0 3px 0 #7a0d08;
+}
+
+.ilap-shot-ring {
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 0 10px rgba(255, 255, 255, .8), inset 0 0 8px rgba(255, 59, 48, .6);
+}
+
+/* The 67's landing (shot.js _crack): its cracks, each line drawn out by the
+   script along its length (pathLength 1, hidden at an offset past it), the
+   flash at the spot and the shards of glass it throws. */
+.ilap-shot-crack svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    filter: drop-shadow(0 0 1px rgba(0, 0, 0, .95)) drop-shadow(0 0 2px rgba(0, 0, 0, .5));
+}
+.ilap-shot-crack path {
+    fill: none;
+    stroke: rgba(255, 255, 255, .92);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 1 2;
+    stroke-dashoffset: 1.01;
+}
+.ilap-shot-flash {
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff 0, rgba(255, 255, 255, .8) 22%, rgba(255, 190, 170, .3) 45%, rgba(255, 255, 255, 0) 70%);
+}
+.ilap-shot-shard {
+    background: linear-gradient(135deg, #ffffff, #dbeaf7 50%, #93b4d1);
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .6));
+}
+
+/* The site's red swipe (Steam-Ignore-Like-a-Pro-site globals.css .wt-swipe),
+   sized by the script to the capsule: --t is the trail's thickness. */
+.ilap-shot-swipe {
+    position: absolute;
+    transform-origin: left center;
+}
+.ilap-shot-bar {
+    position: absolute;
+    inset: 0;
+    border-radius: 99px;
+    transform: scaleX(0);
+    transform-origin: left center;
+    background: linear-gradient(90deg, rgba(255, 59, 48, 0) 0%, #ff3b30 24%, #ff8079 100%);
+    /* The glow follows the trail's own alpha, so it fades with the trail at
+       the tail. A box-shadow kept full strength round the clear tail and drew
+       a hard dark cap there. */
+    filter: drop-shadow(0 0 calc(var(--t) * 1.1) #ff3b30) drop-shadow(0 0 calc(var(--t) * 2.5) rgba(255, 59, 48, .5));
+}
+.ilap-shot-head {
+    position: absolute;
+    left: calc(var(--t) * -1.1);
+    top: 50%;
+    margin-top: calc(var(--t) * -1.1);
+    width: calc(var(--t) * 2.2);
+    height: calc(var(--t) * 2.2);
+    border-radius: 50%;
+    opacity: 0;
+    background: radial-gradient(circle, #fff 0%, #ff3b30 55%, rgba(255, 59, 48, 0) 72%);
+    filter: drop-shadow(0 0 var(--t) #ff3b30);
+}
+
+/* Steam's creator ignore (src/manual-ignore/creators-ui.js). An ignored
+   creator's link turns grey, as Steam greys the rest. A data attribute, since
+   Steam's React pages rewrite class names. */
+a[data-ilap-creator="ignored"],
+a[data-ilap-creator="ignored"]:visited {
+    color: #8f98a0 !important;
+    transition: color .2s ease;
+}
+
+/* The pill on a game page's creator link: an anchor of no width right after
+   the link, so the button takes no room in the line and Tab reaches it next.
+   The button is fixed to the window and placed by the script, since Steam's
+   creator rows clip what hangs out of them. It slides out to the right and
+   fades in, and back, faster. A pill that gives way to the next one goes at
+   once (data-snap). Raised like a button, with the extension's logo first, and
+   lit in Steam's blue under the pointer. */
+.ilap-cpill-anchor {
+    position: relative;
+    display: inline-block;
+    width: 0;
+    height: 1em;
+    vertical-align: middle;
+}
+.ilap-cpill-anchor[hidden] { display: none; }
+.ilap-cpill {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 1000;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    box-sizing: border-box;
+    height: 22px;
+    padding: 0 10px 0 5px;
+    border: 1px solid rgba(255, 255, 255, .12);
+    border-radius: 11px;
+    background: linear-gradient(to bottom, #4c5664, #333a45);
+    color: #e6eaee;
+    font: 12px/1 "Motiva Sans", Arial, Helvetica, sans-serif;
+    white-space: nowrap;
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), 0 2px 8px rgba(0, 0, 0, .6);
+    opacity: 0;
+    visibility: hidden;
+    transform: translate(-8px, -50%);
+    transition: opacity .1s ease, transform .1s ease, visibility 0s linear .1s,
+        color .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.ilap-cpill-anchor[data-open] .ilap-cpill {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(0, -50%);
+    transition: opacity .16s ease, transform .16s ease, visibility 0s,
+        color .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.ilap-cpill-anchor[data-snap] .ilap-cpill { transition: none; }
+/* The blue under the pointer, faded in over the grey (a gradient does not
+   transition). */
+.ilap-cpill::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    z-index: -1;
+    border-radius: inherit;
+    background: linear-gradient(to bottom, #6fc8f8, #3b8bc2);
+    opacity: 0;
+    transition: opacity .15s ease;
+}
+.ilap-cpill:hover,
+.ilap-cpill:focus-visible {
+    color: #fff;
+    border-color: rgba(255, 255, 255, .3);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 0 10px rgba(103, 193, 245, .55),
+        0 2px 8px rgba(0, 0, 0, .6);
+}
+.ilap-cpill:hover::before,
+.ilap-cpill:focus-visible::before {
+    opacity: 1;
+}
+.ilap-cpill-anchor[data-open] .ilap-cpill:active {
+    transform: translate(0, calc(-50% + 1px));
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .4), 0 1px 4px rgba(0, 0, 0, .5);
+}
+.ilap-cpill:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 1px;
+}
+.ilap-cpill-logo {
+    display: block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+/* A locked pill: Steam refuses this creator's ignore. Flat and greyed with a
+   padlock, no hover light. Its reason fades in under it, in the pill's own
+   look, so it reads as ours: one tooltip on the root, placed by the script. */
+.ilap-cpill[aria-disabled="true"] {
+    background: #2a2f37;
+    border-color: rgba(255, 255, 255, .06);
+    color: #7d858e;
+    cursor: default;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .6);
+}
+.ilap-cpill-anchor[data-open] .ilap-cpill[aria-disabled="true"]:active {
+    transform: translate(0, -50%);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .6);
+}
+.ilap-cpill[aria-disabled="true"]:hover,
+.ilap-cpill[aria-disabled="true"]:focus-visible {
+    color: #7d858e;
+    border-color: rgba(255, 255, 255, .06);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .6);
+}
+.ilap-cpill[aria-disabled="true"]::before { display: none; }
+.ilap-cpill[aria-disabled="true"] .ilap-cpill-logo {
+    filter: grayscale(1);
+    opacity: .5;
+}
+.ilap-cpill-lock {
+    width: 9px;
+    height: 11px;
+    flex-shrink: 0;
+}
+.ilap-cpill-tip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 1000;
+    width: max-content;
+    max-width: 260px;
+    padding: 5px 9px;
+    border-radius: 6px;
+    background: #3d4450;
+    color: #dfe3e6;
+    font: 12px/1.35 "Motiva Sans", Arial, Helvetica, sans-serif;
+    white-space: normal;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .45);
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity .16s ease, transform .16s ease, visibility 0s linear .16s;
+}
+.ilap-cpill-tip.shown {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition: opacity .16s ease, transform .16s ease, visibility 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ilap-cpill,
+    .ilap-cpill-anchor[data-open] .ilap-cpill {
+        transform: translate(0, -50%);
+    }
+    .ilap-cpill-tip,
+    .ilap-cpill-tip.shown {
+        transform: none;
+    }
+}
+
+/* =========================================
+   Reduced motion, for every surface the extension puts on Steam's page (the
+   badges and marks, the queue panels and toasts, the curator button and
+   menu, the notice): each motion runs in an instant and once, whichever
+   stylesheet or inline style set it (!important beats both). Our elements
+   only, by their ilap- id or class, what an ilap- id'd box holds, and a
+   creator link we mark.
+   Durations only: a delay is a dwell and stays, and an animation still ends,
+   so code waiting on animationend or transitionend goes on. The widget's
+   shadow root has its own (src/widget/main.js, ui/popup.css).
+   ========================================= */
+@media (prefers-reduced-motion: reduce) {
+    [id^="ilap-"], [id^="ilap-"]::before, [id^="ilap-"]::after,
+    [id^="ilap-"] *, [id^="ilap-"] *::before, [id^="ilap-"] *::after,
+    [class*="ilap-"], [class*="ilap-"]::before, [class*="ilap-"]::after, [data-ilap-creator] {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}

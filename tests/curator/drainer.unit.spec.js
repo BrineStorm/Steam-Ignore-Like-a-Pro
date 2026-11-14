@@ -15,6 +15,10 @@ const { loadEnumerator } = require('../_curator.js');
 // ahead of it.
 const STEAM_NET = fs.readFileSync(
     path.join(__dirname, '..', '..', 'src', 'steam-net.js'), 'utf8');
+const LEASE = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'src', 'curator', 'lease.js'), 'utf8');
+const HOST = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'src', 'curator', 'drainer-host.js'), 'utf8');
 
 function loadDrainerClass(DateImpl, timers) {
     const code = fs.readFileSync(
@@ -43,10 +47,11 @@ function loadDrainerClass(DateImpl, timers) {
         constructor(deps) {
             const store = deps.store && withVocab(deps.store);
             if (store) {
-                for (const m of ['signalCompleted', 'signalUnignored', 'signalUndoFailed', 'bumpSkipped', 'bumpWishlisted',
-                    'markBundleDone', 'unmarkBundlesWith']) {
+                for (const m of ['signalCompleted', 'signalUnignored', 'signalUndoFailed', 'bumpSkipped', 'bumpWishlisted', 'setOwned']) {
                     if (!store[m]) store[m] = noop;
                 }
+                // Stub jobs keep their list in the record.
+                if (!store.getList) store.getList = async (j) => (Array.isArray(j.appids) ? j.appids : null);
             }
             const viaStore = (name, fallback) => (...args) =>
                 (store && store[name] ? store[name](...args) : fallback());
@@ -60,6 +65,15 @@ function loadDrainerClass(DateImpl, timers) {
                     LOCK_PREFIX: 'ilap_curator_lock_',
                 },
                 fetchUserdata: async () => ignoredOf([]),
+                // DoneMarks, read through to the stub store's methods of the same
+                // names like the lease: a unit names them on its one storage stub.
+                marks: {
+                    markPresetDone: viaStore('markPresetDone', noop),
+                    unmarkPresets: viaStore('unmarkPresets', noop),
+                    markBundleDone: viaStore('markBundleDone', noop),
+                    unmarkBundlesWith: viaStore('unmarkBundlesWith', noop),
+                    markAiRefused: viaStore('markAiRefused', noop),
+                },
             }, deps, {
                 stats: Object.assign({
                     save: noop, saveHistory: noop, saveJob: noop, bumpCount: noop, dropCount: noop, recordTotal: noop,
@@ -75,16 +89,16 @@ function loadDrainerClass(DateImpl, timers) {
                 }, deps.log),
                 gate: Object.assign({
                     reserve: async () => { throw new Error('unexpected gate reservation'); },
-                    reportRateLimited: noop, stopped: async () => null, lastSlotAt: async () => 0,
+                    reportRateLimited: noop, stopped: async () => null, lastSlotAt: async () => 0, quietUntil: async () => 0,
                 }, deps.gate),
             }));
         }
     };
 }
 
-// drainer.js as a store tab loads it: the facade present, so the tab host at the
-// bottom builds its own drainer and wires the storage listener. The document is
-// still loading, so the boot kick waits; a test fires the listener by hand.
+// The drainer as a store tab hosts it (drainer-host.js): the facade present, its
+// own drainer built and the storage listener wired. The document is still
+// loading, so the boot kick waits; a test fires the listener by hand.
 function loadTabHost() {
     const code = fs.readFileSync(
         path.join(__dirname, '..', '..', 'src', 'curator', 'drainer.js'), 'utf8');
@@ -101,14 +115,15 @@ function loadTabHost() {
             Settings: { KEYS: { MASTER: 'ilap_master_enabled' } },
             Curator: {
                 Store: store,
-                Lease: { acquireLock: fn, renewLock: fn, holdsLock: fn, releaseLock: fn,
-                    LOCK_PREFIX: 'ilap_curator_lock_' },
+                DoneMarks: { markPresetDone: fn, unmarkPresets: fn, markBundleDone: fn, unmarkBundlesWith: fn, markAiRefused: fn },
             },
-            apiIgnoreGame: fn, apiUnignoreGame: fn, classifyRefusal: (a, r) => r,
-            IgnoreGate: { reserve: fn, reportRateLimited: fn, stopVerdict: fn },
+            apiIgnoreGame: fn, apiUnignoreGame: fn, apiCreatorIgnore: fn, classifyRefusal: (a, r) => r,
+            Creators: { note: fn, signalFailed: fn },
+            IgnoreGate: { reserve: fn, reportRateLimited: fn, stopVerdict: fn, quietUntil: fn },
             fetchIgnoredAppsStrict: fn,
             SteamAuth: { probeLogin: fn },
-            saveStats: fn, saveHistory: fn, saveJobHistory: fn, bumpIgnoredCount: fn, dropIgnoredCount: fn,
+            saveStats: fn, saveHistory: fn, saveJobHistory: fn, saveCreatorHistory: fn,
+            bumpIgnoredCount: fn, dropIgnoredCount: fn,
             StatsLogic: { miSourceLabel: () => '' },
             IgnoreLog: { drainerHooks: () => ({ append: fn, markUndone: fn, lastIgnoredAt: fn, lastUndoneAt: fn,
                 wasReIgnoredAfter: fn }) },
@@ -116,17 +131,20 @@ function loadTabHost() {
     };
     vm.createContext(sandbox);
     vm.runInContext(STEAM_NET, sandbox);
+    vm.runInContext(LEASE, sandbox);
     vm.runInContext(code, sandbox);
+    vm.runInContext(HOST, sandbox);
     return { drainer: sandbox.window.ILAP.Curator.drainer, listeners };
 }
 
 // Steam's userdata as the strict reader returns it: appid -> ignore reason,
 // here all ignored with the default reason (0).
 // The shape fetchIgnoredAppsStrict returns: ignored appid → reason, with the
-// wishlist from the same read (an empty one unless a test says otherwise).
+// wishlist and the library from the same read (empty unless a test says otherwise).
 const ignoredOf = (appids, reason = 0) => {
     const map = new Map(appids.map(a => [String(a), reason]));
     map.wishlist = new Set();
+    map.owned = new Set();
     return map;
 };
 
@@ -135,9 +153,10 @@ function fullDeps() {
     const fn = async () => {};
     return {
         store: withVocab({}),
+        marks: { markPresetDone: fn, unmarkPresets: fn, markBundleDone: fn, unmarkBundlesWith: fn, markAiRefused: fn },
         lease: { acquireLock: fn, renewLock: fn, holdsLock: fn, releaseLock: fn },
         api: { ignore: fn, unignore: fn },
-        gate: { reserve: fn, reportRateLimited: fn, stopped: fn, lastSlotAt: fn },
+        gate: { reserve: fn, reportRateLimited: fn, stopped: fn, lastSlotAt: fn, quietUntil: fn },
         fetchUserdata: fn,
         probeLogin: fn,
         ownerId: 't',
@@ -180,10 +199,18 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         let kicks = 0;
         drainer.drain = async () => { kicks++; };
         const fire = (key, area = 'local') => listeners[0]({ [key]: { newValue: 1 } }, area);
+        const lease = (change) => listeners[0]({ ilap_curator_lock_123: change }, 'local');
 
         fire('ilap_curator_queue');
         fire('ilap_master_enabled');   // re-enabling resumes a gate-stopped drain
-        fire('ilap_curator_lock_123');   // a released lease hands the job over
+        lease({ oldValue: { owner: 'other' } });   // another host's release hands the job over
+        expect(kicks).toBe(3);
+
+        // Its own release: the pass just ended, and what ended it has not gone.
+        lease({ oldValue: { owner: drainer.ownerId } });
+        // A lease taken or renewed elsewhere frees nothing.
+        lease({ oldValue: { owner: 'other' }, newValue: { owner: 'other' } });
+        lease({ newValue: { owner: 'other' } });
         expect(kicks).toBe(3);
 
         fire('ilap_curator_cursor_job_1');
@@ -709,7 +736,7 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         await d._drainJob(job);
         expect(posts).toEqual([['1', 2], ['1', 2], ['1', 2], ['2', 0]]);  // 3 tries, then on
         expect(cursor).toBe(2);
-        // The dropped entry carries the name resolved at swipe time, so a future
+        // The dropped entry keeps the name resolved at swipe time, so a future
         // surface can name it; the one that landed logs normally.
         expect(appended).toEqual([
             { appid: '1', name: 'Foo', source: 'mi', skipped: 'failed' },
@@ -1000,6 +1027,54 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         expect(removed).toBe(true);
     });
 
+    test('undo job: a re-ignore that lands during the gate wait is not rolled back', async () => {
+        // Another host (a tab draining a swipe while the worker drains the
+        // rollback) re-ignores the game between the skip check and the POST:
+        // the later intent wins there too.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'ju', curatorId: 'undo', type: 'undo',
+            status: 'pending', appids: ['1', '2'], snapshotTs: 500,
+        };
+        let cursor = 0;
+        let removed = false;
+        let reIgnored = false;
+        const asked = [];
+        const unposts = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            renewLock: async () => {},
+            removeJob: async () => { removed = true; },
+            removeIfDrained: async () => { removed = true; return true; },
+            signalCompleted: async () => {},
+        };
+        const d = new Drainer({
+            store,
+            api: {
+                ignore: async () => ({ ok: true }),
+                unignore: async (appid) => { unposts.push(appid); return { ok: true }; },
+            },
+            // The re-ignore of '1' lands while its slot is awaited.
+            gate: { reserve: async () => { if (cursor === 0) reIgnored = true; return { ok: true }; } },
+            fetchUserdata: async () => ignoredOf(['1', '2']),
+            log: {
+                append: async () => {},
+                markUndone: async () => {},
+                wasReIgnoredAfter: async (appid) => { asked.push(appid); return appid === '1' && reIgnored; },
+            },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(unposts).toEqual(['2']);
+        // Asked before the wait and after it, for each game.
+        expect(asked).toEqual(['1', '1', '2', '2']);
+        expect(cursor).toBe(2);
+        expect(removed).toBe(true);
+    });
+
     test('undo job: a freshly-ignored appid missing from userdata is un-ignored, not skip-marked', async () => {
         // rgIgnoredApps lags the ignore POST: '1' was ignored moments ago (log
         // ts ≈ now) but isn't in the set yet. Trusting the inverse-dedupe skip
@@ -1097,10 +1172,10 @@ test.describe('CuratorQueueDrainer (unit)', () => {
     });
 
     test('MI job: drains each entry with its own reason, stamps Last Ignored, logs source:mi', async () => {
-        // A swipe defers into a type:'mi' job carrying per-appid name + reason.
+        // A swipe defers into a type:'mi' job with per-appid name + reason.
         // At drain the POST must use that reason (0 default / 2 played-elsewhere),
         // saveStats must stamp Last Ignored (gated strictly to MI), and the undo
-        // log entry carries the name + source:'mi'. bumpCount is the curator-only
+        // log entry has the name + source:'mi'. bumpCount is the curator-only
         // counterpart: saveStats already increments the same total, so MI going
         // through both would count every swipe twice.
         const Drainer = loadDrainerClass();
@@ -1416,6 +1491,53 @@ test.describe('CuratorQueueDrainer (unit)', () => {
         // just evaporating.
         expect(unbadged).toEqual([['480', 'failed']]);
         expect(cursor).toBe(2);              // both entries stepped over
+    });
+
+    test('MI job: a game shot while browsing that Steam refused is remembered for the switch, a swipe is not', async () => {
+        // Without the mark every page with the game in view would shoot it and
+        // POST it again. Written by the drainer, so the SW route (no tab) keeps
+        // it too. The refusal says how long it holds.
+        const Drainer = loadDrainerClass();
+        const job = {
+            id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
+            appids: ['480', '481', '482'],
+            meta: {
+                480: { name: 'Locked', reason: 0, auto: true },
+                481: { name: 'Refused', reason: 0, auto: true },
+                482: { name: 'Swiped', reason: 0 },
+            },
+        };
+        let cursor = 0;
+        let removed = false;
+        const refused = [];
+        const store = {
+            getQueue: async () => (removed ? [] : [{ ...job }]),
+            holdsLock: async () => true,
+            getCursor: async () => cursor,
+            setCursor: async (id, c) => { cursor = c; },
+            bumpSkipped: async () => {},
+            signalUnignored: async () => {},
+            renewLock: async () => {},
+            removeIfDrained: async () => { removed = true; return true; },
+            signalCompleted: async () => {},
+            markAiRefused: async (appid, why) => { refused.push([appid, why]); },
+        };
+        const d = new Drainer({
+            store,
+            api: { ignore: async (appid) => (appid === '480'
+                ? { ok: false, rateLimited: false, unavailable: true }
+                : { ok: false, rateLimited: false, status: 400 }) },
+            gate: { reserve: async () => ({ ok: true }) },
+            // No game owned or wishlisted: the auto entries pass the guards.
+            fetchUserdata: async () => ignoredOf([]),
+            probeLogin: async () => true,
+            log: { append: async () => {}, markUndone: async () => {}, wasReIgnoredAfter: async () => false },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        await d._drainJob(job);
+        expect(refused).toEqual([['480', 'unavailable'], ['481', 'failed']]);
+        expect(cursor).toBe(3);
     });
 
     test('a gate stop ends the pass before the lease AND before the userdata read', async () => {
@@ -2395,11 +2517,15 @@ function loadRealStore(initial) {
     const clone = (v) => JSON.parse(JSON.stringify(v));
     const norm = (keys) => (Array.isArray(keys) ? keys : [keys]);
     const data = clone(initial);
+    const reads = {};   // key → how many times it was read
     const tick = (fn) => setTimeout(fn, 0);
     const local = {
         get: (keys, cb) => tick(() => {
             const out = {};
-            for (const k of norm(keys)) if (k in data) out[k] = clone(data[k]);
+            for (const k of norm(keys)) {
+                reads[k] = (reads[k] || 0) + 1;
+                if (k in data) out[k] = clone(data[k]);
+            }
             cb(out);
         }),
         set: (obj, cb) => tick(() => { for (const k of Object.keys(obj)) data[k] = clone(obj[k]); if (cb) cb(); }),
@@ -2408,11 +2534,12 @@ function loadRealStore(initial) {
     const sandbox = { window: {}, chrome: { storage: { local } }, setTimeout, Date, Math, JSON };
     vm.createContext(sandbox);
     loadEscape(sandbox);
-    for (const file of ['store.js', 'lease.js']) {
+    for (const file of ['store.js', 'lease.js', 'cache.js']) {
         vm.runInContext(fs.readFileSync(
             path.join(__dirname, '..', '..', 'src', 'curator', file), 'utf8'), sandbox);
     }
-    return { Store: sandbox.window.ILAP.Curator.Store, Lease: sandbox.window.ILAP.Curator.Lease, data };
+    return { Store: sandbox.window.ILAP.Curator.Store, Lease: sandbox.window.ILAP.Curator.Lease,
+        Cache: sandbox.window.ILAP.Curator.Cache, data, reads };
 }
 
 function loadEnqueueService() {
@@ -2422,22 +2549,22 @@ function loadEnqueueService() {
         vm.runInContext(fs.readFileSync(
             path.join(__dirname, '..', '..', 'src', 'curator', file), 'utf8'), sandbox);
     }
-    return sandbox.window.ILAP.Curator.EnqueueService;
+    return { EnqueueService: sandbox.window.ILAP.Curator.EnqueueService, filters: sandbox.window.ILAP_Filters };
 }
 
 test.describe('CuratorQueueDrainer × EnqueueService — a curator\'s second review type (unit)', () => {
 
     test('the other type added mid-drain waits as a job of its own: the first list runs on, then the second', async () => {
         const FIRST = 'job_123_1';
-        const { Store } = loadRealStore({
+        const { Store, Cache } = loadRealStore({
             ilap_curator_queue: [{ id: FIRST, type: 'curator', curatorId: '123', curatorName: 'Cur',
                 filter: 'not_recommended', status: 'pending', appids: ['1', '2', '3'], total: 3 }],
             ['ilap_curator_cursor_' + FIRST]: 1,
             ilap_curator_cache: { '123': { fetchedAt: Date.now(), apps: {
                 not_recommended: ['1', '2', '3'], informational: ['7', '8'], recommended: [] } } },
         });
-        const EnqueueService = loadEnqueueService();
-        const svc = new EnqueueService({ store: Store, enumerator: loadEnumerator(), maxJobs: 3 });
+        const { EnqueueService, filters } = loadEnqueueService();
+        const svc = new EnqueueService({ store: Store, cache: Cache, enumerator: loadEnumerator(), filters, maxJobs: 3 });
         const Drainer = loadDrainerClass();
         const posts = [];
         let added = false;
@@ -2466,8 +2593,12 @@ test.describe('CuratorQueueDrainer × EnqueueService — a curator\'s second rev
 
         const queue = await Store.getQueue();
         expect(queue).toHaveLength(1);
-        expect(queue[0]).toMatchObject({ curatorId: '123', filter: 'informational', status: 'pending', appids: ['7', '8'] });
-        expect(await Store.getCursor(queue[0].id)).toBe(0);
+        expect(queue[0]).toMatchObject({ curatorId: '123', filter: 'informational', status: 'pending', total: 2 });
+        // The first job keeps its list in the record, as an older build staged
+        // it; the new one has it under its own key.
+        expect(queue[0].appids).toBeUndefined();
+        expect(await Store.getList(queue[0])).toEqual(['7', '8']);
+        expect(await Store.getCursor(queue[0].id)).toBe(null);   // a new list starts at 0 with no key
 
         await d._drainJob(queue[0]);
         expect(posts).toEqual(['2', '3', '7', '8']);
@@ -2536,6 +2667,119 @@ test.describe('CuratorQueueDrainer × Store — one game swiped in two tabs (uni
 
         expect(posts).toEqual(['unignore 10']);   // B's older swipe sent nothing after it
         expect(steam.has('10')).toBe(false);
+    });
+});
+
+// The three gesture jobs reuse their ids (`job_mi`, `job_mi_undo`, `job_creator`).
+// The user removes the swipes' job and swipes again while a pass is between its
+// queue read and its cursor write: the job under that id is then another one.
+test.describe('CuratorQueueDrainer × Store — a swipe job removed and made again mid-step (unit)', () => {
+    const oldJob = () => ({
+        ilap_curator_queue: [{ id: 'job_mi', type: 'mi', curatorId: 'mi', curatorName: '',
+            appids: ['101', '102'], total: 2, status: 'pending', addedAt: 1,
+            meta: { 101: { name: 'A', reason: 2, ts: 1 }, 102: { name: 'B', reason: 2, ts: 1 } } }],
+    });
+    const removeAndSwipe = async (Store) => {
+        await Store.removeJob(Store.MI_JOB_ID);
+        await Store.enqueueMi({ appid: '201', name: 'C', reason: 2, ts: Date.now() });
+        await Store.enqueueMi({ appid: '202', name: 'D', reason: 2, ts: Date.now() });
+    };
+    const drainerOver = (Store, { onReserve, onPost }) => {
+        const posts = [];
+        const Drainer = loadDrainerClass();
+        const d = new Drainer({
+            store: Store,
+            api: {
+                ignore: async (appid, reason) => {
+                    posts.push(`${appid}:${reason}`);
+                    if (onPost) await onPost(posts.length);
+                    return { ok: true };
+                },
+            },
+            gate: { reserve: async () => { if (onReserve) await onReserve(); return { ok: true }; } },
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        return { d, posts };
+    };
+
+    test('during the gate\'s wait: the removed job\'s game is not sent, and every game of the new one is', async () => {
+        const { Store, data } = loadRealStore(oldJob());
+        let swapped = false;
+        const { d, posts } = drainerOver(Store, {
+            onReserve: async () => { if (!swapped) { swapped = true; await removeAndSwipe(Store); } },
+        });
+        await d.drain();
+        expect(posts).toEqual(['201:2', '202:2']);
+        expect(data.ilap_curator_queue).toEqual([]);
+    });
+
+    test('during the POST: the new job starts at its own first game', async () => {
+        const { Store, data } = loadRealStore(oldJob());
+        const { d, posts } = drainerOver(Store, {
+            onPost: async (n) => { if (n === 1) await removeAndSwipe(Store); },
+        });
+        await d.drain();
+        // 101 was on its way when the job went: it lands, as removeJob says.
+        expect(posts).toEqual(['101:2', '201:2', '202:2']);
+        expect(data.ilap_curator_queue).toEqual([]);
+    });
+
+    test('a swipe job made anew starts at 0, whatever cursor key an earlier one left', async () => {
+        const { Store, data } = loadRealStore({ ilap_curator_cursor_job_mi: 5 });
+        await Store.enqueueMi({ appid: '201', name: 'C', reason: 2, ts: 10 });
+        expect(await Store.getCursor(Store.MI_JOB_ID)).toBe(0);
+        const { d, posts } = drainerOver(Store, {});
+        await d.drain();
+        expect(posts).toEqual(['201:2']);
+        expect(data.ilap_curator_queue).toEqual([]);
+    });
+});
+
+// A curator, built-in list or undo job keeps its games under their own key, so
+// the queue the drainer reads on every step stays small however long the list.
+test.describe('CuratorQueueDrainer × Store — a list under its own key (unit)', () => {
+
+    test('a pass reads the list once and the queue on every step', async () => {
+        const { Store, data, reads } = loadRealStore({});
+        const games = Array.from({ length: 50 }, (_, i) => String(1000 + i));
+        const { jobId } = await Store.stagePreset('denuvo', games, 'r1');
+        expect(JSON.stringify(data.ilap_curator_queue)).not.toContain('1049');
+        const done = [];
+        const Drainer = loadDrainerClass();
+        const d = new Drainer({
+            store: Object.assign(Store, { markPresetDone: async (j) => { done.push(j.presetKey); } }),
+            // All already ignored: a run of dedupe skips, the step the queue
+            // read matters most for. One owned game makes the pass count them too.
+            fetchUserdata: async () => Object.assign(ignoredOf(games), { owned: new Set(['1000']) }),
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        await d.drain();
+        expect(reads[Store.LIST_PREFIX + jobId]).toBe(1);
+        expect(reads[Store.QUEUE_KEY]).toBeGreaterThan(games.length);
+        expect(done).toEqual(['denuvo']);
+        expect(data.ilap_curator_queue).toEqual([]);
+        expect(data[Store.LIST_PREFIX + jobId]).toBeUndefined();
+    });
+
+    test('a job whose list is gone is taken off the queue: nothing sent, not marked done', async () => {
+        // What a remove in one context and a stale queue write in another leave:
+        // the record back, its list gone.
+        const { Store, data } = loadRealStore({
+            ilap_curator_queue: [{ id: 'job_vr', type: 'preset', curatorId: 'preset_vr', presetKey: 'vr',
+                presetRev: 'r1', total: 3, status: 'pending' }],
+        });
+        const done = [];
+        const Drainer = loadDrainerClass();
+        const d = new Drainer({
+            store: Object.assign(Store, { markPresetDone: async (j) => { done.push(j.presetKey); } }),
+            ownerId: 't1',
+            standbyMs: 0,
+        });
+        await d.drain();
+        expect(data.ilap_curator_queue).toEqual([]);
+        expect(done).toEqual([]);
     });
 });
 
@@ -2610,6 +2854,17 @@ test.describe('CuratorQueueDrainer — change of reason (unit)', () => {
         expect(out.ignores).toEqual([['10', 2]]);
         expect(out.stats).toEqual([['Foo', 2]]);
         expect(out.appended).toEqual([{ appid: '10', name: 'Foo', source: 'mi' }]);
+    });
+
+    // The game page's frame names what ignored it (manual-ignore/list-frame.js).
+    test('a shot while browsing is logged auto, a bundle\'s app with the bundle', async () => {
+        const job = (meta) => Object.assign(miJob(0), { meta: { 10: Object.assign({ name: 'Foo', reason: 0 }, meta) } });
+        // An automated entry needs the wishlist and the library read.
+        const read = () => Object.assign(new Map(), { wishlist: new Set(), owned: new Set() });
+        const shot = await drainOnce(job({ auto: true }), read());
+        expect(shot.appended).toEqual([{ appid: '10', name: 'Foo', source: 'mi', auto: true }]);
+        const bundled = await drainOnce(job({ bundle: 'bundle_232' }), read());
+        expect(bundled.appended).toEqual([{ appid: '10', name: 'Foo', source: 'mi', curatorId: 'bundle_232' }]);
     });
 
     // userdata lags a remove=1 as it lags an ignore: a read this close to a
@@ -2756,7 +3011,11 @@ test.describe('CuratorQueueDrainer — built-in list jobs (unit)', () => {
 // game the user wishlisted, a swipe on one game always goes through.
 test.describe('CuratorQueueDrainer wishlist guard (unit)', () => {
 
-    const withWishlist = (map, appids) => { map.wishlist = new Set(appids.map(String)); return map; };
+    const withWishlist = (map, appids) => {
+        map.wishlist = new Set(appids.map(String));
+        if (!map.owned) map.owned = new Set();
+        return map;
+    };
 
     // One job drained to its end: what was POSTed and which skips were counted.
     async function drainOne(job, userdata) {
@@ -2829,6 +3088,116 @@ test.describe('CuratorQueueDrainer wishlist guard (unit)', () => {
             expect(cursor).toBe(1);
             expect(result).toBe('stop');
         }
+    });
+});
+
+// The library guard: the automated ignores never take a game the user owns.
+// Its count is there from the job's first pass, before the cursor reaches the
+// games, and each pass counts again with its own read.
+test.describe('CuratorQueueDrainer library guard (unit)', () => {
+
+    const withOwned = (map, appids) => { map.owned = new Set(appids.map(String)); return map; };
+
+    // `jobs` in the stored queue, the first one drained. What was POSTed, and
+    // each count written with where the cursor stood at the time.
+    function harness(jobs, opts = {}) {
+        const Drainer = loadDrainerClass();
+        let cursor = 0;
+        let queue = jobs.map(j => ({ ...j, appids: [...j.appids] }));
+        const posts = [];
+        const owned = [];
+        const wishlisted = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => queue.map(j => ({ ...j })),
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                removeIfDrained: async (id) => { queue = queue.filter(j => j.id !== id); return true; },
+                setOwned: async (id, n) => { owned.push({ id, n, cursor }); return true; },
+                bumpWishlisted: async (id) => { wishlisted.push(id); },
+                markPresetDone: async () => {},
+                markBundleDone: async () => {},
+            },
+            api: { ignore: async (appid) => { posts.push(appid); return { ok: true }; } },
+            gate: { reserve: opts.reserve || (async () => ({ ok: true })) },
+            fetchUserdata: async () => opts.userdata(),
+            ownerId: 't1',
+        });
+        return { d, posts, owned, wishlisted, queue: () => queue };
+    }
+
+    test('a curator, built-in list or bundle job skips an owned game with no POST', async () => {
+        for (const extra of [{}, { type: 'preset', presetKey: 'vr' }, { type: 'bundle', meta: {} }]) {
+            const job = Object.assign({ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20', '30'] }, extra);
+            const h = harness([job], { userdata: () => withOwned(ignoredOf([]), ['20']) });
+            await h.d._drainJob(job);
+            expect(h.posts).toEqual(['10', '30']);
+            // Counted, never bumped by the skip itself.
+            expect(h.owned).toEqual([{ id: 'j1', n: 1, cursor: 0 }]);
+            expect(h.wishlisted).toEqual([]);
+        }
+    });
+
+    test('the count is there before the cursor reaches the games, the list order kept', async () => {
+        const job = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20', '30', '40', '50'] };
+        const h = harness([job], { userdata: () => withOwned(ignoredOf([]), ['40', '50']) });
+        await h.d._drainJob(job);
+        expect(h.owned[0]).toEqual({ id: 'j1', n: 2, cursor: 0 });
+        expect(h.posts).toEqual(['10', '20', '30']);
+    });
+
+    test('a game already ignored or wishlisted is not in the count', async () => {
+        const job = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20', '30'] };
+        const h = harness([job], { userdata: () => {
+            const u = withOwned(ignoredOf(['10']), ['10', '20', '30']);
+            u.wishlist = new Set(['20']);
+            return u;
+        } });
+        await h.d._drainJob(job);
+        expect(h.owned).toEqual([{ id: 'j1', n: 1, cursor: 0 }]);
+        expect(h.posts).toEqual([]);
+        expect(h.wishlisted).toEqual(['j1']);
+    });
+
+    test('a job waiting behind the drained one is counted in the same pass, once', async () => {
+        const run = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10'] };
+        const wait = { id: 'j2', type: 'preset', presetKey: 'vr', curatorId: 'preset_vr', status: 'pending',
+            appids: ['20', '30', '40'] };
+        const h = harness([run, wait], { userdata: () => withOwned(ignoredOf([]), ['30', '40']) });
+        await h.d._drainJob(run);
+        expect(h.owned).toEqual([{ id: 'j1', n: 0, cursor: 0 }, { id: 'j2', n: 2, cursor: 0 }]);
+        expect(h.queue().map(j => j.id)).toEqual(['j2']);
+        expect(h.queue()[0].appids).toEqual(['20', '30', '40']);
+    });
+
+    test('a later pass counts again with its own read', async () => {
+        const job = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20', '30'] };
+        let library = ['20'];
+        // The gate stops each pass at its first POST: the job stays where it is.
+        const h = harness([job], { userdata: () => withOwned(ignoredOf([]), library),
+            reserve: async () => ({ ok: false }) });
+        expect(await h.d._drainJob(job)).toBe('stop');
+        library = ['20', '30'];
+        expect(await h.d._drainJob(job)).toBe('stop');
+        expect(h.owned.map(o => o.n)).toEqual([1, 2]);
+    });
+
+    test('a read with no library stops the pass, after the games already on the list', async () => {
+        // fetchIgnoredAppsStrict says null when Steam's answer has no rgOwnedApps.
+        const job = { id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20'] };
+        const h = harness([job], { userdata: () => Object.assign(ignoredOf(['10']), { owned: null }) });
+        expect(await h.d._drainJob(job)).toBe('stop');
+        expect(h.posts).toEqual([]);
+        expect(h.owned).toEqual([]);
+    });
+
+    test('a swipe ignores an owned game, and a gesture job has no count', async () => {
+        const job = { id: 'job_mi', type: 'mi', curatorId: 'mi', status: 'pending', appids: ['20'],
+            meta: { 20: { name: 'G', reason: 0 } } };
+        const h = harness([job], { userdata: () => withOwned(ignoredOf([]), ['20']) });
+        await h.d._drainJob(job);
+        expect(h.posts).toEqual(['20']);
+        expect(h.owned).toEqual([]);
     });
 });
 
@@ -2911,6 +3280,38 @@ test.describe('CuratorQueueDrainer bundles (unit)', () => {
         expect(unmarked).toEqual(['10']);
     });
 
+    test('a rollback, landed or deduped, re-offers the built-in lists that ignored the game', async () => {
+        const Drainer = loadDrainerClass();
+        const job = { id: 'job_undo_1', type: 'undo', curatorId: 'undo', status: 'pending', appids: ['10', '20'],
+            snapshotTs: Date.now() };
+        let cursor = 0;
+        let removed = false;
+        const unmarked = [];
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{ ...job }]),
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                removeIfDrained: async () => { removed = true; return true; },
+                unmarkPresets: async (ids) => { unmarked.push(...ids); },
+            },
+            log: {
+                append: async () => {},
+                markUndone: async (appid) => [appid === '10' ? 'preset_ai_2023' : 'preset_denuvo'],
+                lastIgnoredAt: async () => 0,
+                lastUndoneAt: async () => 0,
+                wasReIgnoredAfter: async () => false,
+            },
+            api: { unignore: async () => ({ ok: true }) },
+            gate: { reserve: async () => ({ ok: true }) },
+            // '10' is still ignored (a landed POST), '20' is off the list already (a dedupe).
+            fetchUserdata: async () => ignoredOf(['10']),
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        expect(unmarked.sort()).toEqual(['preset_ai_2023', 'preset_denuvo']);
+    });
+
     test('a bundle\'s app in the MI job takes any reason and skips the wishlist; a swipe does neither', async () => {
         const job = { id: 'job_mi', type: 'mi', curatorId: 'mi', status: 'pending', appids: ['10', '20', '30', '40'],
             meta: { 10: { reason: 2, bundle: true }, 20: { reason: 2, bundle: true },
@@ -2920,5 +3321,405 @@ test.describe('CuratorQueueDrainer bundles (unit)', () => {
         // 10: on the list already, kept as it is. 20: wishlisted, skipped.
         // 30: a swipe with the other reason changes it. 40: a swipe on a wishlisted game goes through.
         expect(await drain(job, userdata)).toEqual([['30', 2], ['40', 0]]);
+    });
+
+    test('a game shot while browsing takes any reason and skips the wishlist and the library, as a bundle\'s app', async () => {
+        const job = { id: 'job_mi', type: 'mi', curatorId: 'mi', status: 'pending', appids: ['10', '20', '30', '40'],
+            meta: { 10: { reason: 0, auto: true }, 20: { reason: 0, auto: true },
+                30: { reason: 0, auto: true }, 40: { reason: 0, auto: true } } };
+        const userdata = ignoredOf(['10'], 2);
+        userdata.wishlist = new Set(['20']);
+        userdata.owned = new Set(['30']);
+        // 10: on the list as Played Elsewhere, kept. 20: wishlisted. 30: owned.
+        expect(await drain(job, userdata)).toEqual([['40', 0]]);
+    });
+});
+
+// Steam's own creator ignore: a gesture job whose entries are clan ids.
+test.describe('CuratorQueueDrainer creators (unit)', () => {
+
+    const creatorJob = (meta) => ({ id: 'job_creator', type: 'creator', curatorId: 'creator', status: 'pending',
+        appids: Object.keys(meta), meta });
+
+    // One pass over `job` on a store with a live cursor; what each hook saw.
+    async function drainCreators(job, apiCreator, extra = {}) {
+        const Drainer = loadDrainerClass();
+        let cursor = 0;
+        const seen = { posts: [], notes: [], logs: [], history: [], failed: 0, ignored: null };
+        const d = new Drainer(Object.assign({
+            store: {
+                getQueue: async () => (cursor < job.appids.length ? [{ ...job }] : []),
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                removeIfDrained: async () => true,
+            },
+            api: { creator: async (clanid, ignore) => { seen.posts.push([clanid, ignore]); return apiCreator(clanid, ignore); } },
+            creators: {
+                note: async (...a) => { seen.notes.push(a); },
+                signalFailed: async () => { seen.failed += 1; },
+            },
+            stats: { saveCreator: async (...a) => { seen.history.push(a); } },
+            log: { append: async (e) => { seen.logs.push(e); } },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => { seen.ignored = ignoredOf(['10']); return seen.ignored; },
+            ownerId: 't1',
+        }, extra));
+        await d._drainJob(job);
+        return seen;
+    }
+
+    test('an ignore and a rollback each POST once and land in the mirror, the log and the history', async () => {
+        const seen = await drainCreators(creatorJob({
+            33019580: { name: '8floor ltd', ignore: true, ts: 1 },
+            4: { name: 'Valve', ignore: false, ts: 2 },
+        }), async () => ({ ok: true }));
+        // Object.keys puts integer keys in numeric order: 4 first.
+        expect(seen.posts).toEqual([['4', false], ['33019580', true]]);
+        expect(seen.notes).toContainEqual(['33019580', '8floor ltd', true]);
+        expect(seen.notes).toContainEqual(['4', 'Valve', false]);
+        expect(seen.logs).toContainEqual({ creator: '33019580', name: '8floor ltd', ignore: true, source: 'creator' });
+        expect(seen.history).toContainEqual(['Valve', '4', false]);
+        // A clan id is no game: the pass reads no userdata at all.
+        expect(seen.ignored).toBe(null);
+        expect(seen.failed).toBe(0);
+    });
+
+    test('a refusal with a live session is dropped after one POST and the tabs are told', async () => {
+        const seen = await drainCreators(creatorJob({ 7: { name: 'Followed', ignore: true, ts: 1 } }),
+            async () => ({ ok: false, rateLimited: false, retryAfterMs: 0, status: 400, refused: true }));
+        expect(seen.posts).toEqual([['7', true]]);
+        expect(seen.failed).toBe(1);
+        expect(seen.notes).toEqual([]);
+        expect(seen.logs).toEqual([]);
+    });
+
+    test('a refusal on a dead session parks the pass and keeps the entry', async () => {
+        const seen = await drainCreators(creatorJob({ 7: { name: 'X', ignore: true, ts: 1 } }),
+            async () => ({ ok: false, rateLimited: false, retryAfterMs: 0, status: 400, refused: true }),
+            { probeLogin: async () => false });
+        expect(seen.posts).toEqual([['7', true]]);
+        expect(seen.failed).toBe(0);
+    });
+
+    test('a host with no creator POST leaves the creator job to a store tab and drains the rest', async () => {
+        const Drainer = loadDrainerClass();
+        const d = new Drainer({ store: { getCursor: async () => 0 }, ownerId: 'sw' });
+        const creator = creatorJob({ 4: { name: 'Valve', ignore: true, ts: 1 } });
+        const mi = { id: 'job_mi', type: 'mi', curatorId: 'mi', status: 'pending', appids: ['10'], meta: {} };
+        expect(await d.hasDrainableWork([creator])).toBe(false);
+        expect((await d._pickJob([creator, mi])).id).toBe('job_mi');
+    });
+
+    test('a host with the creator POST but nowhere to put its results refuses to be built', async () => {
+        const Drainer = loadDrainerClass();
+        expect(() => new Drainer({ store: {}, ownerId: 't', api: { creator: async () => ({ ok: true }) } }))
+            .toThrow(/deps\.creators/);
+    });
+});
+
+// A gesture rewrites its pending entry in the queue (a creator's direction, a
+// swipe's reason, a cancel) while the drainer waits for its slot or its POST.
+test.describe('CuratorQueueDrainer: an entry changed under a pass (unit)', () => {
+
+    // One pass over one gesture job, with `inWait` running inside the gate wait
+    // and `inPost` inside the POST. `queue` is the storage the stub store reads.
+    function rig(job, { inWait, inPost, posted = async () => ({ ok: true }) } = {}) {
+        const Drainer = loadDrainerClass();
+        const queue = [{ ...job }];
+        let cursor = 0;
+        const seen = { posts: [], creators: [], swipes: [], undos: [], notes: [] };
+        const d = new Drainer({
+            store: {
+                getQueue: async () => queue.map(j => ({ ...j })),
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                removeIfDrained: async () => { queue.length = 0; return true; },
+                enqueueCreator: async (spec) => { seen.creators.push(spec); return { kind: 'added' }; },
+                enqueueMi: async (spec) => { seen.swipes.push(spec); return { kind: 'added' }; },
+                enqueueMiUndo: async (spec) => { seen.undos.push(spec); return { kind: 'added' }; },
+            },
+            api: {
+                creator: async (clanid, ignore) => {
+                    seen.posts.push([clanid, ignore]);
+                    if (inPost) inPost(queue);
+                    return posted();
+                },
+                ignore: async (appid, reason) => {
+                    seen.posts.push([appid, reason]);
+                    if (inPost) inPost(queue);
+                    return posted();
+                },
+            },
+            creators: { note: async (...a) => { seen.notes.push(a); }, signalFailed: async () => {} },
+            stats: { saveCreator: async () => {} },
+            gate: { reserve: async () => { if (inWait) inWait(queue); return { ok: true }; } },
+            fetchUserdata: async () => ignoredOf([]),
+            ownerId: 't1',
+        });
+        return { d, seen, job };
+    }
+
+    const creator = (ignore) => ({ id: 'job_creator', type: 'creator', curatorId: 'creator', status: 'pending',
+        appids: ['4'], meta: { 4: { name: 'Valve', ignore, ts: 1 } } });
+    const swipe = (reason) => ({ id: 'job_mi', type: 'mi', curatorId: 'mi', status: 'pending',
+        appids: ['10'], meta: { 10: { name: 'G', reason, ts: 1 } } });
+    const setMeta = (queue, appid, patch) => {
+        queue[0] = { ...queue[0], meta: { ...queue[0].meta, [appid]: { ...queue[0].meta[appid], ...patch } } };
+    };
+
+    test('a creator flipped during the gate wait is sent as the last gesture said', async () => {
+        const { d, seen, job } = rig(creator(true), { inWait: (q) => setMeta(q, '4', { ignore: false }) });
+        await d._drainJob(job);
+        expect(seen.posts).toEqual([['4', false]]);
+        expect(seen.notes).toEqual([['4', 'Valve', false]]);
+        expect(seen.creators).toEqual([]);
+    });
+
+    test('a swipe given the other reason during the gate wait is sent with it', async () => {
+        const { d, seen, job } = rig(swipe(0), { inWait: (q) => setMeta(q, '10', { reason: 2 }) });
+        await d._drainJob(job);
+        expect(seen.posts).toEqual([['10', 2]]);
+        expect(seen.swipes).toEqual([]);
+    });
+
+    test('a creator flipped while its POST is out goes in again the other way', async () => {
+        const { d, seen, job } = rig(creator(true), { inPost: (q) => setMeta(q, '4', { ignore: false }) });
+        await d._drainJob(job);
+        expect(seen.posts).toEqual([['4', true]]);
+        expect(seen.creators).toEqual([{ clanid: '4', name: 'Valve', ignore: false }]);
+    });
+
+    test('a swipe given the other reason while its POST is out goes in again with it', async () => {
+        const { d, seen, job } = rig(swipe(0), { inPost: (q) => setMeta(q, '10', { reason: 2, ts: 9 }) });
+        await d._drainJob(job);
+        expect(seen.posts).toEqual([['10', 0]]);
+        expect(seen.swipes).toEqual([{ appid: '10', name: 'G', reason: 2, ts: 9 }]);
+    });
+
+    test('a swipe taken back while its POST is out is rolled back for real, as before', async () => {
+        const { d, seen, job } = rig(swipe(0), { inPost: (q) => setMeta(q, '10', { cancelled: true }) });
+        await d._drainJob(job);
+        expect(seen.undos).toEqual([{ appid: '10' }]);
+        expect(seen.swipes).toEqual([]);
+    });
+
+    test('a POST that did not land reconciles nothing: its entry is still the one to send', async () => {
+        const { d, seen, job } = rig(creator(true), {
+            inPost: (q) => setMeta(q, '4', { ignore: false }),
+            posted: async () => ({ ok: false, rateLimited: true, retryAfterMs: 0, status: 429 }),
+        });
+        await d._drainJob(job);
+        expect(seen.creators).toEqual([]);
+    });
+});
+
+// A pass that ended with the job still drainable must not come straight back.
+test.describe('CuratorQueueDrainer: what a stopped pass waits for (unit)', () => {
+
+    function rig(over = {}) {
+        let now = 1_000_000;
+        const deferred = [];
+        const Drainer = loadDrainerClass({ now: () => now }, {
+            setTimeout: (fn, ms) => { deferred.push({ fn, ms }); return deferred.length; },
+            clearTimeout: () => {},
+        });
+        const seen = { reads: 0, reserves: 0, leases: 0 };
+        const d = new Drainer(Object.assign({
+            store: {
+                getQueue: async () => [{ id: 'j1', curatorId: 'c1', status: 'pending', appids: ['10', '20'] }],
+                acquireLock: async () => { seen.leases += 1; return true; },
+                releaseLock: async () => {},
+                holdsLock: async () => true,
+                getCursor: async () => 0,
+                setCursor: async () => {},
+                renewLock: async () => {},
+                removeIfDrained: async () => true,
+            },
+            api: { ignore: async () => ({ ok: true }) },
+            gate: { reserve: async () => { seen.reserves += 1; return { ok: false, reason: 'yield' }; } },
+            fetchUserdata: async () => { seen.reads += 1; return ignoredOf([]); },
+            ownerId: 't1',
+            standbyMs: 0,
+        }, over));
+        return { d, seen, deferred, tick: (ms) => { now += ms; }, at: () => now };
+    }
+
+    test('nothing can be sent yet: no lease, no read, and a kick comes back at the end of the wait', async () => {
+        const r = rig();
+        const until = r.at() + 60000;
+        r.d.gate.quietUntil = async () => until;
+        await r.d.drain();
+        expect(r.seen).toEqual({ reads: 0, reserves: 0, leases: 0 });
+        expect(r.deferred.map(t => t.ms)).toEqual([60000]);
+        // A kick meanwhile is deferred with it, and reads nothing either.
+        await r.d.drain();
+        expect(r.seen.reads).toBe(0);
+        expect(r.deferred).toHaveLength(1);
+    });
+
+    test('a failed read waits a standby tick, past the pass gap, and a kick inside it is deferred', async () => {
+        const job = { id: 'j1', curatorId: 'c1', type: 'preset', status: 'pending', appids: ['10'] };
+        const r = rig({ fetchUserdata: async () => { r.seen.reads += 1; return null; } });
+        r.d.store.getQueue = async () => [{ ...job }];
+        await r.d.drain();
+        expect(r.seen.reads).toBe(1);
+        expect(r.seen.reserves).toBe(0);
+        r.tick(2000);        // past MIN_PASS_GAP_MS: another host's release lands here
+        await r.d.drain();
+        expect(r.seen.reads).toBe(1);
+        expect(r.deferred.at(-1).ms).toBe(7000);
+        r.tick(7000);
+        await r.d.drain();
+        expect(r.seen.reads).toBe(2);
+    });
+
+    test('an undo pass with no read waits the same', async () => {
+        const job = { id: 'u1', curatorId: 'undo', type: 'undo', status: 'pending', appids: ['10'] };
+        const r = rig({ fetchUserdata: async () => { r.seen.reads += 1; return null; } });
+        r.d.store.getQueue = async () => [{ ...job }];
+        await r.d.drain();
+        r.tick(2000);
+        await r.d.drain();
+        expect(r.seen.reads).toBe(1);
+    });
+
+    test('a stop verdict sets no wait: the toggle coming back drains at once', async () => {
+        const r = rig();
+        let verdict = 'disabled';
+        r.d.gate.stopped = async () => verdict;
+        await r.d.drain();
+        expect(r.seen.reads).toBe(0);
+        verdict = null;
+        await r.d.drain();
+        expect(r.seen.reads).toBe(1);
+        expect(r.deferred).toEqual([]);
+    });
+});
+
+// A long pass must not act on what the account looked like hours ago.
+test.describe('CuratorQueueDrainer: a long pass reads the account again (unit)', () => {
+
+    function rig(reads, type) {
+        let now = 1_000_000;
+        const Drainer = loadDrainerClass({ now: () => now });
+        let cursor = 0;
+        const posts = [];
+        const job = { id: 'j1', type, curatorId: 'c1', status: 'pending', appids: ['10', '20', '30'] };
+        const seen = { reads: 0 };
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (cursor < job.appids.length ? [{ ...job }] : []),
+                holdsLock: async () => true,
+                getCursor: async () => cursor,
+                setCursor: async (id, c) => { cursor = c; },
+                renewLock: async () => {},
+                removeIfDrained: async () => true,
+            },
+            api: {
+                ignore: async (appid) => { posts.push(appid); now += 10 * 60 * 1000; return { ok: true }; },
+                unignore: async (appid) => { posts.push(appid); now += 10 * 60 * 1000; return { ok: true }; },
+            },
+            gate: { reserve: async () => ({ ok: true }) },
+            fetchUserdata: async () => reads(seen.reads++),
+            ownerId: 't1',
+        });
+        return { d, job, posts, seen };
+    }
+
+    test('a game wishlisted during the pass is spared once the next read sees it', async () => {
+        const later = ignoredOf([]);
+        later.wishlist = new Set(['20']);
+        const r = rig((n) => (n === 0 ? ignoredOf([]) : later));
+        await r.d._drainJob(r.job);
+        expect(r.posts).toEqual(['10', '30']);
+    });
+
+    test('the owned count under a job follows the later read', async () => {
+        const counts = [];
+        const owning = (ids) => { const m = ignoredOf([]); m.owned = new Set(ids); return m; };
+        const r = rig((n) => (n === 0 ? owning(['20']) : owning(['20', '30'])));
+        r.d.store.hasList = () => true;
+        r.d.store.setOwned = async (id, n) => { counts.push(n); };
+        await r.d._drainJob(r.job);
+        expect(counts[0]).toBe(1);
+        expect(counts).toContain(2);
+    });
+
+    test('a read that fails mid-pass keeps the last good one and waits as long again', async () => {
+        const first = ignoredOf([]);
+        first.wishlist = new Set(['30']);
+        const r = rig((n) => (n === 0 ? first : null));
+        await r.d._drainJob(r.job);
+        expect(r.posts).toEqual(['10', '20']);
+        // The start, then one per 10 minutes of the pass: a failure is not asked again at once.
+        expect(r.seen.reads).toBe(3);
+    });
+
+    test('a later read that comes back empty is no read for a rollback, whose dedupe is inverted', async () => {
+        // "Not on the list" would skip every game left, and mark it rolled back.
+        const r = rig((n) => (n === 0 ? ignoredOf(['10', '20', '30']) : ignoredOf([])), 'undo');
+        await r.d._drainJob(r.job);
+        expect(r.posts).toEqual(['10', '20', '30']);
+    });
+});
+
+test.describe('CuratorQueueDrainer — an automated ignore after the user\'s own (unit)', () => {
+    // One pass of `job`, whose game '10' the read does not list. `lastIgnoredAt`
+    // is the log's word on it, `onSlot` runs as the gate gives its slot.
+    async function pass(job, lastIgnoredAt, onSlot) {
+        const Drainer = loadDrainerClass();
+        const out = { posts: [], counted: 0, logged: 0, slots: 0, cursor: 0 };
+        let removed = false;
+        const d = new Drainer({
+            store: {
+                getQueue: async () => (removed ? [] : [{ ...job }]),
+                getCursor: async () => out.cursor,
+                setCursor: async (id, c) => { out.cursor = c; },
+                removeIfDrained: async () => { removed = true; return true; },
+            },
+            api: { ignore: async (appid, reason) => { out.posts.push([appid, reason]); return { ok: true }; } },
+            gate: { reserve: async () => { out.slots += 1; if (onSlot) onSlot(); return { ok: true }; } },
+            fetchUserdata: async () => ignoredOf([]),
+            stats: { save: async () => { out.counted += 1; }, bumpCount: async () => { out.counted += 1; } },
+            log: { append: async () => { out.logged += 1; }, lastIgnoredAt },
+            ownerId: 't1',
+        });
+        await d._drainJob(job);
+        return out;
+    }
+    const miJob = (meta) => ({
+        id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending', appids: ['10'], meta: { 10: meta },
+    });
+    const shot = () => miJob({ name: 'G', reason: 0, ts: Date.now(), auto: true });
+    const moments = async () => Date.now() - 1000;
+    const nothingSent = { posts: [], counted: 0, logged: 0, cursor: 1 };
+
+    test('a game shot while browsing that the user ignored moments ago: no POST to change its reason, not counted again', async () => {
+        expect(await pass(shot(), moments)).toMatchObject({ ...nothingSent, slots: 0 });
+    });
+
+    test('so too a bundle\'s app in the MI job and a game of a list', async () => {
+        const list = { id: 'j1', curatorId: 'c9', status: 'pending', appids: ['10'] };
+        expect(await pass(miJob({ name: 'G', reason: 0, bundle: 'bundle_1' }), moments)).toMatchObject(nothingSent);
+        expect(await pass(list, moments)).toMatchObject(nothingSent);
+    });
+
+    test('a swipe still goes out: its reason is what the user asked for', async () => {
+        const out = await pass(miJob({ name: 'G', reason: 2, ts: Date.now() }), moments);
+        expect(out.posts).toEqual([['10', 2]]);
+    });
+
+    test('an ignore older than the read could miss: the game came off the list in Steam, and the shot goes out', async () => {
+        const out = await pass(shot(), async () => Date.now() - 60000);
+        expect(out.posts).toEqual([['10', 0]]);
+        expect(out).toMatchObject({ counted: 1, logged: 1, cursor: 1 });
+    });
+
+    test('an ignore that lands while the entry waits for its slot stops the POST too', async () => {
+        let at = 0;
+        const out = await pass(shot(), async () => at, () => { at = Date.now(); });
+        expect(out).toMatchObject({ ...nothingSent, slots: 1 });
     });
 });

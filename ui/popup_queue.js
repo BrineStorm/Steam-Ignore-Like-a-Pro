@@ -2,77 +2,20 @@
 (function() {
     'use strict';
 
-    // The ignore queue applet in the popup/widget. It renders from a storage
-    // snapshot: the job records, the per-job cursor keys for progress, and the
-    // live lease for "running". Kept while the queue is empty (.is-empty), for
-    // the built-in lists icon on its bar: it shows 0 and opens on a hint.
+    // The ignore queue in the popup/widget: a drawer that the extension's icon
+    // in the header slides out of the panel's left side, against its top. It
+    // renders from a storage snapshot: the job records, the per-job cursor keys
+    // for progress, and the live lease for "running". The icon wears the job
+    // count and a ring of the queue's progress. An empty queue shows a hint
+    // that says where jobs come from, and the icon neither. What a strip says is
+    // popup_queue_rows.js's.
 
     const t = window.ILAP.t;
 
     const esc = window.ILAP.Sanitizer.escapeHTML;
-    const Store = window.ILAP.Curator.Store;
-    const Lease = window.ILAP.Curator.Lease;
-    const Settings = window.ILAP.Settings;
 
-    // Filter labels and colours and the curator-page parser, shared with the
-    // curator button (src/curator/filters.js).
-    const Filters = window.ILAP_Filters;
-
-    // No 'done' state: finished jobs are removed from the queue (the drainer emits
-    // a completion pulse for the widget blink instead of leaving a record behind).
-    const STATUS_LABELS = {
-        enumerating: 'queue_status_enumerating',
-        pending: 'queue_status_pending',
-        running: 'queue_status_running',
-        paused: 'queue_status_paused'
-    };
-
-    // Running → lime, and a job waiting its turn the same (the running one is
-    // told apart by its sheen), paused → yellow.
-    // Enumerating is a transient "fetching the list" state → Spared blue. The done part of the strip's mini bar (or a
-    // gesture job's count) wears it; the part still to go is pale.
-    const STATUS_COLORS = {
-        enumerating: '#66c0f4',
-        pending: '#48ff00',
-        running: '#48ff00',
-        paused: '#fff44f'
-    };
-
-    // Duration of the smooth "collapse on completion" — matches the .5s on
-    // .solo-collapse over ::details-content in popup.css (see _collapseEmpty).
-    const COLLAPSE_MS = 500;
-
-    // One sweep of the running strip's sheen — matches the 2.4s on
-    // .queue-job.running in popup.css. A strip that starts running is started
-    // at the phase of a shared clock (a negative animation-delay), so a fresh
-    // one picks the sweep up where an old one was (_patchList).
-    const SHEEN_MS = 2400;
-
-    // Curator id of the page this surface is rendered on (only matches in the on-page
-    // widget; the popup window's location isn't a curator page → null → no highlight).
-    // Shared parser (src/curator/filters.js) so this and main.js agree.
-    const currentCuratorId = () => Filters.curatorIdFromPath(location.pathname);
-
-    // Inline icons (inherit the button colour via currentColor, ui/icons.js).
-    const { PAUSE: ICON_PAUSE, PLAY: ICON_PLAY, TRASH: ICON_TRASH, PRESETS: ICON_PRESETS, LIST: ICON_LIST,
-        BUNDLE: ICON_BUNDLE } = window.ILAP_Icons;
-    // An un-ignore job's glyph: the Undo button's turning arrow, in green, drawn
-    // bold (a stroke of its own colour around the shape).
-    const ICON_UNDO = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="#4fd64f" stroke="#4fd64f" stroke-width="1.6" stroke-linejoin="round" d="M12 5V1.8L6.5 6.5 12 11.2V8c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z"/></svg>';
-    // A job waiting its turn: a white clock in the ⚠ slot.
-    const ICON_CLOCK = '<svg viewBox="0 0 12 12" width="14" height="14" aria-hidden="true"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M6 3.4V6l1.8 1.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    // The Remove confirmation's two answers: bare Unicode marks in bold, drawn only here.
-    const ICON_CHECK = '<span aria-hidden="true">✓</span>';
-    const ICON_CROSS = '<span aria-hidden="true">✕</span>';
-
-    // Row names of the job types that have no curator to name them. Null-prototype
-    // because the key is a job's stored `type`: an unknown one must fall through
-    // to the record's own name (see _row), which a prototype hit would take away.
-    const JOB_NAME_KEYS = Object.assign(Object.create(null), {
-        [Store.JOB_TYPE.UNDO]: 'undo_job_name',
-        [Store.JOB_TYPE.MI]: 'mi_job_name',
-        [Store.JOB_TYPE.MIUNDO]: 'miundo_job_name',
-    });
+    // The empty queue's hint names the lists button by its glyph (ui/icons.js).
+    const ICON_PRESETS = window.ILAP_Icons.PRESETS;
 
     // Makes `from` match `to` in place, node by node: an equal node is left as
     // it is, a node of another kind is swapped for its twin, an element of the
@@ -89,13 +32,57 @@
         was.slice(next.length).forEach(n => n.remove());
     }
 
+    const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // A height change of the open drawer's block.
+    const RESIZE_MS = 260;
+    // A removed job's strip folding away, and the window's edge with it (_collapseRow).
+    // Near linear with soft ends, so the edge moves for the whole 300 ms: with
+    // ease-in-out it barely moved for the first 130 ms and then jumped.
+    const FOLD_MS = 300;
+    const FOLD_EASE = 'cubic-bezier(.3, .15, .7, .85)';
+    // How long a finished last strip shows its ✓ before the hint (_finishLast).
+    const DONE_HOLD_MS = 700;
+    // In the widget the lists' window out under the queue's keeps this much
+    // of the viewport: the gap over it and a few of its rows (ListPanes._place).
+    const LISTS_ROOM = 120;
+    // As the lists' window stops over the viewport's bottom (popup_presets.js).
+    const VIEWPORT_MARGIN = 12;
+
     class QueueManager {
-        constructor(root) {
+        // Given by popup_main.js:
+        //   store            src/curator/store.js
+        //   settings         src/settings-schema.js
+        //   rows             what a strip says (popup_queue_rows.js)
+        //   presetLabel(key) a built-in list's name (popup_presets.js)
+        //   currentCurator() the curator of the page this surface is on, or null
+        // `opts.onToggle()`: the drawer has started to open or shut (the
+        // lists' window in the widget moves out from under it or back).
+        constructor(root, opts) {
+            for (const dep of ['store', 'settings', 'rows', 'presetLabel', 'currentCurator']) {
+                if (!opts || !opts[dep]) throw new TypeError('[ILAP] QueueManager needs opts.' + dep);
+            }
             this.root = root;
-            this.accordion = root.getElementById('queue-accordion');
+            this.opts = opts;
+            this.store = opts.store;
+            this.settings = opts.settings;
+            this.rows = opts.rows;
+            this.presetLabel = opts.presetLabel;
+            this.shell = root.getElementById('ilap-shell');
+            this.btn = root.getElementById('queue-btn');
+            this.drawer = root.getElementById('queue-drawer');
+            this.inner = this.drawer && this.drawer.firstElementChild;
             this.list = root.getElementById('queue-list');
             this.chip = root.getElementById('queue-jobs-chip');
-            this._closeTimer = null;   // "collapse on completion" timer
+            this.badge = this.chip && this.chip.parentElement;
+            this.isOpen = false;
+            // The jobs show as slim strips in a small window that
+            // unrolls: over the panel in the toolbar popup, out of the panel's
+            // left side in the widget, over the lists' drawer if it is out.
+            this.strips = !!this.drawer;
+            this.beside = this.strips && !window.ILAP_Tabs.inWindow(this.drawer);
+            if (this.strips && this.list) this.list.classList.add('strips');
+            this._anim = null;
+            this._resizeAnim = null;
             this._masterOff = false;   // as of the last render — see _onAction
             // Remove asks first: the job whose strip shows ✓ and ✕ in place of
             // Pause/Play and Remove, and the snapshot to redraw it from.
@@ -103,6 +90,8 @@
             this._lastStore = null;
             // Jobs whose strips are folding away after a ✓ (_collapseRow).
             this._leaving = new Set();
+            // The fold of strips under way (_foldRows), or null.
+            this._folding = null;
             // The job count held at its old number, and the number it waits to show.
             this._countHeld = false;
             this._heldCount = null;
@@ -125,6 +114,126 @@
                     box.classList.toggle('is-cut', !!name && name.scrollWidth > name.clientWidth);
                 });
             }
+            if (this.btn) {
+                // Opened from the keyboard (a click with no pointer, detail 0),
+                // the drawer takes the focus: it sits before the panel in the
+                // tab order, out of reach of a Tab from the icon.
+                this.btn.addEventListener('click', (e) => {
+                    if (!e.isTrusted) return;
+                    const byKey = e.detail === 0;
+                    this.toggle(!this.isOpen).then(() => {
+                        const first = byKey && this.isOpen && this.drawer.querySelector('button:not([disabled])');
+                        if (first) first.focus({ preventScroll: true });
+                    });
+                });
+            }
+            // Escape shuts the drawer and hands focus back to the icon.
+            if (this.drawer) {
+                this.drawer.addEventListener('keydown', (e) => {
+                    if (e.key !== 'Escape' || !this.isOpen) return;
+                    e.stopPropagation();
+                    this.toggle(false);
+                    if (this.btn) this.btn.focus();
+                });
+            }
+            // In the toolbar popup the panel dims and blurs under the open
+            // queue (popup.css #ilap-shell::after), and a click on it shuts the
+            // queue and reaches nothing under it.
+            if (this.shell && this.strips && !this.beside) {
+                this.shell.addEventListener('click', (e) => {
+                    if (e.isTrusted && e.target === this.shell && this.isOpen) this.toggle(false);
+                });
+            }
+        }
+
+        // The panel under the dim, all but its header, out of reach while the
+        // queue is over it in the toolbar popup: Tab went on into it, its focus
+        // drawn under the dim (Section 508). Beside the widget's panel nothing is dimmed.
+        _dimInert(on) {
+            const root = this.shell && this.shell.querySelector('#popup-root');
+            if (!root || this.beside) return;
+            for (const el of root.children) if (el.tagName !== 'H3') el.inert = on;
+        }
+
+        async toggle(open) {
+            if (!this.drawer || open === this.isOpen) return;
+            this.isOpen = open;
+            if (this.btn) this.btn.setAttribute('aria-expanded', String(open));
+            if (this.shell) this.shell.classList.toggle('queue-open', open);
+            this._dimInert(open);
+            // Opening, the block is placed before this returns, so the lists can measure it.
+            const slid = window.ILAP_Tabs.slideDrawer(this.drawer, open, this, open ? () => this._place() : null,
+                this.beside ? 'unroll-left' : 'unroll');
+            if (this.opts.onToggle) this.opts.onToggle();
+            await slid;
+        }
+
+        // The block's lower edge in the viewport while it is out beside the
+        // widget's panel, null otherwise.
+        foot() {
+            return this.isOpen && this.beside && this.inner ? this.inner.getBoundingClientRect().bottom : null;
+        }
+
+        // Shut at once, unanimated: the widget's panel opening again after a
+        // click elsewhere on the page hid it.
+        shutNow() {
+            if (!this.drawer || !this.isOpen) return;
+            this.isOpen = false;
+            if (this._anim) { this._anim.cancel(); this._anim = null; }
+            this.drawer.classList.remove('open', 'shown', 'sliding');
+            if (this.shell) this.shell.classList.remove('queue-open');
+            this._dimInert(false);
+            if (this.btn) this.btn.setAttribute('aria-expanded', 'false');
+        }
+
+        // In the toolbar popup the block's top is under the header, so the
+        // icon stays in view, and its foot no lower than 8px over the
+        // window's bottom: three strips fit, more scroll inside. The dimmed
+        // panel starts at the same line. In the widget its right edge meets
+        // the panel's left one, its top level with the panel's, never higher,
+        // and it is no taller than the panel. With the lists out it leaves
+        // them LISTS_ROOM over the viewport's bottom.
+        _place() {
+            const header = this.root.querySelector('#popup-root > h3');
+            const shell = this.root.getElementById('ilap-shell');
+            const panel = this.root.getElementById('popup-root');
+            if (!this.strips || !this.inner || !header || !shell || !panel) return;
+            if (this.beside) {
+                this.drawer.style.top = '0px';
+                this.drawer.style.right = panel.offsetWidth + 'px';
+                const lists = this.root.getElementById('lists-drawer');
+                const room = lists && lists.classList.contains('open')
+                    ? window.innerHeight - VIEWPORT_MARGIN - LISTS_ROOM - shell.getBoundingClientRect().top : Infinity;
+                this.inner.style.maxHeight = Math.max(0, Math.min(panel.offsetHeight, room)) + 'px';
+                return;
+            }
+            const s = shell.getBoundingClientRect();
+            const top = header.getBoundingClientRect().bottom - s.top;
+            shell.style.setProperty('--queue-top', top + 'px');
+            this.drawer.style.top = top + 'px';
+            this.inner.style.maxHeight = Math.max(0, s.height - top - 8) + 'px';
+        }
+
+        // Runs `mutate` and grows or shrinks the open drawer's block from its
+        // height before to its height after, so a strip that comes or goes
+        // moves the block's edge smoothly. The block clips while it moves, so
+        // no scrollbar shows on the way.
+        resize(mutate) {
+            const box = this.inner;
+            if (!box || !this.isOpen) { mutate(); return; }
+            const from = box.getBoundingClientRect().height;
+            if (this._resizeAnim) this._resizeAnim.cancel();
+            mutate();
+            const to = box.getBoundingClientRect().height;
+            if (from === to || reduceMotion() || !box.animate) return;
+            box.classList.add('moving');
+            const anim = this._resizeAnim = box.animate([{ height: from + 'px' }, { height: to + 'px' }],
+                { duration: RESIZE_MS, easing: 'ease' });
+            anim.finished.catch(() => {}).then(() => {
+                if (anim !== this._resizeAnim) return;
+                this._resizeAnim = null;
+                box.classList.remove('moving');
+            });
         }
 
         // Pause/Resume flips the stored user intent (paused ↔ pending — 'running'
@@ -148,41 +257,114 @@
                 this.render(this._lastStore);
             } else if (act === 'confirm') {
                 this._confirmId = null;
-                this._collapseRow(btn.closest('.queue-job'), id)
-                    .then(() => Store.removeJob(id))
+                this._foldRows([btn.closest('.queue-job')])
+                    .then(() => this.store.removeJob(id))
                     .catch(swallow)
                     .finally(() => this._leaving.delete(id));
             } else if (act === 'pause' && !this._masterOff) {
-                Store.updateJob(id, (j) => ({ status: j.status === 'paused' ? 'pending' : 'paused' }))
+                this.store.updateJob(id, (j) => ({ status: j.status === 'paused' ? 'pending' : 'paused' }))
                     .catch(swallow);
             }
         }
 
+        // The badge leaves the icon while the queue is empty.
         _setCount(n) {
             if (this._countHeld) { this._heldCount = n; return; }
             if (this.chip) this.chip.textContent = n;
+            if (this.btn) this.btn.classList.toggle('is-empty', !n);
         }
 
-        // A list added from the lists menu flies into the job count
-        // (popup_presets.js _flyToQueue): the count keeps its old number while
-        // it flies. The returned release shows the new one, with a pop when
-        // the list has landed.
+        // The count's outline: the share of the queue's games done, over the
+        // jobs that have a total (a gesture job's total moves as it fills).
+        // Green while a job runs. With every job paused, a yellow dot stands
+        // in for the count and its outline (popup.css).
+        _setRing(jobs, store, running, paused) {
+            if (!this.btn) return;
+            let done = 0, total = 0;
+            jobs.forEach((j) => {
+                if (this.rows.isGesture(j) || !(j.total > 0)) return;
+                total += j.total;
+                done += Math.min(this.rows.doneOf(j, store), j.total);
+            });
+            const ring = total ? done / total * 100 : 0;
+            this.btn.style.setProperty('--ring', total ? ring.toFixed(1) : '0');
+            this.btn.style.setProperty('--ring-gap', (100 - ring).toFixed(1));
+            this.btn.classList.toggle('has-running', running);
+            this.btn.classList.toggle('all-paused', !!paused);
+        }
+
+        // A copy of what was just queued (a list's row, an undo menu's row)
+        // shrinks into the job count, speeding up as it goes, the way a window
+        // minimizes into the taskbar. `row` is the copy, `from` where the
+        // original stood. Its attributes but class, value and style (the look
+        // a copy takes along, popup_undo.js _takeRow) are stripped, so it is
+        // an inert picture.
+        flyIn(row, from) {
+            const host = this.shell;
+            const target = this.chip;
+            if (reduceMotion() || !host || !target || !row || !from || !from.width) return Promise.resolve();
+            const to = target.getBoundingClientRect();
+            const h = host.getBoundingClientRect();
+            for (const el of [row, ...row.querySelectorAll('*')]) {
+                for (const { name } of [...el.attributes]) if (name !== 'class' && name !== 'value' && name !== 'style') el.removeAttribute(name);
+            }
+            const ghost = document.createElement('div');
+            ghost.className = 'list-ghost';
+            // A copied button is still a button: inert keeps it out of the Tab order.
+            ghost.inert = true;
+            ghost.appendChild(row);
+            Object.assign(ghost.style, {
+                left: (from.left - h.left) + 'px', top: (from.top - h.top) + 'px',
+                width: from.width + 'px', height: from.height + 'px',
+            });
+            host.appendChild(ghost);
+            if (!ghost.animate) { ghost.remove(); return Promise.resolve(); }
+            const sx = to.width / from.width, sy = to.height / from.height;
+            const dx = to.left - from.left, dy = to.top - from.top;
+            return ghost.animate([
+                { transform: 'none', opacity: 1 },
+                { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, opacity: .3 },
+            ], { duration: 450, easing: 'cubic-bezier(.55, 0, .8, .4)' }).finished
+                .catch(() => {})
+                .then(() => ghost.remove());
+        }
+
+        // What was queued flies into the job count (flyIn): the count keeps its
+        // old number while it flies. The returned release shows the new one,
+        // with a pop when it has landed.
         holdCount() {
             this._countHeld = true;
             return (landed) => {
                 this._countHeld = false;
                 if (this._heldCount !== null) this._setCount(this._heldCount);
                 this._heldCount = null;
-                if (landed && this.chip && this.chip.animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-                    this.chip.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35)' }, { transform: 'scale(1)' }],
+                if (landed && this.badge && this.badge.animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                    this.badge.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35)' }, { transform: 'scale(1)' }],
                         { duration: 320, easing: 'ease-out' });
                 }
             };
         }
 
-        // A removed job's strip folds away before the job leaves the queue: its
-        // height, padding and the gap next to it shrink to nothing as it fades.
-        // A render meanwhile leaves the job out, so it never pops back.
+        // Strips fold away before the list is drawn without them: a ✓ here, or
+        // a job gone from the queue by another tab, the curator page's menu or
+        // the drainer. A render meanwhile waits for the fold and is drawn at its
+        // end, from the latest snapshot. `after` runs once that render has
+        // taken the strips out.
+        _foldRows(rows, after) {
+            const done = Promise.all(rows.map(r => this._collapseRow(r, r && r.dataset.jobId)));
+            const fold = this._folding = Promise.all([this._folding, done]).finally(() => {
+                if (this._folding === fold) {
+                    this._folding = null;
+                    this.render(this._lastStore);
+                }
+                if (after) after();
+            });
+            return done;
+        }
+
+        // A removed job's strip folds away: its height, padding and the gap
+        // next to it shrink to nothing as it fades. A render meanwhile leaves
+        // the job out, so it never pops back.
         _collapseRow(row, id) {
             this._leaving.add(id);
             if (!row || !row.animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -194,7 +376,7 @@
             const to = { height: '0px', opacity: 0, paddingTop: '0px', paddingBottom: '0px' };
             if (side) { from[side] = '0px'; to[side] = gap; }
             row.style.overflow = 'hidden';
-            return row.animate([from, to], { duration: 260, easing: 'ease-in-out', fill: 'forwards' }).finished;
+            return row.animate([from, to], { duration: FOLD_MS, easing: FOLD_EASE, fill: 'forwards' }).finished;
         }
 
         // The URL is built from the job's curator id, and only a numeric one:
@@ -211,61 +393,76 @@
         }
 
         // `store` is a storage snapshot: the queue array plus the per-job
-        // lock/cursor keys this view derives running/progress from.
+        // lock/cursor keys this view derives running/progress from. The current
+        // curator is the page this surface is on: only the on-page widget has one,
+        // the popup window's location is no curator page, so nothing is highlighted.
         render(store) {
-            if (!this.accordion) return;
+            if (!this.list) return;
             store = store || {};
             this._lastStore = store;
-            const queued = Array.isArray(store[Store.QUEUE_KEY]) ? store[Store.QUEUE_KEY] : [];
+            const queued = Array.isArray(store[this.store.QUEUE_KEY]) ? store[this.store.QUEUE_KEY] : [];
             // The gesture jobs (Manual ignores / un-ignores) always show at the
             // bottom, the rest in queue order. Display only: the drainer still
             // takes gesture work first (drainer.js _pickJob).
-            const isGesture = (j) => { const tr = Store.jobTraits(j); return !!tr && tr.gesture; };
+            const isGesture = (j) => this.rows.isGesture(j);
             const jobs = queued.filter(j => !isGesture(j)).concat(queued.filter(isGesture))
                 .filter(j => !this._leaving.has(j.id));
+            if (this._folding) return;
+            // A job gone from the queue elsewhere folds its strip away first.
+            if (this.list && this.isOpen && !reduceMotion()) {
+                const ids = new Set(jobs.map(j => j.id));
+                const gone = Array.from(this.list.children).filter(r => r.dataset.jobId
+                    && !ids.has(r.dataset.jobId) && !this._leaving.has(r.dataset.jobId));
+                if (gone.length) {
+                    if (!jobs.length && gone.length === this.list.querySelectorAll('.queue-job').length) {
+                        this._finishLast(gone);
+                        return;
+                    }
+                    this._foldRows(gone, () => gone.forEach(r => this._leaving.delete(r.dataset.jobId)));
+                    return;
+                }
+            }
             // From the render snapshot, so _onAction judges by what the row shows.
-            // The lists icon reads the class: an extension that is off takes no
-            // new jobs, for the same reason Pause is dead.
-            this._masterOff = !Settings.isOn(store[Settings.KEYS.MASTER]);
-            this.accordion.classList.toggle('master-off', this._masterOff);
+            this._masterOff = !this.settings.isOn(store[this.settings.KEYS.MASTER]);
             // A question about a job that is gone is dropped.
             if (!jobs.some(j => j.id === this._confirmId)) this._confirmId = null;
+            // An empty queue opens without its title's bars dropping in (popup.css).
+            if (this.drawer) this.drawer.classList.toggle('is-empty', !jobs.length);
 
             if (jobs.length === 0) {
                 this._collapseEmpty();
                 return;
             }
 
-            // A job exists again — cancel a still-running "collapse on completion"
-            // so a freshly staged job isn't emptied out from under the user.
-            if (this._closeTimer) {
-                clearTimeout(this._closeTimer);
-                this._closeTimer = null;
-                this.accordion.classList.remove('solo-collapse');
-            }
-
-            this.accordion.classList.remove('is-empty');
             const now = Date.now();
-            const statuses = jobs.map(j => this._effectiveStatus(j, store, now));
-            // Barber-pole indicator while any job is actively ignoring.
-            this.accordion.classList.toggle('has-running', statuses.some(s => s === 'running'));
+            const statuses = jobs.map(j => this.rows.statusOf(j, store, now));
+            // Jobs at their end: one of them gone from the queue next is
+            // finished, and its strip shows a ✓ (_finishLast).
+            this._finished = new Set(jobs.filter(j => j.total > 0 && this.rows.doneOf(j, store) >= j.total).map(j => j.id));
+            this._setRing(jobs, store, statuses.some(s => s === 'running'), statuses.every(s => s === 'paused'));
             this._setCount(jobs.length);
-            const cur = currentCuratorId();
+            const cur = this.opts.currentCurator();
             if (this.list) {
                 // SW drainer halted (persistent POST failures — a stale cached
                 // sessionid or a missing Steam_Language cookie). Opening any
                 // store page fixes both at content-script boot, so the hint just
                 // points there. Tab drainers are unaffected: with a store page
                 // open the flag has already been cleared.
-                const halt = store[Store.SW_HALT_KEY]
+                const halt = store[this.store.SW_HALT_KEY]
                     ? `<div class="queue-halt-hint">${esc(t('queue_sw_halt'))}</div>`
                     : '';
-                this.list.style.setProperty('--qname-w', this._nameWidth() + 'px');
+                if (this.strips) this.list.style.setProperty('--qname-w', this._nameWidth() + 'px');
                 const html = jobs
-                    .map((j, i) => this._row(j, cur, statuses[i], this._done(j, store),
-                        this._skipped(j, store)))
+                    .map((j, i) => this.rows.strip(j, {
+                        cur,
+                        status: statuses[i],
+                        cursor: this.rows.doneOf(j, store),
+                        skipped: this.rows.skippedOf(j, store),
+                        asking: j.id === this._confirmId,
+                        masterOff: this._masterOff,
+                    }))
                     .join('') + halt;
-                this._patchList(html);
+                this.resize(() => this._patchList(html));
             }
             if (window.ILAP && window.ILAP.i18n) window.ILAP.i18n.applyDom(this.list);
         }
@@ -274,16 +471,20 @@
         // its strip's elements, and only what differs is changed. A rebuilt
         // strip would start unhovered on every drain tick, so a tooltip under
         // the pointer would wait out its delay again, an open bar would run its
-        // stretch again and ✓ ✕ would pop in again. A strip that keeps running
-        // keeps its sheen delay, since a new one would make the sweep jump.
+        // stretch again and ✓ ✕ would pop in again. A new strip in the open
+        // queue fades in as the list makes room for it. The halt hint is kept
+        // the same way, by its class, so it fades in only once.
         _patchList(html) {
             const tmp = document.createElement('div');
             tmp.innerHTML = html;
-            const old = new Map(Array.from(this.list.children)
-                .filter(r => r.dataset.jobId).map(r => [r.dataset.jobId, r]));
+            const key = (r) => r.dataset.jobId || r.className;
+            const old = new Map(Array.from(this.list.children).map(r => [key(r), r]));
+            const added = [];
             const rows = Array.from(tmp.children).map((fresh) => {
-                const kept = fresh.dataset.jobId && old.get(fresh.dataset.jobId);
-                if (!kept) return fresh;
+                const kept = old.get(key(fresh));
+                if (!kept) { added.push(fresh); return fresh; }
+                // A strip that keeps running keeps its sheen delay, since a new
+                // one would make the sweep jump.
                 if (kept.classList.contains('running') && fresh.classList.contains('running')) {
                     fresh.style.animationDelay = kept.style.animationDelay;
                 }
@@ -302,187 +503,86 @@
                 const at = this.list.children[i] || null;
                 if (r !== at) this.list.insertBefore(r, at);
             });
+            if (!this.isOpen || reduceMotion()) return;
+            for (const r of added) if (r.animate) r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: RESIZE_MS, easing: 'ease' });
         }
 
-        // The queue emptied. If the applet was OPEN (the user was watching a job
-        // that just finished) — collapse it with the same smooth, content-preserving
-        // animation as a manual "solo" close (the .solo-collapse class over
-        // ::details-content) and swap in the empty hint only after it ends, rather
-        // than snapping shut. A closed applet, or one the user opened on the
-        // hint, gets the hint at once (again on a relabel) and stays as it is.
+        // The queue emptied: the strips give way to the hint, and the panel's
+        // height follows. Drawn again every time, for a change of language.
         _collapseEmpty() {
-            if (this._closeTimer) return;                 // animation already running
-            this.accordion.classList.remove('has-running');
-            if (this.accordion.classList.contains('is-empty') || !this.accordion.open) {
-                this._markEmpty();
-                return;
-            }
-            this.accordion.classList.add('solo-collapse');
-            this.accordion.open = false;
-            this._closeTimer = setTimeout(() => {
-                this._closeTimer = null;
-                this._markEmpty();
-                this.accordion.classList.remove('solo-collapse');
-            }, COLLAPSE_MS);
+            this._setRing([], {}, false);
+            this.resize(() => this._markEmpty());
         }
 
-        // Where jobs come from: a curator's page, or the lists icon on this bar.
+        // The queue's last strip left it by the drainer or another tab. The
+        // strip stays where it is: a finished one empties and shows a ✓ for a
+        // moment, then it fades and the hint fades in in its place. The hint
+        // keeps the strip's height at least, so the block never shrinks here.
+        // A render meanwhile waits, as for a fold.
+        _finishLast(rows) {
+            // Nothing runs any more: the button's barber pole fades out now. Its
+            // count, ring and paused dot go with the hint, so a paused dot does
+            // not give way to the count for a moment first.
+            if (this.btn) this.btn.classList.remove('has-running');
+            rows.forEach(r => this._leaving.add(r.dataset.jobId));
+            const finished = rows.some(r => this._finished && this._finished.has(r.dataset.jobId));
+            const first = rows[0], last = rows[rows.length - 1];
+            const height = last.getBoundingClientRect().bottom - first.getBoundingClientRect().top;
+            const fade = (el, a, b) => el.animate([{ opacity: a }, { opacity: b }],
+                { duration: 250, easing: 'ease', fill: 'forwards' }).finished;
+            const wait = (ms) => new Promise(res => setTimeout(res, ms));
+            let step = Promise.resolve();
+            if (finished) {
+                rows.forEach((r) => {
+                    r.insertAdjacentHTML('beforeend', `<span class="queue-done-check">${window.ILAP_Icons.CHECK}</span>`);
+                    r.classList.add('is-done');
+                });
+                step = wait(250 + DONE_HOLD_MS);
+            }
+            const fold = this._folding = step
+                .then(() => Promise.all(rows.map(r => fade(r, 1, 0))))
+                .then(() => {
+                    this.resize(() => this._markEmpty(height));
+                    const hint = this.list.querySelector('.queue-empty-hint');
+                    return hint && fade(hint, 0, 1);
+                })
+                .catch(() => {})
+                .finally(() => {
+                    rows.forEach(r => this._leaving.delete(r.dataset.jobId));
+                    if (this._folding === fold) {
+                        this._folding = null;
+                        this.render(this._lastStore);
+                    }
+                });
+        }
+
+        // Where jobs come from: a curator's page, or the lists button.
         // Escaped with a stand-in for the icon, which then becomes the glyph.
-        _markEmpty() {
-            this.accordion.classList.add('is-empty');
+        // `keep` is the height of the strip the hint takes the place of
+        // (_finishLast). A hint drawn again keeps the height the old one had.
+        _markEmpty(keep) {
             this._setCount(0);
             if (this.list) {
+                const was = this.list.querySelector('.queue-empty-hint');
+                const min = keep ? keep + 'px' : (was ? was.style.minHeight : '');
                 const text = esc(t('queue_empty_hint', { icon: '\u0001' }));
                 this.list.innerHTML = `<div class="queue-empty-hint">${text.replace('\u0001',
                     `<span class="queue-empty-icon">${ICON_PRESETS}</span>`)}</div>`;
+                if (min) this.list.firstElementChild.style.minHeight = min;
             }
         }
 
-        // The name column: as wide as a built-in list's job name ("AI games 2026")
-        // in this language, so that one always shows whole, a longer name is cut
-        // to it, and every strip's mini bar starts at the same place. Measured off
-        // a canvas: it needs a font, not a laid-out element.
+        // The strips' name column: as wide as this year's AI list name in the
+        // panel's language, the longest name a built-in list gives a job.
         _nameWidth() {
             this._ctx = this._ctx || document.createElement('canvas').getContext('2d');
             this._ctx.font = '700 12px ' + getComputedStyle(this.list).fontFamily;
-            const sample = window.ILAP_Presets.label('ai_' + new Date().getFullYear());
+            const sample = this.presetLabel('ai_' + new Date().getFullYear());
             return Math.ceil(this._ctx.measureText(sample).width) + 1;
         }
 
-        // An undo job's name with what it was staged for (UndoService): the last
-        // N games, or the last N hours or days. A job staged before the scope
-        // was kept has none and takes the plain name.
-        _undoScopeName(scope) {
-            const n = scope && Number(scope.n);
-            if (!(n > 0)) return '';
-            const key = scope.unit === 'h' ? 'undo_job_hours' : scope.unit === 'd' ? 'undo_job_days' : 'undo_job_last';
-            return t(key, { n });
-        }
-
-        // Stored status carries only user intent ('enumerating'/'paused', else
-        // drainable). "Running" is derived: a drainable job whose drain lease is
-        // live IS being drained by some tab right now. The lease is the curator's,
-        // so of a curator's two jobs only the one it names runs (a lock with no
-        // jobId is from an older build).
-        _effectiveStatus(job, store, now) {
-            if (job.status === 'enumerating' || job.status === 'paused') return job.status;
-            const lock = store[Lease.LOCK_PREFIX + job.curatorId];
-            const live = lock && (lock.expiresAt || 0) > now && (!lock.jobId || lock.jobId === job.id);
-            return live ? 'running' : 'pending';
-        }
-
-        // Progress comes from the drainer-owned cursor key; legacy records
-        // (pre-cursor-key) kept the cursor inline.
-        _done(job, store) {
-            const v = store[Store.CURSOR_PREFIX + job.id];
-            return Number.isFinite(v) ? v : (job.cursor || 0);
-        }
-
-        // Appids the drainer skipped: permanently refused (region-locked), and
-        // on the user's wishlist. Drainer-owned per-job keys, like the cursor.
-        _skipped(job, store) {
-            const n = (v) => Number.isFinite(v) ? v : 0;
-            return {
-                unavailable: n(store[Store.SKIPPED_PREFIX + job.id]),
-                wishlisted: n(store[Store.WISHLISTED_PREFIX + job.id]),
-            };
-        }
-
-        // One slim strip per job, all on one line: the name cut to the name column
-        // (shown whole on hover), a mini progress bar that stretches left over the
-        // name on hover, the percent, then the skips and the two actions. A job
-        // from a built-in list has the lists glyph in front, a bundle its two
-        // capsules, an un-ignore job the green Undo arrow, a curator's job a square in its filter's colour in
-        // the same slot. Status shows as the bar's colour,
-        // the action key (a quiet grey ⏸ on a job that goes, a ▶ waiting on a
-        // paused one) and, while the job is actually running, a sheen sweeping
-        // across its strip (.queue-job.running).
-        // Remove is always there, running job or paused. A click on it asks first
-        // (_confirmId): ✓ and ✕ take the two slots, so a slip never drops a job.
-        // A running job's drainer finds it gone at its next batch (Store.removeJob).
-        // Every type but a curator's shows a localized name. The AUTO-FILLING
-        // gesture jobs swap the bar for a live remaining count (see below). A type
-        // this build does not know keeps whatever name its record carries, and
-        // can only be removed from here — the drainer skips it.
-        _row(job, cur, effStatus, cursor, skipped) {
-            const type = Store.jobType(job);
-            const traits = Store.jobTraits(job);
-            const isCuratorJob = type === Store.JOB_TYPE.CURATOR;
-            const isPreset = type === Store.JOB_TYPE.PRESET;
-            const isGesture = !!traits && traits.gesture;
-            const nameKey = JOB_NAME_KEYS[type];
-            const undoScope = type === Store.JOB_TYPE.UNDO ? this._undoScopeName(job.scope) : '';
-            const name = undoScope
-                ? esc(undoScope)
-                : nameKey
-                ? esc(t(nameKey))
-                : isPreset
-                    ? esc(window.ILAP_Presets.label(job.presetKey))
-                    : esc(job.curatorName || job.curatorId || '');
-            const total = job.total || 0;
-            const done = Math.min(cursor, total || cursor);
-            const status = esc(t(STATUS_LABELS[effStatus] || 'queue_status_pending'));
-            const statusColor = STATUS_COLORS[effStatus] || STATUS_COLORS.pending;
-            const isCurrent = isCuratorJob && !!cur && job.curatorId === cur;
-            const pct = total > 0 ? Math.round(done / total * 100) : 0;
-            const count = total > 0 ? `${done} / ${total}` : '—';
-            const remaining = Math.max(total - done, 0);
-            const jobId = esc(job.id || '');
-            const paused = job.status === 'paused';
-            const pauseTitle = esc(t(paused ? 'queue_resume' : 'queue_pause'));
-            const removeTitle = esc(t('queue_remove'));
-
-            const cancelTitle = esc(t('notice_cancel'));
-            // Asking: ✓ (remove) where Pause/Play was, ✕ (keep) where Remove was.
-            const actions = job.id === this._confirmId ? `
-                        <span class="queue-job-actions">
-                            <button type="button" class="queue-act is-confirm" data-act="confirm" data-job-id="${jobId}" title="${removeTitle}" aria-label="${removeTitle}">${ICON_CHECK}</button>
-                            <button type="button" class="queue-act is-cancel" data-act="cancel" data-job-id="${jobId}" title="${cancelTitle}" aria-label="${cancelTitle}">${ICON_CROSS}</button>
-                        </span>` : `
-                        <span class="queue-job-actions">
-                            <button type="button" class="queue-act ${paused ? 'is-play' : 'is-pause'}" data-act="pause" data-job-id="${jobId}" title="${pauseTitle}" aria-label="${pauseTitle}"${this._masterOff ? ' disabled' : ''}>${paused ? ICON_PLAY : ICON_PAUSE}</button>
-                            <button type="button" class="queue-act queue-act-del" data-act="remove" data-job-id="${jobId}" title="${removeTitle}" aria-label="${removeTitle}">${ICON_TRASH}</button>
-                        </span>`;
-            // One mark for both kinds of skip, a line for each in its tip. A
-            // pending job shows its clock in that slot instead, and the ⚠ comes
-            // back once it runs.
-            const skipLines = [];
-            if (skipped.unavailable > 0) skipLines.push(esc(t('queue_skipped_unavailable', { n: skipped.unavailable })));
-            if (skipped.wishlisted > 0) skipLines.push(esc(t('queue_skipped_wishlisted', { n: skipped.wishlisted })));
-            const skipBadge = effStatus === 'pending'
-                ? `<span class="queue-job-skip queue-job-wait">${ICON_CLOCK}<span class="queue-skip-tip" role="tooltip"><b>${status}</b><br>${esc(t('queue_pending_tip'))}</span></span>`
-                : skipLines.length
-                ? `<span class="queue-job-skip">⚠<span class="queue-skip-tip" role="tooltip">${skipLines.join('<br>')}</span></span>`
-                : '';
-            const glyph = isPreset ? `<span class="queue-job-glyph has-tip">${ICON_LIST}<span class="queue-filter-tip" role="tooltip">${esc(t('presets_title'))}</span></span>`
-                : type === Store.JOB_TYPE.BUNDLE ? `<span class="queue-job-glyph">${ICON_BUNDLE}</span>`
-                : type === Store.JOB_TYPE.UNDO ? `<span class="queue-job-glyph">${ICON_UNDO}</span>` : '';
-            // A curator's strip: a square in its filter's colour in front of the
-            // name, naming the filter on hover and opening the curator on a
-            // double click (_openCurator).
-            const filterBar = !isCuratorJob ? '' : `<span class="queue-job-filter" data-curator-id="${esc(job.curatorId || '')}" style="${Filters.fillStyle(job.filter)}"><span class="queue-filter-tip" role="tooltip">${esc(t(Filters.labelKey(job.filter)))}</span></span>`;
-            const nameBox = `<span class="queue-job-namebox"><span class="queue-job-name">${name}</span><span class="queue-name-full" role="tooltip">${name}</span></span>`;
-
-            // An MI job auto-fills while it drains, so its total is a moving target:
-            // a percent bar would jump backward on a fresh swipe (5/10 → 5/15). It
-            // shows the live remaining COUNT instead, in the status colour.
-            // The stretched bar shows "done/total" over its middle, the slash
-            // on the centre line (.queue-mini-num).
-            const num = total > 0 ? [done, '/', total] : ['', '', ''];
-            const mini = isGesture ? '' : `<span class="queue-mini" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}" aria-label="${status} · ${count}"><span class="queue-mini-track"><span class="queue-mini-line"><span class="queue-mini-fill" style="width:${pct}%; background:${statusColor}"></span></span><span class="queue-mini-num" aria-hidden="true">${num.map(s => `<span>${s}</span>`).join('')}</span></span></span>`;
-            const progress = isGesture
-                ? `<span class="queue-job-count" style="color:${statusColor}" aria-label="${status} · ${esc(t('queue_mi_remaining', { n: remaining }))}">${remaining}</span>`
-                : `<span class="queue-job-pct">${total > 0 ? pct + '%' : '—'}</span>`;
-
-            return `
-                <div class="queue-job${isCurrent ? ' current' : ''}${isGesture ? ' mi' : ''}${isPreset ? ' preset' : ''}${isCuratorJob ? ' curator' : ''}${paused ? ' paused' : ''}${effStatus === 'running' ? ' running' : ''}${effStatus === 'pending' ? ' pending' : ''}" data-job-id="${jobId}"${effStatus === 'running' ? ` style="animation-delay:-${Date.now() % SHEEN_MS}ms"` : ''}>
-                    <div class="queue-job-line">
-                        ${glyph}${filterBar}<span class="queue-job-area">${nameBox}${mini}</span>${progress}${skipBadge}${actions}
-                    </div>
-                </div>`;
-        }
     }
 
-    window.ILAP_Queue = { create: (root) => new QueueManager(root) };
+    window.ILAP_Queue = { create: (root, opts) => new QueueManager(root, opts) };
 
 })();

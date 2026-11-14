@@ -1,3 +1,8 @@
+// What a swipe leaves for the toolbar popup: ilap_ignored_count,
+// ilap_last_ignored_name and ilap_ignored_history land in storage, the popup
+// shows the game under Last Ignored, and a hover on the history trigger
+// opens the list with the entry and its source. Chromium only (the popup page).
+
 const { test, expect } = require('../_fixtures.js');
 const {
     SEL,

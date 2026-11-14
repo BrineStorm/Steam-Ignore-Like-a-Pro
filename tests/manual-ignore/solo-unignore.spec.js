@@ -37,7 +37,7 @@ const { searchUrl } = require('../_search.js');
 const TOAST = '.ilap-toast';
 const PENDING = 'ilap-undo-pending';
 
-// The anti-fiddling brake in src/manual-ignore/main.js, plus a margin. Every
+// The anti-fiddling brake in src/manual-ignore/ignore-manager.js, plus a margin. Every
 // test that gestures a rollback has to sit it out — and it runs from the moment
 // the ignore was QUEUED (`ignoredAt`, stamped right before the optimistic badge
 // is painted), not from the POST, so waiting for the POST is not enough on its
@@ -109,7 +109,7 @@ test.describe('Manual Ignore — solo un-ignore gesture', () => {
     // only if enough of them actually arrive. Under a long headed run's CPU
     // contention they coalesce, the tracker sees one leg instead of two, and a
     // test that is rock solid in isolation misses — the same class the firefox
-    // project already carries retries for (see playwright.config.js), now
+    // project already has retries for (see playwright.config.js), now
     // reaching Chromium because every earlier gesture here was a two-event
     // swipe or a plain click. Scoped to this describe rather than the chromium
     // project for that reason: no other Chromium suite drives a multi-leg
@@ -236,7 +236,7 @@ test.describe('Manual Ignore — solo un-ignore gesture', () => {
         const { appid } = await ignoreFirstRow(page, calls);
 
         // Scoped to the row: the search page also holds off-screen duplicate
-        // rows carrying their own badge.
+        // rows with their own badge.
         await searchRow(page, appid).locator(SEL.overlay).first().click();
 
         await expect.poll(() => calls.filter(c => c.remove).length,
@@ -296,7 +296,7 @@ test.describe('Manual Ignore — solo un-ignore gesture', () => {
     });
 
     test('swipeLeft binding: the freed platform swipe un-ignores instead', async ({ page, context }) => {
-        // A swipe can carry the rollback too — but only a swipe no ignore binding
+        // A swipe can send the rollback too — but only a swipe no ignore binding
         // claims, so Already Played is switched off to free it. Also pins the
         // precedence: the ignore bindings are resolved first, and the un-ignore
         // one only gets the swipe because nothing else wanted it.

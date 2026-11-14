@@ -57,6 +57,45 @@
         static getGameContainer() {
             return document.querySelector('.page_content_ctn') || document.body;
         }
+
+        // The text of the game's AI Generated Content Disclosure, '' when the
+        // page shows none (src/ai-disclosure.js fromPage).
+        static getAiDisclosure() {
+            const found = window.ILAP.AiDisclosure.fromPage(document);
+            return found ? found.text : '';
+        }
+    }
+
+    // Whether the Queue Helper ignores the game for its AI, whatever its
+    // reviews: only on the AI tab's HIGH level, for a game whose page shows a
+    // non-empty AI disclosure or that a built-in AI list names, less the games
+    // the AI tab's boxes keep. A listed game is kept by the lists' own verdicts
+    // (presets.json aikeep), one newer than the lists by the same word rules
+    // over its page's text (src/ai-disclosure.js).
+    //   readOptions() → Promise<{ high, keep: { translation, ingame } }>
+    //   aiGames(keep) → Promise<Set of appid numbers>: the lists' AI games
+    //                   less the kept ones (ILAP.aiGames), every one for no keep
+    //   disclosure()  → the page's disclosure text, '' for none
+    //   nameOf(appid) → the game's name, which its disclosure may mention
+    //   rules         → { pageVerdict(page, keep) } (src/ai-disclosure.js)
+    class AiVerdict {
+        constructor(deps) {
+            for (const fn of ['readOptions', 'aiGames', 'disclosure', 'nameOf']) {
+                if (typeof deps[fn] !== 'function') throw new TypeError('[ILAP] AiVerdict needs deps.' + fn);
+            }
+            if (!deps.rules || typeof deps.rules.pageVerdict !== 'function') {
+                throw new TypeError('[ILAP] AiVerdict needs deps.rules');
+            }
+            this.d = deps;
+        }
+
+        async isAi(appid) {
+            const { high, keep } = await this.d.readOptions();
+            if (!high) return false;
+            const [all, left] = await Promise.all([this.d.aiGames({}), this.d.aiGames(keep)]);
+            const page = { id: Number(appid), all, left, text: this.d.disclosure(), nameOf: () => this.d.nameOf(appid) };
+            return this.d.rules.pageVerdict(page, keep).ai;
+        }
     }
 
     class ReviewAnalyzer {
@@ -293,6 +332,7 @@
     window.ILAP.Explore.Context = QueueContext;
     window.ILAP.Explore.Analyzer = ReviewAnalyzer;
     window.ILAP.Explore.DecisionEngine = DecisionEngine;
+    window.ILAP.Explore.AiVerdict = AiVerdict;
     window.ILAP.Explore.NavigationGuard = NavigationGuard;
     window.ILAP.Explore.QueueSettings = QueueSettings;
     window.ILAP.Explore.RunLedger = RunLedger;

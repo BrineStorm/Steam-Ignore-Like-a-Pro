@@ -5,6 +5,18 @@ version heading, newest first, followed by plain bullets. A plain line before th
 bullets becomes that release's one-line lede. Bullets are one line each, with no
 markdown inside.
 
+## 1.4.0
+- New name, Steam Ignore Like a Pro — AI Filter & Mass Ignore.
+- The AI tab's filter level flags AI games across the store the way Steam flags a game in your library, blurs their covers or adds them to the ignore queue as you browse. The flag says how a game uses AI when that is known, and an AI game's own page shows the developers' AI disclosure near the top, or says that the game was marked as AI by hand. A game stays in the AI lists after its developer removes the disclosure, and the flag's tooltip on its page says so. Low is the default level.
+- Ignore developers and publishers with a button by their name on a game page or a swipe over their link.
+- Four new built-in lists, Known bad games, Lesser-known bad games, Invasive EULA terms and EULA can change at any time, and Kernel access in place of kernel-level anti-cheat.
+- A built-in list you already ran shows a blue dot once an update changes it.
+- Curator lists, built-in lists and bundles skip games in your library.
+- A game page shows which curator list, built-in list, bundle or AI filter ignored the game, in the red IGNORED frame from the Classic Discovery Queue.
+- The ignore queue opens from the extension's icon, and everything else sits in one row of buttons at the bottom of the panel.
+- Fixed the Discovery Queue helper stalling after a change in Steam's page code.
+- Dutch interface, 24 languages in all.
+
 ## 1.3.5
 - Fixed the Pending tooltip and the Remove confirmation blinking on the Ignore Tasks Queue panel while a job runs.
 - Games with AI-generated content released this week moved from the Upcoming 2026 list to 2026.

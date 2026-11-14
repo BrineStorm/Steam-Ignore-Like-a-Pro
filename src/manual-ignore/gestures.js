@@ -13,8 +13,25 @@
     // of games (bundle.js).
     const SELECTORS = {
         LINK: 'a[href*="/app/"]',
-        BUNDLE: 'a[href*="/bundle/"], a[href*="/sub/"]'
+        BUNDLE: 'a[href*="/bundle/"], a[href*="/sub/"]',
+        CREATOR: 'a[href*="/developer/"], a[href*="/publisher/"], a[href*="/franchise/"]'
     };
+
+    // A creator page's link as 'developer/<name>' (lowercased, the key a tab
+    // knows the creator's clan id by), or null for any other link.
+    function creatorPath(href) {
+        let url;
+        try { url = new URL(href, location.href); } catch (e) { return null; }
+        if (url.origin !== 'https://store.steampowered.com') return null;
+        const m = url.pathname.match(/^\/(developer|publisher|franchise)\/([^/]+)/i);
+        return m ? (m[1] + '/' + m[2]).toLowerCase() : null;
+    }
+
+    // The creator page link under `el`, or null.
+    function creatorLink(el) {
+        const link = el.closest(SELECTORS.CREATOR);
+        return link && creatorPath(link.getAttribute('href') || '') ? link : null;
+    }
 
     // A bundle or package capsule: the link with its art inside, or null. The
     // text links and the "Bundle info" / "Package info" buttons on a game's page
@@ -212,7 +229,8 @@
             if (!config.enabled) return;
             const bound = [config.defaultKey, config.platformKey, config.unignoreKey];
             if (!bound.some(k => Settings.GESTURES.includes(k))) return;
-            if (!this.startEl.closest(SELECTORS.LINK) && !bundleCapsule(this.startEl)) return;
+            if (!this.startEl.closest(SELECTORS.LINK) && !bundleCapsule(this.startEl)
+                && !creatorLink(this.startEl)) return;
             e.preventDefault();
             e.stopPropagation();
             if (this.onMenuAtPress) this.onMenuAtPress();
@@ -228,7 +246,7 @@
             const config = this.configService.get();
             if (!config.enabled) return null;
 
-            // Is this binding a modifier the event carries? OFF is checked for
+            // Is this binding a modifier the event has? OFF is checked for
             // every one of the three bindings: `event['off']` being undefined is
             // a coincidence, not a rule, and a
             // binding switched off must read as off because it is off. A gesture
@@ -262,11 +280,15 @@
             return { appid: match[1], reason: reason, linkElement: linkTarget };
         }
 
-        // A bundle or package capsule: no appid, its store id instead.
+        // A bundle or package capsule: no appid, its store id instead. Else a
+        // creator page's link (creators-ui.js): Steam's creator ignore.
         _bundleIntent(startElement, reason) {
             const link = bundleCapsule(startElement);
-            if (!link) return null;
-            // The same pattern IgnoreManager._refreshBundles badges by.
+            if (!link) {
+                const creator = creatorLink(startElement);
+                return creator ? { creator: true, reason: reason, linkElement: creator } : null;
+            }
+            // The same pattern BundleMarks.paint badges by (marks.js).
             const match = (link.getAttribute('href') || '').match(/\/(bundle|sub)\/(\d+)([/?#]|$)/);
             if (!match) return null;
             return { bundle: { kind: match[1], id: match[2] }, reason: reason, linkElement: link };
@@ -276,5 +298,7 @@
     window.ILAP.ManualIgnore.SwipeGestureDetector = SwipeGestureDetector;
     window.ILAP.ManualIgnore.ZigzagTracker = ZigzagTracker;
     window.ILAP.ManualIgnore.EventParser = EventParser;
+    window.ILAP.ManualIgnore.creatorPath = creatorPath;
+    window.ILAP.ManualIgnore.CREATOR_LINK = SELECTORS.CREATOR;
 
 })();

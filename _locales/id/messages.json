@@ -1,11 +1,11 @@
 {
   "extName": {
-    "message": "Steam Ignore Like A Pro — Cepat abaikan game"
+    "message": "Steam Ignore Like a Pro — Filter AI dan abaikan"
   },
   "extNameChrome": {
-    "message": "Steam Ignore Like A Pro — Abaikan game dengan cepat dan otomatis"
+    "message": "Steam Ignore Like a Pro — Steam bebas game ampas, filter AI, abaikan massal"
   },
   "extDescription": {
-    "message": "Tambahkan game di toko Steam ke daftar abaikan dengan satu gerakan mouse, atau seluruh daftar pilihanmu atau dari kurator."
+    "message": "Filter game AI, abaikan game mana pun dengan satu gerakan mouse atau seluruh daftar game yang tak diinginkan, dan masih banyak lagi."
   }
 }

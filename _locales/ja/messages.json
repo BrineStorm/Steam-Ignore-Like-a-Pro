@@ -1,11 +1,11 @@
 {
   "extName": {
-    "message": "Steam Ignore Like A Pro — ゲームの高速・自動スルー"
+    "message": "Steam Ignore Like a Pro — AIフィルターと一括スルー"
   },
   "extNameChrome": {
-    "message": "Steam Ignore Like A Pro — ゲームの高速・自動スルー"
+    "message": "Steam Ignore Like a Pro — 粗悪ゲームなしのSteam、AIゲームフィルターと一括スルー"
   },
   "extDescription": {
-    "message": "マウスジェスチャーひとつでSteamストアのゲームをスルーリストに追加。自分で選んだリストやキュレーターのリストもまるごと一度に追加できます。"
+    "message": "AIゲームをフィルタリング。どのゲームもマウスジェスチャーひとつで、不要なゲームのリストならまるごと一度にスルーできるなど、まだまだ盛りだくさん。"
   }
 }

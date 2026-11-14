@@ -64,6 +64,23 @@ function loadGate(initial, opts) {
 
 test.describe('ignore-rate gate (unit)', () => {
 
+    test('quietUntil: the end of a penalty or of a visible run, else nothing to wait for', async () => {
+        const now = Date.now();
+        expect(await loadGate({}).Gate.quietUntil()).toBe(0);
+        const until = now + 120000;
+        expect(await loadGate({ ilap_ignore_gate_penalty: { until, level: 3 } }).Gate.quietUntil()).toBe(until);
+        // A penalty past its end, and one further out than any can be, wait for nothing.
+        expect(await loadGate({ ilap_ignore_gate_penalty: { until: now - 1, level: 3 } }).Gate.quietUntil()).toBeLessThan(now);
+        expect(await loadGate({ ilap_ignore_gate_penalty: { until: now + 10 * 60 * 1000, level: 3 } }).Gate.quietUntil()).toBe(0);
+        // A visible source stamped a moment ago: as long as reserve() would yield.
+        const { Gate } = loadGate({ ilap_ignore_foreground_at: now - 1000 });
+        expect(await Gate.quietUntil()).toBe(now - 1000 + Gate.YIELD_MS);
+        // The stamp gone stale, and one from the future, which reads as just now.
+        expect(await loadGate({ ilap_ignore_foreground_at: now - 10000 }).Gate.quietUntil()).toBe(0);
+        const future = await loadGate({ ilap_ignore_foreground_at: now + 3600000 }).Gate.quietUntil();
+        expect(future).toBeLessThanOrEqual(Date.now() + Gate.YIELD_MS);
+    });
+
     test('nextSlot: at least one gap past the last slot, never in the past', () => {
         const { Gate } = loadGate();
         // Fresh (lastAt 0) → clamps to now.

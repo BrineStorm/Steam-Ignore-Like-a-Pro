@@ -113,8 +113,8 @@ test.describe('SaleReward.check — the verdict (unit)', () => {
             { answers: { GetCurrentDefinition: { definition: { num_items_per_def: 3 } } } }],
         ['the definition has no item count',
             { answers: { GetCurrentDefinition: { definition: Object.assign({}, DEF, { num_items_per_def: undefined }) } } }],
-        ['the page carries no token (signed out)', { token: '', answers: { GetCurrentDefinition: { definition: DEF } } }],
-        ['the page carries no config at all', { token: undefined, answers: { GetCurrentDefinition: { definition: DEF } } }],
+        ['the page has no token (signed out)', { token: '', answers: { GetCurrentDefinition: { definition: DEF } } }],
+        ['the page has no config at all', { token: undefined, answers: { GetCurrentDefinition: { definition: DEF } } }],
         ['the claimed-rewards request fails',
             { answers: { GetCurrentDefinition: { definition: DEF }, GetClaimedSaleRewards: null } }],
         // A null is not a zero: an explicit null window must not read as one that

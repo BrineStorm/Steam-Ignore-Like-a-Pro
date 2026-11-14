@@ -15,7 +15,7 @@
 // that actually starved: Collectathon 6.3k, Racing 8.8k, Sports 10k — with
 // smaller ones (Farming 653, Trivia 837, Fishing 1.8k) squarely in the same
 // band or worse. So the pool below is drawn from the other end of the scale:
-// every tag carries ≥19k titles, and most 40k–140k. Catalogue size is a proxy,
+// every tag has ≥19k titles, and most 40k–140k. Catalogue size is a proxy,
 // not the mechanism (Steam does not publish how it slices a tag's queue), but
 // it orders the tags the right way and the failures cluster at the small end.
 //
@@ -34,7 +34,7 @@ function randomTag() {
     return TAGS[Math.floor(Math.random() * TAGS.length)];
 }
 
-// A /tags/en/<Tag> URL with a random tag (encoded — some names carry a space).
+// A /tags/en/<Tag> URL with a random tag (encoded — some names have a space).
 function tagUrl() {
     return `/tags/en/${encodeURIComponent(randomTag())}`;
 }

@@ -1,0 +1,57 @@
+Steam Mağazası'ndaki AI oyunlarını filtreleyin, oyunları tek bir fare hareketiyle ya da bütün listeleri tek seferde yok sayın.
+
+Steam Ignore Like a Pro, Steam'i daha kullanışlı hale getiren ve gizliliğinize saygı duyan ücretsiz, açık kaynaklı bir eklentidir. AI sekmesi, mağazanın her sayfasında AI ile yapılmış oyunları işaretler, bulanıklaştırır veya yok sayar. Eklenti Steam'in "Yok Say" düğmesini mağazadaki her oyunun kapağına taşır, böylece tek bir "Yok Say" tıklaması için oyunun sayfasını açmanız gerekmez. Eklenti Steam'in kendi yok saymasını kullandığı için her şey Steam'dekiyle birebir aynı çalışır.
+
+NASIL KULLANILIR:
+1. Steam Mağazası'nda herhangi bir sayfayı açın.
+2. Bir oyunun kapağında farenin sağ tuşunu basılı tutun ve sağa kaydırın ("Zaten oynadım" işaretiyle yok saymak için sola).
+3. Oyunun üzerinde hemen bir "IGNORED" rozeti belirir. Yok sayma işleminin kendisi birkaç an sonra Steam'e ulaşır.
+4. Fikrinizi değiştirirseniz yok saymayı geri almak için rozete tıklayın.
+
+AI OYUNLARI NASIL FİLTRELENİR:
+1. Eklentinin panelini ve AI sekmesini açın.
+2. "Yüksek" filtre düzeyini seçin ve kaydırıcının yanındaki kaydet düğmesine tıklayın.
+3. Çok sayıda oyun kapağı olan herhangi bir Steam sayfasını açın ve kaydırın. Bir AI oyunu görünür alana girer girmez bir animasyon görürsünüz ve oyun yok sayma listenize eklenir.
+4. İsterseniz animasyonu kapatabilir ya da AI oyunlarını yalnızca işaretleyip yok sayma listenize eklemeyen bir düzey seçebilirsiniz.
+
+ÖZELLİKLER:
+▪ Ücretsiz, gizliliğe saygılı ve açık kaynak - framework'süz, takipsiz ve telemetrisiz hafif bir eklenti. Tarayıcınızın oturumu içinde çalışır ve onu başka hiçbir yere iletmez.
+▪ Tek hareketle yok sayma - Sağ tıkı basılı tutup sağa kaydırarak bir oyunu kapağının göründüğü her yerde yok sayın.
+▪ "Zaten oynadım" işaretiyle yok sayma - Başka bir platformda oynadığınız bir oyunu, sayfasını açıp "Yok Say" -> "Farklı Bir Platformda Oynandı"ya tıklamak yerine sola kaydırarak doğrudan bu işaretle yok sayın.
+▪ AI oyun filtresi - Eklenti, AI ile yapılmış oyunları doğrudan kapaklarında işaretleyebilir ya da hesabınızın yok sayma listesine otomatik olarak ekleyebilir.
+▪ Hazır yok sayma listeleri - AI içeriği, Denuvo, kernel erişimi, istilacı EULA koşulları, bilinen kötü oyunlar ve daha fazlasını içeren tüm oyunları seçiminize göre tek seferde yok sayın. Listeler önceden hazırlanmıştır ve eklentiyle birlikte gelir. Kütüphanenizdeki ve istek listenizdeki oyunlar atlanır.
+▪ Küratör listelerinden toplu yok sayma - Steam küratörlerinin listelerini doğrudan kendi sayfalarından yok sayın. Sevmediğiniz oyunları işaretleyen bir küratör seçin, eklenti tüm listeyi yok saysın.
+▪ Yaratıcıyı yok sayma - Bir geliştiriciyi veya yayıncıyı, oyunun sayfasında bağlantısının hemen yanındaki düğmeye tek tıklayarak yok sayın.
+▪ Keşif kuyruğunda yok sayma - Bir etiket, tür veya kategori sayfasında keşif kuyruğunu açın, eklenti kuyruktaki tüm oyunları ya da yalnızca kötü incelemeli olanları yok saysın.
+▪ Klasik keşif kuyruğu yardımcısı - Eklenti, Steam'in size özel günlük öneri seçkisine göz atarken oyunları koşullarınıza göre (ör. kötü incelemeler) otomatik olarak yok sayar ya da yok sayıp kuyruğu hemen ilerletir.
+▪ Yok saymayı geri alma - Bir oyunun ya da yaratıcının yok sayılmasını istediğiniz an doğrudan oyunun kapağında veya yaratıcının bağlantısının yanında geri alabilir, son yok saymaları da ayrı bir geri alma menüsünde, bir geri alma işi ekleyerek liste halinde geri alabilirsiniz.
+▪ Esnek ayarlar - Eklentiyi epey özelleştirebilir, kısayol tuşlarını değiştirebilir, modülleri ve yok sayma modlarını tek tek açıp kapatabilir, eklentinin arayüzünü sayfada taşıyabilir ve çok daha fazlasını yapabilirsiniz.
+▪ 24 arayüz dili - Steam dilinizden bağımsız olarak anında değiştirilebilir.
+
+S: Neden Steam'in yerleşik yok saymasının yerine bunu kullanayım?
+C: Yerleşik "Yok Say" düğmesi birçok Steam sayfasında ve widget'ında yoktur, olduğu yerlerde de yok saymak birkaç tıklama ister (fareyle oyunun kapağının üzerine gelin -> ▪▪▪'ye tıklayın -> "Yok Say"a tıklayın) ve o menüde "Farklı Bir Platformda Oynandı" seçeneği yoktur. Steam'de ayrıca bir oyun listesi tek seferde yok sayılamaz. Eklenti, her Steam sayfasında ve widget'ında tek hareketle yok saymanın yanı sıra hazır listelerle toplu yok sayma ve yok sayma otomasyonu sunar.
+
+S: Steam'de çok sayıda oyunu tek seferde nasıl yok sayarım?
+C: Steam kendi başına oyunları tek tek yok sayar. Eklentiyle örneğin hazır bir listeyi (AI içeriği, Denuvo, kernel erişimi, istilacı EULA koşulları, bilinen kötü oyunlar ve daha fazlasını içeren oyunlar) ya da bir küratörün tüm listesini yok sayma sırasına ekleyebilir, bir paketin tamamını tek hareketle yok sayabilir, bir yaratıcıyı yok sayabilir, AI filtresinin yüksek düzeyini açabilir, keşif kuyruğu yardımcısını bir etiket veya tür üzerinde çalıştırabilir ya da mağazada istemediğiniz oyunların kapaklarını hızlıca kaydırıp geçebilirsiniz.
+
+S: Bu eklentiyi kullanmak Steam'in kurallarına uygun mu?
+C: Hareketlerle, düğmelerle veya kısayollarla yok sayma ve geri alma söz konusuysa evet. Her biri, Steam'in "Yok Say" düğmesine bir tıklama gibi, yaptığınız her işlem için bir kez çalışır. Keşif kuyruğu yardımcıları, AI filtresinin yüksek düzeyi, yok sayma sırası (küratör listeleri, hazır listeler ve paketler) ve toplu geri alma otomasyondur. Steam Abonelik Sözleşmesi'nin (Steam Subscriber Agreement) 4.C bölümü, gerçek kullanıcı eylemi olmadan ödül veya ilerleme kazanmak dahil, insan tarafından kontrol edilmeyen Steam etkileşimlerini yasaklar. Bu yüzden otomasyon özelliklerini kendi takdirinizle ve riski bilerek kullanın. Eklenti sizin yerinize indirim ödülü kazanmaz ve bunun için tasarlanmamıştır. Ayrıca Steam'e giden isteklerin temposunu belirleyen ve onları tek tek gönderen yerleşik bir koruması da vardır. Yine de son söz Valve'ındır, şirketin bu ve diğer tüm Steam otomasyon eklentilerine karşı tutumu ve önlemleri de öyle.
+
+S: Bir yok saymayı geri alabilir miyim?
+C: Evet, istediğiniz zaman. Oyunun sayfasındaki yok sayma düğmesi eklentiyle birlikte de çalışmaya devam eder. Tek bir yok saymayı geri almak için oyunun kapağına bir daire veya zikzak çizebilir ya da oyunun üzerindeki IGNORED rozetine tıklayabilirsiniz. Ya da eklentinin açılır penceresini açın, geri alma düğmesine (↩️) basın ve hangi son yok saymaların geri alınacağını seçin, son N oyun veya son N saat ya da gündeki her şey. Yok sayılan yaratıcılar aynı yerde, "Yaratıcılar" sekmesinden geri getirilebilir.
+
+S: Steam arayüzüm İngilizce değilse eklenti çalışır mı?
+C: Evet. Eklenti dilden bağımsızdır. Steam hesabınızdaki dil ayarı ne olursa olsun çalışır.
+
+S: Eklenti macOS ve Linux'ta çalışır mı?
+C: Evet. macOS ve Linux'ta sağ tık menüsü tuşa basıldığı anda açılır, bu yüzden yok sayma veya geri alma hareketlere ayarlıysa eklenti oyun kapağına tıklandığında bu menüyü bekletir. Yok saymayı AYARLAR -> Manuel Yok Sayma bölümünde başka tuşlara da (örneğin Shift + Sol Tık) atayabilirsiniz.
+
+S: Birkaç oyundan oluşan bir seti veya paketi yok sayabilir miyim?
+C: Evet. Paketin kapağının üzerinde kaydırın, sonra onaylamak için bir kez daha kaydırın. Paketteki tüm oyunlar ve DLC'ler yok sayma sırasına girer ve her zamanki tempoda yok sayılır. Kütüphanenizdeki ve istek listenizdeki oyunlar atlanır.
+
+GİZLİLİK VE GÜVENLİK:
+▪ Steam'in kendisi üzerinden çalışır, Steam'in kendi düğmelerine tıklayarak ya da onun gönderdiği isteklerin aynısını göndererek.
+▪ Takip yok, analiz yok, harici sunucu yok. Hiçbir kişisel kullanıcı verisini toplamıyor, almıyor ve paylaşmıyoruz. Ayarlarınız, yok sayma geçmişiniz ve bekleyen sıranız yerel olarak kendi tarayıcınızda saklanır ve istekler doğrudan Steam'in resmi sunucularına gider (store.steampowered.com ve api.steampowered.com).
+▪ Hiçbir parola veya Steam API anahtarı saklanmaz ve Steam dışında hiçbir yere bir şey gönderilmez. Eklenti etkin Steam oturumunuzu ve indirim döneminde keşif kuyruğunu gezme ödülünü kontrol etmek için Steam mağaza sayfasının zaten içerdiği erişim belirtecini kullanır. Bu belirteç yalnızca Steam'in kendi API'sine gider ve asla saklanmaz.
+
+Steam Ignore Like a Pro'nun Valve Corporation veya Steam ile hiçbir bağlantısı yoktur ve onlar tarafından desteklenmemektedir.

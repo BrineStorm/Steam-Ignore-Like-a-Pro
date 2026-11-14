@@ -1,0 +1,57 @@
+Filtra i giochi fatti con l'IA nel negozio di Steam e ignora i giochi con un solo gesto del mouse, oppure intere liste in un colpo solo.
+
+Steam Ignore Like a Pro è un'estensione gratuita e open source che rende Steam più comodo e rispetta la tua privacy. La sua scheda AI segna, sfoca o ignora i giochi fatti con l'IA in ogni pagina del negozio. L'estensione porta il pulsante "Ignora" di Steam sulla copertina di ogni gioco nel negozio, così non devi più aprire la pagina di un gioco solo per premere "Ignora". Tutto funziona esattamente come su Steam, perché l'estensione usa l'ignora di Steam stesso.
+
+COME SI USA:
+1. Apri una pagina qualsiasi del negozio di Steam.
+2. Tieni premuto il tasto destro del mouse sulla copertina di un gioco e trascina verso destra (o verso sinistra per ignorarlo con il segno "Già giocato").
+3. Sul gioco compare subito un badge "IGNORED". L'ignora vero e proprio arriva a Steam pochi istanti dopo.
+4. Se cambi idea, clicca sul badge per annullare l'ignora.
+
+COME FILTRARE I GIOCHI FATTI CON L'IA:
+1. Apri il pannello dell'estensione e la sua scheda AI.
+2. Scegli il livello del filtro "Alto" e clicca il pulsante di salvataggio accanto al cursore.
+3. Apri una qualsiasi pagina di Steam con molte copertine di giochi e scorri. Appena un gioco fatto con l'IA entra nella tua visuale, vedi un'animazione e il gioco viene aggiunto alla tua lista degli ignorati.
+4. Se vuoi, puoi disattivare l'animazione o scegliere un livello che si limita a segnare i giochi fatti con l'IA senza aggiungerli alla lista degli ignorati.
+
+FUNZIONI:
+▪ Gratuita, privata e open source - estensione leggera senza framework, tracciamento o telemetria. Funziona nella sessione del tuo browser e non la passa a nessun altro.
+▪ Ignora con un gesto - Tieni premuto il tasto destro e trascina verso destra per ignorare un gioco ovunque compaia la sua copertina.
+▪ Ignora con il segno "Già giocato" - Trascina verso sinistra per ignorare subito con questo segno un gioco che hai giocato su un'altra piattaforma, invece di aprire la sua pagina e cliccare "Ignora" -> "Giocato su un'altra piattaforma".
+▪ Filtro dei giochi fatti con l'IA - L'estensione può segnare i giochi fatti con l'IA direttamente sulle loro copertine oppure aggiungerli automaticamente alla lista degli ignorati del tuo account.
+▪ Elenchi pronti da ignorare - Ignora in un colpo solo tutti i giochi con contenuti IA, Denuvo, accesso al kernel, termini EULA invasivi, giochi notoriamente pessimi e altro, a tua scelta. Gli elenchi sono compilati in anticipo e vengono forniti con l'estensione. I giochi della tua libreria e della tua lista dei desideri vengono saltati.
+▪ Ignora in massa dalle liste dei curatori - Ignora le liste dei curatori di Steam direttamente dalle loro pagine. Scegli un curatore che segnala i giochi che non ti piacciono e l'estensione ignora tutta la lista.
+▪ Ignora autore - Ignora uno sviluppatore o un editore con un clic sul pulsante accanto al suo link nella pagina di un gioco.
+▪ Ignora nell'elenco scoperte - Apri l'elenco scoperte nella pagina di un tag, di un genere o di una categoria e l'estensione ignora tutti i giochi dell'elenco o solo quelli con recensioni negative.
+▪ Assistente dell'elenco scoperte classico - L'estensione ignora automaticamente i giochi mentre scorri la tua selezione giornaliera di consigli di Steam, secondo le tue condizioni (per esempio recensioni negative), oppure li ignora e fa avanzare subito l'elenco.
+▪ Annulla gli ignora - Puoi annullare l'ignora di un gioco o di un autore in qualsiasi momento direttamente sulla copertina del gioco o accanto al link dell'autore, e annullare in blocco una serie di ignora recenti come elenco in un apposito menu di annullamento, aggiungendo un'attività di annullamento.
+▪ Molto personalizzabile - Puoi personalizzare l'estensione parecchio, cambiare le scorciatoie da tastiera, attivare o disattivare singoli moduli e modalità di ignora, cambiare la posizione dell'estensione nella pagina e molto altro.
+▪ 24 lingue dell'interfaccia - Si cambiano al volo, indipendentemente dalla lingua di Steam.
+
+D: Perché usare questa estensione invece dell'ignora integrato di Steam?
+R: Il pulsante "Ignora" integrato manca in molte pagine e widget di Steam, e dove c'è, ignorare richiede diversi clic (passare il cursore sulla copertina del gioco -> cliccare ▪▪▪ -> cliccare "Ignora"). In quel menu manca anche l'opzione "Giocato su un'altra piattaforma". In più Steam non permette di ignorare una lista di giochi in un colpo solo. L'estensione ti dà l'ignora con un gesto su qualsiasi pagina e widget di Steam, più l'ignora in massa con gli elenchi integrati e l'automazione degli ignora.
+
+D: Come ignoro tanti giochi in una volta su Steam?
+R: Steam da solo ignora i giochi uno alla volta. Con l'estensione puoi per esempio aggiungere un elenco integrato alla coda degli ignora (giochi con contenuti IA, Denuvo, accesso al kernel, termini EULA invasivi, giochi notoriamente pessimi e altro), aggiungerci tutta la lista di un curatore, ignorare un intero bundle con un gesto, ignorare un autore, attivare il livello alto del filtro IA, lanciare l'assistente dell'elenco scoperte su un tag o un genere, o semplicemente scorrere via veloce le copertine dei giochi che non vuoi nel negozio.
+
+D: Usare questa estensione rispetta le regole di Steam?
+R: Sì, per quanto riguarda ignorare o annullare un ignora con gesti, pulsanti o scorciatoie da tastiera. Ognuno scatta una volta per ogni tua azione, come un clic sul pulsante "Ignora" di Steam. Gli assistenti dell'elenco scoperte, il livello alto del filtro IA, la coda degli ignora (liste dei curatori, elenchi integrati e bundle) e l'annullamento in blocco sono automazione. La sezione 4.C del Contratto di sottoscrizione a Steam (Steam Subscriber Agreement) vieta le interazioni con Steam non controllate da una persona, incluso ottenere ricompense o progressi senza azioni reali dell'utente, quindi usa le funzioni di automazione a tua discrezione e consapevole del rischio. L'estensione non ottiene ricompense dei saldi al posto tuo e non è pensata per questo. Ha anche una protezione integrata che dà il ritmo alle richieste verso Steam, una alla volta. L'ultima parola però spetta a Valve, così come la posizione e le misure dell'azienda verso questa e qualsiasi altra estensione di automazione di Steam.
+
+D: Posso annullare un ignora?
+R: Sì, in qualsiasi momento. Il pulsante Ignora nella pagina del gioco continua a funzionare con l'estensione. Puoi anche disegnare un cerchio o uno zigzag sulla copertina del gioco, o cliccare il badge IGNORED sul gioco, per annullare un singolo ignora. Oppure apri il popup dell'estensione, premi il pulsante di annullamento (↩️) e scegli quali ignora recenti annullare, gli ultimi N giochi o tutto quello delle ultime N ore o N giorni. Gli autori ignorati si recuperano nello stesso posto, nella scheda "Autori".
+
+D: L'estensione funziona se il mio Steam non è in inglese?
+R: Sì. L'estensione non dipende dalla lingua. Funziona con qualsiasi impostazione della lingua del tuo account Steam.
+
+D: L'estensione funziona su macOS e Linux?
+R: Sì. Su macOS e Linux il menu contestuale si apre appena premi il tasto destro, quindi l'estensione trattiene quel menu al clic sulla copertina di un gioco se ignorare o annullare è impostato sui gesti. Puoi anche assegnare l'ignora ad altri tasti (per esempio Maiusc + Clic Sx.) in IMPOSTAZIONI -> Ignora manuale.
+
+D: Posso ignorare un pacchetto o un bundle di più giochi?
+R: Sì. Trascina sulla copertina del bundle, poi trascina ancora una volta per confermare. Tutti i giochi e i DLC del bundle finiscono nella coda degli ignora e vengono ignorati al ritmo solito. I giochi della tua libreria e della tua lista dei desideri vengono saltati.
+
+PRIVACY E SICUREZZA:
+▪ Funziona tramite Steam stesso, cliccando i pulsanti di Steam o inviando le stesse richieste che invia Steam.
+▪ Nessun tracciamento, nessuna analisi, nessun server esterno. Non raccogliamo, non riceviamo né condividiamo alcun dato personale degli utenti. Impostazioni, cronologia degli ignora e coda in attesa vengono salvate localmente nel tuo browser, e le richieste vanno direttamente ai server ufficiali di Steam (store.steampowered.com e api.steampowered.com).
+▪ Non vengono salvate password né chiavi API di Steam, e nulla viene inviato altrove se non a Steam. L'estensione usa la tua sessione Steam attiva e, per verificare la ricompensa per aver completato l'elenco scoperte durante i saldi, il token di accesso già presente nella pagina del negozio di Steam. Il token va solo all'API di Steam e non viene mai salvato.
+
+Steam Ignore Like a Pro non è affiliata a Valve Corporation o Steam, né sponsorizzata da loro.

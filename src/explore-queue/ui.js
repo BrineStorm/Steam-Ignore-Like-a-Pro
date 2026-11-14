@@ -11,6 +11,22 @@
     // paced but unattended ignore run, Disable writes a setting.
     const realInput = window.ILAP.realInput;
 
+    // A toast comes in and goes, and a card's micro-badge goes, in TOAST_MS, or
+    // at once with reduced motion. One on its way out has no ids any more (the
+    // E2E suite finds the toast by #ilap-toast, a new one may already be in)
+    // and takes no clicks.
+    const TOAST_MS = 200;
+    const still = (el) => !el.animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    function fadeOut(el) {
+        if (still(el)) { el.remove(); return; }
+        el.removeAttribute('id');
+        el.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
+        el.style.pointerEvents = 'none';
+        el.animate([{ opacity: getComputedStyle(el).opacity }, { opacity: 0 }],
+            { duration: TOAST_MS, easing: 'ease', fill: 'forwards' })
+            .finished.then(() => el.remove(), () => el.remove());
+    }
+
     // The colours of a lock the user can lift: the sale's queue reward, theirs
     // to earn. An orange-to-gold outline, since Steam's Next button is itself gold.
     const LOCK = '#ff7a1a';
@@ -76,6 +92,19 @@
                 </span>
             </div>
         `,
+        // A game a list ignored, on its own page (manual-ignore/list-frame.js):
+        // what ignored it, then the list's name and the day.
+        LIST: ({ safeIconUrl, detail }) => {
+            const chip = detail.name ? `<span style="background: #3d4a5d; color: #fff; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">${Sanitizer.escapeHTML(detail.name)}</span>` : '';
+            const day = detail.date ? `<span style="color: #8f98a0; white-space: nowrap;">${Sanitizer.escapeHTML(detail.date)}</span>` : '';
+            return `
+            <div style="display: flex; align-items: center; gap: 6px;${chip || day ? ' margin-bottom: 8px;' : ''}">
+                <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
+                <span>${Sanitizer.escapeHTML(detail.text)}</span>
+            </div>
+            ${chip || day ? `<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">${chip}${day}</div>` : ''}
+        `;
+        },
         WISHLIST: ({ safeIconUrl }) => `
             <div style="display: flex; align-items: center; gap: 6px;">
                 <img src="${safeIconUrl}" style="width: 14px; height: 14px; vertical-align: middle;">
@@ -96,16 +125,22 @@
         `
     };
 
+    // The card's own inline boxShadow/position from before applyVisuals first
+    // touched it, so clearVisuals can put back what Steam had: Steam renders
+    // #ignoreBtn with an inline `position: relative; display: flex`, which a
+    // reset to '' would strip. One map for every ActionUI: the Queue Helper's and
+    // the list frame's (manual-ignore/list-frame.js) draw on the same button.
+    const inlineBefore = new WeakMap();
+
+    // The data attribute the list frame keeps on the button while it shows.
+    const LIST_MARK = 'ilapListFrame';
+
     class ActionUI {
         constructor(resourceService, themeColors, containerProviderFunc) {
             this.resources = resourceService;
             this.colors = themeColors;
             this.getContainer = containerProviderFunc;
-            // The card's own inline boxShadow/position from before applyVisuals
-            // first touched it, so clearVisuals can put back what Steam had: Steam
-            // renders #ignoreBtn with an inline `position: relative; display: flex`,
-            // which a reset to '' would strip.
-            this._inlineBefore = new WeakMap();
+            this._inlineBefore = inlineBefore;
             // OUR toast node. Everything inside it is reached through this
             // reference, never through document.getElementById: the toast lives in
             // the Steam page's DOM, and a page that plants its own
@@ -120,7 +155,7 @@
         clearStartPrompt() {
             const prompt = this._toast;
             if (prompt && !prompt.querySelector('#ilap-stop-btn')) {
-                prompt.remove();
+                fadeOut(prompt);
                 this._toast = null;
             }
         }
@@ -128,8 +163,18 @@
         // Remove any Queue-Helper toast (start prompt OR running toast). Used when
         // the master switch is turned off live and automation is being torn down.
         removeToast() {
-            if (this._toast) this._toast.remove();
+            if (this._toast) fadeOut(this._toast);
             this._toast = null;
+        }
+
+        // A new toast slides up into its corner as it fades in.
+        _enter(toast) {
+            document.body.appendChild(toast);
+            this._toast = toast;
+            if (!still(toast)) {
+                toast.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
+                    { duration: TOAST_MS, easing: 'ease' });
+            }
         }
 
         // Undo applyVisuals (outline, micro-badge/tooltip, positioning) when the
@@ -139,7 +184,9 @@
             const container = this.getContainer();
             if (!container) return;
             // Scoped to the card: .ilap-tooltip is shared with Manual-Ignore's plates.
-            container.querySelectorAll('.ilap-micro-badge, .ilap-tooltip').forEach(el => el.remove());
+            container.querySelectorAll('.ilap-micro-badge').forEach(fadeOut);
+            container.querySelectorAll('.ilap-tooltip').forEach(el => el.remove());
+            delete container.dataset[LIST_MARK];
             // Nothing recorded means applyVisuals never ran on this card, so these
             // inline styles are not ours to clear — restoring a default of '' would
             // strip whatever else put them there. Reachable: _setupListener runs
@@ -160,7 +207,7 @@
             toast.style.cssText = `
                 position: fixed; bottom: 20px; right: 20px; background: #1b2838; color: #c7d5e0;
                 padding: 12px 15px; border-radius: 4px; border: 1px solid #45A1FA; z-index: 99999;
-                box-shadow: 0 5px 20px rgba(0,0,0,0.8); font-family: sans-serif; min-width: 280px;
+                box-shadow: 0 5px 20px rgba(0,0,0,0.8); font-family: "Motiva Sans", Arial, Helvetica, sans-serif; min-width: 280px;
                 display: flex; flex-direction: column; gap: 12px;
             `;
 
@@ -174,8 +221,8 @@
                         ${Sanitizer.escapeHTML(t('queue_helper'))}
                     </div>
                     <div style="display: flex; align-items: center;">
-                        <div id="ilap-disable-btn" style="font-size: 10px; color: #8f98a0; border: 1px solid #3d4a5d; padding: 3px 8px; border-radius: 3px; cursor: pointer; margin-right: 12px; background: transparent; transition: all 0.2s;">${Sanitizer.escapeHTML(t('disable'))}</div>
-                        <span id="ilap-close-x" style="font-size: 14px; color: #8f98a0; cursor: pointer; line-height: 1;">✕</span>
+                        <button type="button" id="ilap-disable-btn" style="font-family: inherit; font-size: 10px; color: #8f98a0; border: 1px solid #3d4a5d; padding: 3px 8px; border-radius: 3px; cursor: pointer; margin-right: 12px; background: transparent; transition: all 0.2s;">${Sanitizer.escapeHTML(t('disable'))}</button>
+                        <button type="button" id="ilap-close-x" aria-label="${Sanitizer.escapeHTML(t('toast_close'))}" style="font-family: inherit; font-size: 14px; color: #8f98a0; cursor: pointer; line-height: 1; background: none; border: none; padding: 0;">✕</button>
                     </div>
                 </div>
 
@@ -187,8 +234,7 @@
                 </button>
             `;
 
-            document.body.appendChild(toast);
-            this._toast = toast;
+            this._enter(toast);
 
             toast.querySelector('#ilap-run-btn').onclick = realInput(handlers.onRun);
 
@@ -225,11 +271,10 @@
             toast.style.cssText = `
                 position: fixed; bottom: 20px; right: 20px; background: #1b2838; color: #fff;
                 padding: 15px; border-radius: 4px; border: 1px solid #45A1FA; z-index: 99999;
-                box-shadow: 0 5px 20px rgba(0,0,0,0.8); font-family: sans-serif; min-width: 250px;
+                box-shadow: 0 5px 20px rgba(0,0,0,0.8); font-family: "Motiva Sans", Arial, Helvetica, sans-serif; min-width: 250px;
                 display: flex; flex-direction: column; gap: 10px;
             `;
-            document.body.appendChild(toast);
-            this._toast = toast;
+            this._enter(toast);
 
             const { bold = '', text = '' } = message || {};
             const safeBold = bold ? `<b>${Sanitizer.escapeHTML(bold)}</b>` : '';
@@ -325,12 +370,16 @@
             lock.tip.remove();
         }
 
-        applyVisuals(type, reasonMode) {
+        // `detail` is the list frame's: { text, name?, date? }.
+        applyVisuals(type, reasonMode, detail) {
             const container = this.getContainer();
             if (!container) return;
-            
-            const theme = { 
-                'IGNORE': this.colors.RED_BG, 
+            // A list that ignored the game outranks the Queue Helper's verdict.
+            if (type !== 'LIST' && container.dataset[LIST_MARK]) return;
+
+            const theme = {
+                'IGNORE': this.colors.RED_BG,
+                'LIST': this.colors.RED_BG,
                 'SPARE': this.colors.BLUE_BG,
                 'NO_REVIEWS': this.colors.BLUE_BG,
                 'WISHLIST': this.colors.BLUE_BG
@@ -340,7 +389,9 @@
             if (!this._inlineBefore.has(container)) {
                 this._inlineBefore.set(container, { boxShadow: container.style.boxShadow, position: container.style.position });
             }
-            container.style.boxShadow = `0 0 0 1px ${color}`;
+            // The red rings, a list's and the helper's IGNORED, are 2 px: at 1 px on a
+            // game's own page they merged into the button's edge, and only the badge showed.
+            container.style.boxShadow = `0 0 0 ${type === 'LIST' || type === 'IGNORE' ? 2 : 1}px ${color}`;
             container.style.position = 'relative';
 
             if (type === 'IGNORE') {
@@ -350,20 +401,23 @@
                 if (act) act.style.display = 'block';
             }
             
-            this._setupMicroBadge(container, type, color, reasonMode);
+            if (type === 'LIST') container.dataset[LIST_MARK] = '1';
+            this._setupMicroBadge(container, type, color, reasonMode, detail);
         }
 
-        _setupMicroBadge(container, type, color, reasonMode) {
+        _setupMicroBadge(container, type, color, reasonMode, detail) {
             container.querySelectorAll('.ilap-micro-badge, .ilap-tooltip').forEach(el => el.remove());
             
             const badge = document.createElement('div');
             badge.className = 'ilap-micro-badge';
-            const badgeBg = type === 'IGNORE' ? color : (this.colors.BADGE_BLUE_BG || color);
+            const badgeBg = type === 'IGNORE' || type === 'LIST' ? color : (this.colors.BADGE_BLUE_BG || color);
             // Anchored to the upper-right ~2/3 of the button (not centred), so the
             // plate reads as a corner tag rather than a banner across the middle.
-            badge.style.cssText = `position: absolute; top: -8px; left: 66%; transform: translateX(-50%); background: ${badgeBg}; color: white; font-size: 8px; font-weight: 800; padding: 1px 6px; border-radius: 3px; z-index: 100; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; cursor: help;`;
+            // Line height 1 and even padding centre the capitals in the plate:
+            // the page's normal line left them a pixel low (4 px over, 3 under).
+            badge.style.cssText = `position: absolute; top: -8px; left: 66%; transform: translateX(-50%); background: ${badgeBg}; color: white; font-size: 8px; line-height: 1; font-weight: 800; padding: 2px 6px; border-radius: 3px; z-index: 100; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; cursor: help;`;
             // Past-tense labels: the action has already happened on this card.
-            const BADGE_LABELS = { 'NO_REVIEWS': 'NO REVIEWS', 'SPARE': 'SPARED', 'IGNORE': 'IGNORED', 'WISHLIST': 'ON WISHLIST' };
+            const BADGE_LABELS = { 'NO_REVIEWS': 'NO REVIEWS', 'SPARE': 'SPARED', 'IGNORE': 'IGNORED', 'LIST': 'IGNORED', 'WISHLIST': 'ON WISHLIST' };
             badge.textContent = BADGE_LABELS[type] || type;
 
             const tooltip = document.createElement('div');
@@ -374,7 +428,7 @@
             const safeBadgeLabel = Sanitizer.escapeHTML(getModeLabel(reasonMode));
 
             const builder = TOOLTIP_BUILDERS[type] || TOOLTIP_BUILDERS.DEFAULT;
-            tooltip.innerHTML = builder({ safeIconUrl, safeBadgeLabel });
+            tooltip.innerHTML = builder({ safeIconUrl, safeBadgeLabel, detail });
 
             container.appendChild(badge);
             container.appendChild(tooltip);

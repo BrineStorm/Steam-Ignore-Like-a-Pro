@@ -43,6 +43,9 @@ function loadBackground(initial, opts) {
         // it mid-run.
         postResult: opts.postResult || (() => ({ ok: true, status: 200 })),
         ignoredApps: opts.ignoredApps || {},
+        // Userdata GETs so far, and the status to answer them with (none: 200).
+        reads: 0,
+        userdataStatus: opts.userdataStatus || 0,
         // Appids whose appdetails probe answers success:false (region-locked);
         // everything else probes available.
         unavailableApps: opts.unavailableApps || [],
@@ -106,9 +109,17 @@ function loadBackground(initial, opts) {
         },
         fetch: (url, options) => {
             if (url.startsWith(USERDATA_URL)) {
+                state.reads += 1;
+                if (state.userdataStatus) {
+                    return Promise.resolve({
+                        ok: false, status: state.userdataStatus,
+                        headers: { get: () => null },
+                        json: async () => ({}),
+                    });
+                }
                 return Promise.resolve({
                     ok: true, status: 200,
-                    json: async () => ({ rgIgnoredApps: state.ignoredApps, rgWishlist: [] }),
+                    json: async () => ({ rgIgnoredApps: state.ignoredApps, rgWishlist: [], rgOwnedApps: [] }),
                 });
             }
             if (url.startsWith(ACCOUNT_URL)) {
@@ -182,6 +193,10 @@ function loadBackground(initial, opts) {
         poke: (obj) => Object.assign(data, obj),
         fireAlarm: (name) => alarmListeners.forEach((fn) => fn({ name })),
         settle: (ms) => new Promise((r) => setTimeout(r, ms || 600)),
+        // The worker's modules, and one more of src/ run into it (a popup
+        // module standing in for the popup).
+        ILAP: sandbox.ILAP,
+        load: (file) => sandbox.importScripts(file),
     };
 }
 
@@ -189,6 +204,15 @@ const job = (over) => ({
     id: 'j1', curatorId: 'c1', status: 'pending',
     appids: ['10', '11'], total: 2, ...(over || {}),
 });
+
+// The ignore log as storage keeps it: chunks of 100, oldest first.
+const logKeys = (entries) => {
+    const out = {};
+    let seq = 0;
+    for (let i = 0; i < entries.length; i += 100) out['ilap_ignore_log_c' + seq++] = entries.slice(i, i + 100);
+    out.ilap_ignore_log_index = { first: 0, last: Math.max(0, seq - 1) };
+    return out;
+};
 
 test.describe('SW drain host (unit)', () => {
 
@@ -229,7 +253,7 @@ test.describe('SW drain host (unit)', () => {
                 id: 'job_mi', curatorId: 'mi', type: 'mi', status: 'pending',
                 appids: ['10', '11'], total: 2,
                 meta: {
-                    // Alpha's name carries a control char + a whitespace run: the
+                    // Alpha's name has a control char + a whitespace run: the
                     // SW's stats shim normalizes through the shared sanitizer
                     // (escape.js), not a reduced local copy of it.
                     10: { name: 'Al' + String.fromCharCode(0) + 'pha   One', reason: 0 },
@@ -540,5 +564,186 @@ test.describe('SW drain host (unit)', () => {
         await env.settle();
         expect(env.posts).toEqual([]);
         expect(env.data().ilap_curator_lock_c1.owner).toBe('tab-1');
+    });
+});
+
+// Rolling back thousands of games takes hours, and the user goes on using
+// Steam meanwhile: pauses the job, ignores other games, drops it and stages it
+// again. The real worker, through what happens to such a job.
+// A pass that stopped with the job still queued waits for what stopped it. A
+// worker back every MIN_PASS_GAP_MS spends one full userdata read each time.
+test.describe('SW drain host: an all-empty read (unit)', () => {
+    test('with a total read lately no entry of an automated job goes out', async () => {
+        const env = loadBackground({
+            ilap_master_enabled: true, ilap_sw_sid: 'sess-1',
+            ilap_ignored_total: { total: 20, tallyAt: 0, ts: Date.now() },
+            ilap_curator_queue: [{ id: 'j1', type: 'preset', curatorId: 'preset_x', presetKey: 'x', presetRev: 'r',
+                status: 'pending', appids: ['10'], total: 1 }],
+        });
+        await env.settle(1500);
+        expect(env.state.reads).toBe(1);
+        expect(env.posts).toEqual([]);
+    });
+});
+
+test.describe('SW drain host: a stopped pass stays stopped (unit)', () => {
+    const preset = () => ({ id: 'j1', type: 'preset', curatorId: 'preset_x', presetKey: 'x', presetRev: 'r',
+        status: 'pending', appids: ['10', '11'], total: 2 });
+
+    test('under a long 429 penalty it reads nothing and the alarm waits for the penalty', async () => {
+        const until = Date.now() + 200000;
+        const env = loadBackground({
+            ilap_master_enabled: true, ilap_sw_sid: 'sess-1',
+            ilap_curator_queue: [preset()],
+            ilap_ignore_gate_penalty: { until, level: 5 },
+        });
+        await env.settle(5000);
+        expect(env.state.reads).toBe(0);
+        expect(env.posts).toEqual([]);
+        expect(env.alarms[ALARM].when).toBeGreaterThanOrEqual(until);
+        expect(env.data().ilap_curator_lock_preset_x).toBeUndefined();
+    });
+
+    test('a 429 on the read itself raises the penalty, and the read is not asked again', async () => {
+        const env = loadBackground({
+            ilap_master_enabled: true, ilap_sw_sid: 'sess-1', ilap_curator_queue: [preset()],
+        }, { userdataStatus: 429 });
+        await env.settle(4000);
+        expect(env.state.reads).toBe(1);
+        expect(env.posts).toEqual([]);
+        expect(env.data().ilap_ignore_gate_penalty.level).toBe(1);
+    });
+
+    test('a read that failed some other way is tried again no sooner than a standby tick', async () => {
+        const env = loadBackground({
+            ilap_master_enabled: true, ilap_sw_sid: 'sess-1', ilap_curator_queue: [preset()],
+        }, { userdataStatus: 500 });
+        await env.settle(5000);
+        expect(env.state.reads).toBe(1);
+        expect(env.posts).toEqual([]);
+    });
+
+    test('a visible run in a tab costs no reads while its stamp is fresh', async () => {
+        const env = loadBackground({
+            ilap_master_enabled: true, ilap_sw_sid: 'sess-1', ilap_curator_queue: [preset()],
+            ilap_ignore_foreground_at: Date.now(),
+        });
+        const stamp = setInterval(() => env.poke({ ilap_ignore_foreground_at: Date.now() }), 500);
+        await env.settle(4000);
+        clearInterval(stamp);
+        expect(env.state.reads).toBe(0);
+        expect(env.posts).toEqual([]);
+    });
+});
+
+test.describe('SW drain host — a long undo job (unit)', () => {
+    const DAY = 24 * 3600 * 1000;
+    const UNDO_ID = 'job_undo_1';
+    // Steam's list follows every POST, as the live account's does.
+    const steam = (ref) => (body) => {
+        const apps = ref.env.state.ignoredApps;
+        if (body.remove === '1') delete apps[body.appid];
+        else apps[body.appid] = Number(body.ignore_reason || 0);
+        return { ok: true, status: 200 };
+    };
+    // A game the user ignores elsewhere: Steam's list and the log gain it. The
+    // append goes past the drainer's hooks, as a tab's does, and reaches them
+    // as onChanged.
+    const ignoreElsewhere = (env, appid) => {
+        env.state.ignoredApps[appid] = 0;
+        return env.ILAP.IgnoreLog.append({ appid, source: 'mi' });
+    };
+    // Pause and Resume, written as the popup writes them.
+    const setStatus = (env, status) => env.write({
+        ilap_curator_queue: env.data().ilap_curator_queue.map(j => (j.id === UNDO_ID ? { ...j, status } : j)),
+    });
+    const rolledBack = (env) => env.posts.filter(p => p.remove === '1').map(p => p.appid);
+    const live = (env, appid) => logFromStorage(env.data()).some(e => e.appid === appid && !e.undoneAt && !e.skipped);
+    const drained = (env) => env.until(() => (env.data().ilap_curator_queue || []).length === 0, 30000);
+
+    // Six games the worker ignored a day ago, and the job that rolls them back, newest first.
+    const GAMES = ['1', '2', '3', '4', '5', '6'];
+    function start(over) {
+        const ref = {};
+        const old = Date.now() - DAY;
+        ref.env = loadBackground({
+            ilap_master_enabled: true,
+            ilap_sw_sid: 'sess-1',
+            ...logKeys(GAMES.map((appid, i) => ({ appid, ts: old + i, source: 'curator', curatorId: 'c1' }))),
+            ilap_curator_queue: [{
+                id: UNDO_ID, curatorId: 'undo', type: 'undo', status: 'pending',
+                appids: [...GAMES].reverse(), total: GAMES.length, snapshotTs: Date.now(), ...(over || {}),
+            }],
+        }, { ignoredApps: Object.fromEntries(GAMES.map(a => [a, 0])), postResult: steam(ref) });
+        return ref.env;
+    }
+
+    test('paused, with games ignored meanwhile and one of its own ignored again, it resumes on the rest only', async () => {
+        const env = start();
+        await env.until(() => rolledBack(env).length >= 2, 15000);
+        await setStatus(env, 'paused');
+        await env.settle(1500);
+        const sent = rolledBack(env).length;
+        // While it waits, the game it would roll back next is ignored again, and a new one.
+        const next = [...GAMES].reverse()[sent];
+        await ignoreElsewhere(env, next);
+        await ignoreElsewhere(env, '99');
+        await env.settle(1500);
+        expect(rolledBack(env)).toHaveLength(sent);   // the pause holds
+
+        await setStatus(env, 'pending');
+        await drained(env);
+        // Each game once, and the one ignored again never: the later intent wins.
+        const posts = rolledBack(env);
+        expect(new Set(posts).size).toBe(posts.length);
+        expect([...posts].sort()).toEqual(GAMES.filter(a => a !== next).sort());
+        expect(Object.keys(env.state.ignoredApps).sort()).toEqual([next, '99'].sort());
+        // The log agrees: the two ignored meanwhile are undoable, the rest rolled back.
+        for (const a of GAMES) expect(live(env, a), a).toBe(a === next);
+        expect(live(env, '99')).toBe(true);
+    });
+
+    test('removed midway and staged again, it rolls back only what is left, a game ignored since included', async () => {
+        const env = start();
+        await env.until(() => rolledBack(env).length >= 2, 15000);
+        await env.ILAP.Curator.Store.removeJob(UNDO_ID);
+        await env.settle(1500);
+        const sent = rolledBack(env).length;
+        expect(env.data()['ilap_curator_cursor_' + UNDO_ID]).toBeUndefined();
+
+        await ignoreElsewhere(env, '7');
+        env.load('undo-service.js');
+        const Store = env.ILAP.Curator.Store;
+        const service = new env.ILAP.UndoService({ store: Store, log: env.ILAP.IgnoreLog, maxJobs: Store.MAX_JOBS });
+        const staged = await service.stageLastN(100);
+        expect(staged).toEqual({ kind: 'added', total: GAMES.length - sent + 1 });
+        await drained(env);
+
+        // Nothing rolled back twice, nothing left on Steam's list or live in the log.
+        const posts = rolledBack(env);
+        expect(new Set(posts).size).toBe(posts.length);
+        expect([...posts].sort()).toEqual([...GAMES, '7'].sort());
+        expect(env.state.ignoredApps).toEqual({});
+        for (const a of [...GAMES, '7']) expect(live(env, a), a).toBe(false);
+    });
+
+    test('at the log cap, ignores made while it waits push its games out of the log, and it still rolls them back', async () => {
+        const env = start({ status: 'paused' });
+        const cap = env.ILAP.IgnoreLog.LOG_CAP;
+        const old = Date.now() - DAY;
+        // A full log with the job's six games at its oldest end.
+        const full = GAMES.map((appid, i) => ({ appid, ts: old + i, source: 'curator', curatorId: 'c1' }))
+            .concat(Array.from({ length: cap - GAMES.length }, (_, i) => ({ appid: String(100000 + i), ts: old + 10 + i, source: 'curator' })));
+        env.poke(logKeys(full));
+        // One more ignore opens a chunk and retires the oldest, the six with it.
+        await ignoreElsewhere(env, '99');
+        expect(env.data().ilap_ignore_log_c0).toBeUndefined();
+        for (const a of GAMES) expect(logFromStorage(env.data()).some(e => e.appid === a), a).toBe(false);
+
+        await setStatus(env, 'pending');
+        await drained(env);
+        expect(rolledBack(env)).toEqual([...GAMES].reverse());
+        expect(env.state.ignoredApps).toEqual({ 99: 0 });
+        expect(live(env, '99')).toBe(true);
     });
 });

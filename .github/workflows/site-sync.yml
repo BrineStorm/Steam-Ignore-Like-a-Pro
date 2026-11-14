@@ -2,7 +2,7 @@ name: Site sync
 on:
   push:
     branches: [main]
-    paths: [PRIVACY.md, docs/site-changelog.md]
+    paths: [PRIVACY.md, docs/site-changelog.md, 'docs/store-listing/**']
   workflow_dispatch:
 permissions: {}
 jobs:

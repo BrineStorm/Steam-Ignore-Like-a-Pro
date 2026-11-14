@@ -38,7 +38,7 @@ const SEL = {
 //
 // 25 s, not 15, as headroom rather than as a fix for anything observed: the
 // gate's stop verdict can now cost a LIVE /account/ probe (gate.js →
-// SteamAuth.hasLiveSession → steam-net.js) carrying the shared 10 s
+// SteamAuth.hasLiveSession → steam-net.js) with the shared 10 s
 // FETCH_TIMEOUT_MS deadline. On a page whose store header has not rendered
 // readable-signed-in by the time the drain opens its pass, that probe plus the
 // whole drain had to fit in 15 s — tight on arithmetic alone. No failure has
@@ -240,7 +240,7 @@ async function pickRows(page, n, rowSelector = SEARCH_ROW, limit = 12) {
         picked.push({ link, appid: m[1], href });
     }
     if (picked.length < n) {
-        throw new Error(`pickRows: ${picked.length} of ${n} reachable rows in the first ${count} — the rest are already ignored, hidden, or carry no /app/ link`);
+        throw new Error(`pickRows: ${picked.length} of ${n} reachable rows in the first ${count} — the rest are already ignored, hidden, or have no /app/ link`);
     }
     return picked;
 }

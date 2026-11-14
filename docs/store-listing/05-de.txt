@@ -1,0 +1,57 @@
+Filtere KI-Spiele im Steam-Shop und ignoriere Spiele mit einer einzigen Mausgeste oder gleich ganze Listen auf einmal.
+
+Steam Ignore Like a Pro ist eine kostenlose Open-Source-Erweiterung, die Steam bequemer macht und deine Privatsphäre respektiert. Der Tab AI markiert Spiele, die mit KI erstellt wurden, macht sie unscharf oder ignoriert sie auf jeder Shopseite. Die Erweiterung bringt Steams „Ignorieren“-Button auf jede Spielkachel im Shop, und du musst keine Spielseite mehr öffnen, nur um einmal auf „Ignorieren“ zu klicken. Alles funktioniert genau wie in Steam, weil die Erweiterung Steams eigenes Ignorieren nutzt.
+
+SO FUNKTIONIERT'S:
+1. Öffne eine beliebige Seite im Steam-Shop.
+2. Halte die rechte Maustaste auf einer Spielkachel gedrückt und wische nach rechts (oder nach links, um mit der Markierung „Bereits gespielt“ zu ignorieren).
+3. Auf dem Spiel erscheint sofort ein „IGNORED“-Badge. Das Ignorieren selbst kommt ein paar Augenblicke später bei Steam an.
+4. Klick auf das Badge, wenn du es dir anders überlegst, und das Ignorieren ist zurückgenommen.
+
+SO FILTERST DU KI-SPIELE:
+1. Öffne das Panel der Erweiterung und den Tab AI.
+2. Wähl die Filterstufe „Hoch“ und klick auf den Speichern-Button neben dem Schieberegler.
+3. Öffne eine beliebige Steam-Seite mit vielen Spielkacheln und scroll nach unten. Sobald ein KI-Spiel in dein Blickfeld kommt, siehst du eine Animation, und das Spiel wird deiner Ignorierliste hinzugefügt.
+4. Wenn du willst, kannst du die Animation ausschalten oder eine Stufe wählen, auf der die Erweiterung KI-Spiele nur markiert und nicht auf deine Ignorierliste setzt.
+
+FUNKTIONEN:
+▪ Kostenlos, privat und Open Source - schlanke Erweiterung ohne Frameworks, Tracking und Telemetrie. Sie arbeitet in der Sitzung deines Browsers und gibt diese nirgendwohin weiter.
+▪ Ignorieren mit einer Geste - Halte die rechte Maustaste gedrückt und wische nach rechts, um ein Spiel überall zu ignorieren, wo seine Kachel auftaucht.
+▪ Ignorieren mit der Markierung „Bereits gespielt“ - Wische nach links, um ein Spiel, das du auf einer anderen Plattform gespielt hast, gleich mit dieser Markierung zu ignorieren, statt seine Seite zu öffnen und auf „Ignorieren“ -> „Auf einer anderen Plattform gespielt“ zu klicken.
+▪ KI-Spiele-Filter - Die Erweiterung kann mit KI erstellte Spiele direkt auf ihren Kacheln markieren oder automatisch zur Ignorierliste deines Kontos hinzufügen.
+▪ Fertige Listen zum Ignorieren - Ignoriere auf einmal alle Spiele mit KI-Inhalten, Denuvo, Kernel-Zugriff oder übergriffigen EULA-Bedingungen, dazu bekannt schlechte Spiele und mehr, ganz nach deiner Wahl. Die Listen sind vorab zusammengestellt und stecken direkt in der Erweiterung. Spiele in deiner Bibliothek und auf deiner Wunschliste werden übersprungen.
+▪ Massen-Ignorieren nach Kuratorenlisten - Ignoriere Listen von Steam-Kuratoren direkt von ihren Seiten aus. Such dir einen Kurator aus, der Spiele markiert, die dich nerven, und die Erweiterung ignoriert die komplette Liste.
+▪ Ersteller ignorieren - Ignoriere einen Entwickler oder Publisher mit einem Klick auf den Button direkt neben seinem Link auf der Spielseite.
+▪ Ignorieren in der Entdeckungsliste - Öffne die Entdeckungsliste auf der Seite eines Tags, Genres oder einer Kategorie, und die Erweiterung ignoriert alle Spiele in der Liste oder nur die mit schlechten Reviews.
+▪ Helfer für die klassische Entdeckungsliste - Die Erweiterung ignoriert automatisch Spiele, während du deine tägliche Auswahl an Steam-Empfehlungen durchgehst, nach deinen Bedingungen (zum Beispiel schlechte Reviews), oder sie ignoriert sie und blättert die Liste gleich weiter.
+▪ Ignorieren zurücknehmen - Das Ignorieren eines Spiels oder Erstellers nimmst du jederzeit direkt auf der Spielkachel oder neben dem Link zum Ersteller zurück, kürzliche Ignorierungen auch als Liste in einem eigenen Rücknahme-Menü, indem du einen Rücknahme-Auftrag hinzufügst.
+▪ Flexibel einstellbar - Du kannst die Erweiterung ziemlich weit anpassen, Hotkeys ändern, einzelne Module und Ignorier-Modi an- und ausschalten, den Platz der Erweiterung auf der Seite ändern und vieles mehr.
+▪ 24 Sprachen für die Oberfläche - Umschaltbar im laufenden Betrieb, unabhängig von deiner Steam-Sprache.
+
+F: Warum das statt Steams eingebautem Ignorieren?
+A: Den eingebauten „Ignorieren“-Button gibt es auf vielen Steam-Seiten und in vielen Widgets gar nicht, und wo es ihn gibt, braucht das Ignorieren mehrere Klicks (Maus über die Spielkachel -> auf ▪▪▪ klicken -> auf „Ignorieren“ klicken). In diesem Menü fehlt außerdem die Option „Auf einer anderen Plattform gespielt“. Dazu kann Steam keine Spieleliste auf einmal ignorieren. Die Erweiterung bringt Ignorieren mit einer Geste auf jede Steam-Seite und in jedes Widget, dazu Massen-Ignorieren nach fertigen Listen und automatisches Ignorieren.
+
+F: Wie ignoriere ich viele Spiele auf Steam auf einmal?
+A: Steam selbst ignoriert Spiele nur einzeln. Mit der Erweiterung kannst du zum Beispiel eine fertige Liste in die Ignorier-Warteschlange packen (Spiele mit KI-Inhalten, Denuvo, Kernel-Zugriff, übergriffigen EULA-Bedingungen, bekannt schlechte Spiele und mehr), die komplette Liste eines Kurators dazupacken, ein ganzes Bündel mit einer Geste ignorieren, einen Ersteller ignorieren, die hohe KI-Filterstufe einschalten, den Helfer für die Entdeckungsliste auf ein Tag oder Genre loslassen oder unerwünschte Spiele im Shop einfach schnell wegwischen.
+
+F: Ist die Nutzung dieser Erweiterung mit den Steam-Regeln vereinbar?
+A: Ja, was das Ignorieren und Zurücknehmen per Geste, Button oder Hotkey angeht. Jedes davon wird einmal pro Aktion von dir ausgelöst, wie ein Klick auf Steams „Ignorieren“-Button. Die Helfer für die Entdeckungsliste, die hohe KI-Filterstufe, die Ignorier-Warteschlange (Kuratorenlisten, fertige Listen und Bündel) und das gesammelte Zurücknehmen zählen zur Automatisierung. Abschnitt 4.C des Steam-Nutzungsvertrags (Steam Subscriber Agreement) verbietet Interaktionen mit Steam, die kein Mensch steuert, einschließlich Belohnungen oder Fortschritt ohne echte Eingaben des Nutzers. Nutze die Automatisierungsfunktionen deshalb nach eigenem Ermessen und im Bewusstsein des Risikos. Die Erweiterung holt keine Sale-Belohnungen für dich und ist dafür auch nicht gedacht. Außerdem hat sie einen eingebauten Schutz, der das Tempo der Anfragen an Steam vorgibt, eine nach der anderen. Das letzte Wort hat aber Valve, ebenso wie die Haltung und die Maßnahmen des Unternehmens gegenüber dieser und jeder anderen Erweiterung zur Steam-Automatisierung.
+
+F: Kann ich ein Ignorieren zurücknehmen?
+A: Ja, jederzeit. Der Ignorieren-Button auf der Spielseite funktioniert mit der Erweiterung weiter. Ein einzelnes Ignorieren nimmst du auch zurück, indem du einen Kreis oder ein Zickzack auf die Spielkachel zeichnest oder auf das IGNORED-Badge des Spiels klickst. Oder du öffnest das Popup der Erweiterung, klickst auf den Rücknahme-Button (↩️) und legst fest, welche kürzlichen Ignorierungen zurückgenommen werden, die letzten N Spiele oder alles aus den letzten N Stunden oder Tagen. Ignorierte Ersteller holst du am selben Ort zurück, auf dem Tab „Ersteller“.
+
+F: Funktioniert die Erweiterung, wenn mein Steam nicht auf Englisch ist?
+A: Ja. Die Erweiterung hängt nicht von der Sprache ab. Sie funktioniert mit jeder Spracheinstellung deines Steam-Kontos.
+
+F: Funktioniert die Erweiterung unter macOS und Linux?
+A: Ja. Unter macOS und Linux öffnet sich das Kontextmenü schon beim Drücken der rechten Taste. Deshalb hält die Erweiterung dieses Menü beim Klick auf eine Spielkachel zurück, wenn Ignorieren oder Zurücknehmen auf Gesten eingestellt ist. Du kannst das Ignorieren unter EINSTELLUNGEN -> Manuelles Ignorieren auch auf andere Tasten legen (zum Beispiel Umschalt + Linksklick).
+
+F: Kann ich ein Bündel oder Bundle aus mehreren Spielen ignorieren?
+A: Ja. Wisch über die Kachel des Bündels und zur Bestätigung noch ein zweites Mal. Alle Spiele und DLCs aus dem Bündel landen in der Ignorier-Warteschlange und werden im üblichen Tempo ignoriert. Spiele in deiner Bibliothek und auf deiner Wunschliste werden übersprungen.
+
+DATENSCHUTZ & SICHERHEIT:
+▪ Arbeitet über Steam selbst, indem sie Steams eigene Buttons klickt oder dieselben Anfragen sendet wie Steam.
+▪ Kein Tracking, keine Analyse, keine externen Server. Wir erheben, empfangen und teilen keinerlei personenbezogene Nutzerdaten. Deine Einstellungen, dein Ignorier-Verlauf und die ausstehende Warteschlange werden lokal in deinem Browser gespeichert, und Anfragen gehen direkt an Steams offizielle Server (store.steampowered.com und api.steampowered.com).
+▪ Es werden keine Passwörter oder Steam-API-Schlüssel gespeichert, und nichts wird irgendwohin außer an Steam gesendet. Die Erweiterung nutzt deine aktive Steam-Sitzung und, um im Sale die Belohnung für die Entdeckungsliste zu prüfen, das Zugriffstoken, das die Steam-Shopseite bereits enthält. Es geht nur an Steams eigene API und wird nie gespeichert.
+
+Steam Ignore Like a Pro steht in keiner Verbindung zu Valve Corporation oder Steam und wird von ihnen weder unterstützt noch gesponsert.

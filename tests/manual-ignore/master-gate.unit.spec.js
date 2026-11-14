@@ -4,24 +4,21 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-// IgnoreManager's master gate on the render paths (src/manual-ignore/main.js) as
+// IgnoreManager's master gate on the render paths (src/manual-ignore/ignore-manager.js) as
 // a Node unit — no browser. The E2E master-off spec covers a gesture made while
 // the extension is already off; what it cannot time is the switch going off
 // WHILE a gesture awaits its enqueue. That swipe's badge must not paint, and its
 // session entry must survive so a re-enable repaints it.
 
 function loadIgnoreManager() {
-    const code = fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'main.js'),
-        'utf8'
-    );
+    const src = (f) => fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'manual-ignore', f), 'utf8');
     const sandbox = {
-        window: { ILAP: { ManualIgnore: {} }, addEventListener: () => {} },
-        // Not 'complete': boot() stays parked on a 'load' that never fires.
-        document: { readyState: 'loading', querySelectorAll: () => [] },
+        window: { ILAP: { ManualIgnore: {} } },
+        document: { querySelectorAll: () => [] },
     };
     vm.createContext(sandbox);
-    vm.runInContext(code, sandbox);
+    vm.runInContext(src('marks.js'), sandbox);
+    vm.runInContext(src('ignore-manager.js'), sandbox);
     return { IgnoreManager: sandbox.window.ILAP.ManualIgnore.IgnoreManager, sandbox };
 }
 
@@ -32,21 +29,27 @@ function build(sandbox, IgnoreManager, {
     enabled, enqueue, loggedIn = true, cancelIgnore = async () => false,
     sessionState = { get: () => null, set: () => {} }, steamReason = async () => undefined,
 }) {
-    const calls = { login: 0, enqueueUndo: 0, signalUnignored: 0 };
+    const calls = { login: 0, enqueueUndo: 0, signalUnignored: 0, spared: [], renders: [] };
     const rendered = [];
     const link = { getAttribute: () => '/app/620/', closest: () => null };
     sandbox.document.querySelectorAll = (sel) => (sel.includes('/app/') ? [link] : []);
+    const MI = sandbox.window.ILAP.ManualIgnore;
+    const badgeRenderer = { render: (el, appid, reason, auto) => { rendered.push(appid); calls.renders.push([appid, !!auto]); },
+        unrender: () => {},
+        syncPending: () => {}, syncMasks: () => {},
+        steamGreyed: (el) => el.closest('.ds_ignored'), tintSteamFlag: () => {}, untintSteamFlag: () => {} };
     const mgr = new IgnoreManager({
-        badgeRenderer: { render: (el, appid) => rendered.push(appid), unrender: () => {},
-            syncPending: () => {}, syncMasks: () => {},
-            steamGreyed: (el) => el.closest('.ds_ignored'), tintSteamFlag: () => {}, untintSteamFlag: () => {} },
+        badgeRenderer,
         containerStrategies: { findContainer: () => null },
         nameExtractor: { get: async () => 'Portal 2' },
-        sessionState,
+        badgeMarks: new MI.BadgeMarks(sessionState),
+        tintMarks: new MI.TintMarks(badgeRenderer),
+        bundleMarks: new MI.BundleMarks(badgeRenderer),
         enqueue,
         enqueueUndo: async () => { calls.enqueueUndo += 1; return { kind: 'added' }; },
         cancelIgnore,
         signalUnignored: async () => { calls.signalUnignored += 1; },
+        spare: async (appid) => { calls.spared.push(appid); },
         steamReason,
         isLoggedIn: async () => { calls.login += 1; return loggedIn; },
         isEnabled: () => enabled.value,
@@ -70,7 +73,7 @@ test.describe('ManualIgnore — master gate on badge rendering (unit)', () => {
         await mgr.processIgnoreRequest({ appid: '620', reason: 0, linkElement: link });
 
         expect(rendered).toEqual([]);
-        expect(mgr.sessionMap.has('620')).toBe(true);
+        expect(mgr.badges.has('620')).toBe(true);
 
         enabled.value = true;
         mgr.refreshAll();
@@ -134,7 +137,7 @@ test.describe('ManualIgnore — a cancel takes back only the swipe its badge cam
         const session = memorySession();
         session.set('ilap_session_map_v2', JSON.stringify([['620', 0]]));
         const s = setup(session);
-        expect(s.mgr.sessionMap.get('620')).toBe(0);
+        expect(s.mgr.badges.reasons.get('620')).toBe(0);
         await s.mgr.processUnignoreRequest({ appid: '620' });
         expect(s.cancels).toEqual([['620', undefined]]);
         expect(s.calls.enqueueUndo).toBe(1);   // so it rolls back for real
@@ -146,7 +149,7 @@ test.describe('ManualIgnore — a cancel takes back only the swipe its badge cam
         const session = memorySession();
         session.set('ilap_session_map_v2', JSON.stringify([['620', 0, Date.now() + 3600000]]));
         const s = setup(session);
-        expect(s.mgr.ignoredAt.has('620')).toBe(false);
+        expect(s.mgr.badges.queuedAt('620')).toBe(undefined);
         await s.mgr.processUnignoreRequest({ appid: '620' });
         expect(s.cancels).toEqual([['620', undefined]]);
         expect(s.calls.enqueueUndo).toBe(1);
@@ -166,12 +169,15 @@ test.describe('ManualIgnore — IgnoreManager contract (unit)', () => {
         };
         expect(() => new IgnoreManager(valid())).not.toThrow();
         for (const [name, broken] of [
-            ['badgeRenderer', { render: () => {}, unrender: () => {} }],   // no syncPending/syncMasks/steamGreyed/tints
+            ['badgeRenderer', { render: () => {}, unrender: () => {} }],   // no syncPending/syncMasks
             ['containerStrategies', {}],
             ['nameExtractor', null],
-            ['sessionState', { get: () => null }],
+            ['badgeMarks', { has: () => false }],
+            ['tintMarks', undefined],
+            ['bundleMarks', { has: () => false, set: () => {} }],
             ['isLoggedIn', undefined],
             ['cancelIgnore', undefined],
+            ['spare', undefined],
         ]) {
             const deps = Object.assign(valid(), { [name]: broken });
             expect(() => new IgnoreManager(deps), name).toThrow(new RegExp('deps\\.' + name));
@@ -179,11 +185,11 @@ test.describe('ManualIgnore — IgnoreManager contract (unit)', () => {
     });
 
     test('two fast swipes on one capsule cost one enqueue, not two', async () => {
-        // The sessionMap check that opens processIgnoreRequest cannot hold across
+        // The badge check that opens processIgnoreRequest cannot hold across
         // its awaits — the map is written at the END — so a second swipe landing
         // mid-flight used to walk the whole path again: another login check,
         // another name resolution (an appdetails request on a capsule whose DOM
-        // carries no name) and another enqueue. The queue deduped, so nothing was
+        // has no name) and another enqueue. The queue deduped, so nothing was
         // ignored twice; the work was simply paid for twice.
         const { IgnoreManager, sandbox } = loadIgnoreManager();
         let release;
@@ -203,11 +209,11 @@ test.describe('ManualIgnore — IgnoreManager contract (unit)', () => {
 
         expect(enqueues).toBe(1);
         expect(names).toBe(1);
-        expect(mgr.sessionMap.get('620')).toBe(0);
+        expect(mgr.badges.reasons.get('620')).toBe(0);
 
         // And the latch is released: a later swipe on the same game is refused by
         // the session map, not stuck behind a flag that was never cleared.
-        mgr.sessionMap.delete('620');
+        mgr.badges.delete('620');
         await mgr.processIgnoreRequest({ appid: '620', reason: 2, linkElement: link });
         expect(enqueues).toBe(2);
     });
@@ -223,7 +229,7 @@ test.describe('ManualIgnore — IgnoreManager contract (unit)', () => {
         sandbox.document.querySelectorAll = () => links.filter(l => l.getAttribute().includes('/app/620'));
         const painted = [];
         mgr.renderer.render = (el) => painted.push(el.getAttribute());
-        mgr.sessionMap.set('620', 0);
+        mgr.badges.add('620', 0);
 
         mgr.refreshBadgesForGame('620');
 
@@ -246,7 +252,7 @@ test.describe('ManualIgnore — a game this tab badged (unit)', () => {
         await swipe(0);
         await swipe(2);
         expect(queued).toEqual([['620', 0]]);
-        expect(mgr.sessionMap.get('620')).toBe(0);
+        expect(mgr.badges.reasons.get('620')).toBe(0);
     });
 });
 
@@ -284,7 +290,7 @@ test.describe('ManualIgnore — a capsule Steam already greys out (unit)', () =>
         expect(s.queued).toEqual([['620', 0]]);
         expect(s.tints).toEqual([[s.capsule, '620', 0]]);
         expect(s.rendered).toEqual([]);
-        expect(s.mgr.sessionMap.has('620')).toBe(false);
+        expect(s.mgr.badges.has('620')).toBe(false);
     });
 
     test('Already played queues reason 2 and tints the flag blue', async () => {
@@ -320,7 +326,7 @@ test.describe('ManualIgnore — a capsule Steam already greys out (unit)', () =>
         await s.swipe(0);
         expect(s.queued).toEqual([['620', 2], ['620', 0]]);
         expect(s.untinted).toEqual(['620']);
-        expect(s.mgr.tinted.has('620')).toBe(false);
+        expect(s.mgr.tints.has('620')).toBe(false);
         await s.swipe(0);                        // Steam's reason again: nothing more
         expect(s.queued).toHaveLength(2);
     });
@@ -351,7 +357,7 @@ test.describe('ManualIgnore — a capsule Steam already greys out (unit)', () =>
         await s.swipe(0);
         expect(s.queued).toEqual([['620', 0]]);
         expect(s.tints).toEqual([]);
-        expect(s.mgr.sessionMap.has('620')).toBe(true);
+        expect(s.mgr.badges.has('620')).toBe(true);
     });
 
     test('master off strips the tints, on paints them back', async () => {
@@ -390,27 +396,108 @@ test.describe('ManualIgnore — the session ended in another window (unit)', () 
         expect(s.calls.login).toBe(1);
         expect(s.enqueues()).toBe(0);
         expect(s.rendered).toEqual([]);
-        expect(s.mgr.sessionMap.has('620')).toBe(false);
+        expect(s.mgr.badges.has('620')).toBe(false);
         expect(s.mgr._enqueueing.size).toBe(0);   // the next try is not swallowed
     });
 
     test('an un-ignore of a game badged before the sign-out queues no rollback', async () => {
         const s = setup();
-        s.mgr.sessionMap.set('620', 0);           // painted while still signed in
+        s.mgr.badges.add('620', 0);           // painted while still signed in
         await s.mgr.processUnignoreRequest({ appid: '620' });
         expect(s.calls.enqueueUndo).toBe(0);
         expect(s.mgr.pending.has('620')).toBe(false);
-        expect(s.mgr.sessionMap.has('620')).toBe(true);   // the badge is still true
+        expect(s.mgr.badges.has('620')).toBe(true);   // the badge is still true
     });
 
     test('taking back an ignore that was never sent needs no session', async () => {
         // The queued entry is cancelled locally: no POST, so no gate either.
         const s = setup({ cancelIgnore: async () => true });
-        s.mgr.sessionMap.set('620', 0);
+        s.mgr.badges.add('620', 0);
         await s.mgr.processUnignoreRequest({ appid: '620' });
         expect(s.calls.signalUnignored).toBe(1);
         expect(s.calls.login).toBe(0);
         expect(s.calls.enqueueUndo).toBe(0);
+    });
+});
+
+// The browsing switch (ai-browse.js): the badge of a game it queued says AI,
+// and a game the user un-ignores by hand is never shot again (spare).
+test.describe('ManualIgnore — the browsing switch\'s marks (unit)', () => {
+    const memorySession = () => {
+        const kv = {};
+        return { get: (k) => kv[k] || null, set: (k, v) => { kv[k] = v; } };
+    };
+    function setup({ session = memorySession(), cancelIgnore, loggedIn } = {}) {
+        const { IgnoreManager, sandbox } = loadIgnoreManager();
+        return build(sandbox, IgnoreManager, {
+            enabled: { value: true }, enqueue: async () => ({ kind: 'added' }), sessionState: session,
+            cancelIgnore, loggedIn,
+        });
+    }
+
+    test('a game the switch queued is badged with the AI mark, kept across a reload; a swipe\'s is not', async () => {
+        const session = memorySession();
+        const s = setup({ session });
+        s.mgr.markAuto('620', Date.now() - 5000);
+        expect(s.calls.renders).toEqual([['620', true]]);
+        const reloaded = setup({ session });
+        reloaded.mgr.refreshAll();
+        expect(reloaded.calls.renders).toEqual([['620', true]]);
+
+        const swiped = setup();
+        await swiped.mgr.processIgnoreRequest({ appid: '620', reason: 0, linkElement: swiped.link });
+        expect(swiped.calls.renders).toEqual([['620', false]]);
+    });
+
+    test('a game the switch shot that Steam refused loses its badge in silence; a swipe says so', async () => {
+        const shot = setup();
+        const said = [];
+        shot.mgr.notifyDropped = () => said.push('shot');
+        shot.mgr.markAuto('620', Date.now() - 5000);
+        shot.mgr.handleUnignored(['620'], 'failed');
+        expect(shot.mgr.badges.has('620')).toBe(false);
+        expect(said).toEqual([]);
+
+        const swiped = setup();
+        swiped.mgr.notifyDropped = () => said.push('swiped');
+        await swiped.mgr.processIgnoreRequest({ appid: '620', reason: 0, linkElement: swiped.link });
+        swiped.mgr.handleUnignored(['620'], 'failed');
+        expect(said).toEqual(['swiped']);
+    });
+
+    test('the AI mark goes with the badge', async () => {
+        const s = setup();
+        s.mgr.markAuto('620', Date.now() - 5000);
+        s.mgr.handleUnignored(['620'], 'undo');
+        expect(s.mgr.badges.isAuto('620')).toBe(false);
+        expect(JSON.parse(s.mgr.badges.session.get('ilap_session_map_v2'))).toEqual([]);
+    });
+
+    test('a hand un-ignore spares the game, cancelled or rolled back, the switch\'s or a swipe\'s', async () => {
+        const cancelled = setup({ cancelIgnore: async () => true });
+        cancelled.mgr.markAuto('620', Date.now());
+        await cancelled.mgr.processUnignoreRequest({ appid: '620' });
+        expect(cancelled.calls.spared).toEqual(['620']);
+
+        const rolled = setup();
+        await rolled.mgr.processIgnoreRequest({ appid: '620', reason: 0, linkElement: rolled.link });
+        rolled.mgr.badges.times.set('620', Date.now() - 5000);
+        await rolled.mgr.processUnignoreRequest({ appid: '620' });
+        expect(rolled.calls.enqueueUndo).toBe(1);
+        expect(rolled.calls.spared).toEqual(['620']);
+    });
+
+    test('an un-ignore refused (the cooldown, signed out) spares nothing', async () => {
+        const early = setup();
+        early.mgr.markAuto('620', Date.now());
+        await early.mgr.processUnignoreRequest({ appid: '620' });
+        expect(early.calls.enqueueUndo).toBe(0);
+        expect(early.calls.spared).toEqual([]);
+
+        const out = setup({ loggedIn: false });
+        out.mgr.markAuto('620', Date.now() - 5000);
+        await out.mgr.processUnignoreRequest({ appid: '620' });
+        expect(out.calls.spared).toEqual([]);
     });
 });
 

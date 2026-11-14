@@ -34,6 +34,7 @@ const PROVIDERS = [
     [/ILAP\.Sanitizer\b/, 'src/escape.js'],
     [/ILAP\.newOwnerId\b/, 'src/escape.js'],
     [/ILAP\.serialChain\b/, 'src/escape.js'],
+    [/ILAP\.(loadPresets|aiGames|aiKinds)\b/, 'src/presets.js'],
     [/ILAP\.Settings\b/, 'src/settings-schema.js'],
     [/ILAP\.SteamPalette\b/, 'src/queue-common/steam-palette.js'],
     [/ILAP\.StatsLogic\b/, 'src/stats.js'],
@@ -41,6 +42,7 @@ const PROVIDERS = [
     [/ILAP\.MasterSwitch\b/, 'src/master-switch.js'],
     [/ILAP\.IgnoreGate\b/, 'src/gate.js'],
     [/ILAP\.IgnoreLog\b/, 'src/ignore-log.js'],
+    [/ILAP\.Creators\b/, 'src/creators.js'],
     [/ILAP\.Surface\b/, 'src/surface.js'],
     [/ILAP\.(t|i18n)\b/, 'src/i18n.js'],
     [/ILAP\.showToast\b/, 'src/toast.js'],
@@ -48,17 +50,25 @@ const PROVIDERS = [
     [/ILAP\.AutomationNotice\b/, 'src/queue-common/automation-notice.js'],
     [/Curator\.Lease\b/, 'src/curator/lease.js'],
     [/Curator\.Store\b/, 'src/curator/store.js'],
+    [/Curator\.DoneMarks\b/, 'src/curator/done-marks.js'],
     [/Curator\.Enumerator\b/, 'src/curator/enumerate.js'],
     [/Curator\.EnqueueService\b/, 'src/curator/enqueue-service.js'],
     [/Curator\.CuratorQueueDrainer\b/, 'src/curator/drainer.js'],
+    [/Curator\.Cache\b/, 'src/curator/cache.js'],
+    [/Curator\.ButtonStyle\b/, 'src/curator/button-style.js'],
+    [/Curator\.createButtonMenu\b/, 'src/curator/menu.js'],
+    [/MI\.IgnoreManager\b/, 'src/manual-ignore/ignore-manager.js'],
+    [/ManualIgnore\.MarkDom\b/, 'src/manual-ignore/mark-dom.js'],
+    [/MI\.AiMarks\b/, 'src/manual-ignore/ai-marks.js'],
     // The content script's own Steam layer. sw-handoff.js calls getSessionID at
     // TOP LEVEL, so a reorder here is a boot throw, not a late undefined.
-    [/ILAP\.(getSessionID|apiIgnoreGame|apiUnignoreGame|SteamAuth|OwnIgnorePosts|saveStats|saveJobHistory|bumpIgnoredCount|dropIgnoredCount|recordIgnoredTotal|fetchIgnoredApps|fetchWishlist|isWishlisted|classifyRefusal|SessionStateService|ResourceService)\b/,
+    [/ILAP\.(getSessionID|apiIgnoreGame|apiUnignoreGame|apiCreatorIgnore|SteamAuth|OwnIgnorePosts|saveStats|saveJobHistory|saveCreatorHistory|bumpIgnoredCount|dropIgnoredCount|recordIgnoredTotal|fetchIgnoredApps|fetchWishlist|isWishlisted|classifyRefusal|SessionStateService|ResourceService)\b/,
         'src/utils.js'],
     [/ILAP\.(getGameName|resolveGameName)\b/, 'src/game-name.js'],
     [/ILAP\.UndoService\b/, 'src/undo-service.js'],
     [/ILAP_Filters\b/, 'src/curator/filters.js'],
-    [/Explore\.(Context|NavigationGuard|QueueSettings|RunLedger|Analyzer|DecisionEngine|COLORS|KEYS)\b/,
+    [/ILAP\.AiDisclosure\b/, 'src/ai-disclosure.js'],
+    [/Explore\.(Context|NavigationGuard|QueueSettings|RunLedger|Analyzer|DecisionEngine|AiVerdict|COLORS|KEYS)\b/,
         'src/explore-queue/utils.js'],
     [/Explore\.AutomatorClass\b/, 'src/explore-queue/automator.js'],
     [/Explore\.UI\b/, 'src/explore-queue/ui.js'],
@@ -68,8 +78,13 @@ const PROVIDERS = [
     [/ILAP_Icons\b/, 'ui/icons.js'],
     [/ILAP_PopupMarkup\b/, 'ui/popup_markup.js'],
     [/ILAP_Presets\b/, 'ui/popup_presets.js'],
+    [/ILAP_AiTab\b/, 'ui/popup_ai.js'],
     [/ILAP_Queue\b/, 'ui/popup_queue.js'],
+    [/ILAP_QueueRows\b/, 'ui/popup_queue_rows.js'],
     [/ILAP_Settings\b/, 'ui/popup_settings.js'],
+    [/ILAP\.PopupSelect\b/, 'ui/popup_settings.js'],
+    [/ILAP_Tabs\b/, 'ui/popup_tabs.js'],
+    [/ILAP_History\b/, 'ui/popup_history.js'],
     [/ILAP_Undo\b/, 'ui/popup_undo.js'],
     [/ILAP_Popup\b/, 'ui/popup_main.js'],
 ];
@@ -84,9 +99,13 @@ const LAZY_READS = [
     // defaultHasSession() answers `false` when SteamAuth is absent, and the
     // worker replaces the resolver outright via IgnoreGate.configure().
     ['src/gate.js', 'src/utils.js'],
-    // The tab-host block at the tail is wrapped in `if (window.ILAP.apiIgnoreGame)`;
-    // in the worker it never runs, because background.js builds its own drainer.
-    ['src/curator/drainer.js', 'src/utils.js'],
+    // The popup loads creators.js for the mirror and its pure helpers; the page
+    // reads in it (paceRead, fetchWithTimeout) run only in a store tab.
+    ['src/creators.js', 'src/gate.js'],
+    ['src/creators.js', 'src/steam-net.js'],
+    // readUserdata tells the gate of a 429 from inside the read, once every
+    // content script has loaded. The gate reads utils.js lazily too (above).
+    ['src/utils.js', 'src/gate.js'],
 ];
 const isLazy = (file, provider) => LAZY_READS.some(([f, p]) => f === file && p === provider);
 

@@ -10,13 +10,16 @@
         IGNORE_ICON: "M600,96c"
     };
 
-    // Steam's hashed class on the carousel container (SlideScanner._getCenterSlot).
+    // Steam's hashed class on the carousel container (SlideScanner._getCenterSlot),
+    // and what a hashed class looks like at all (_isButtonActive). Steam has used
+    // two hash formats: the older "_3q6eNRFBrPSFSGEn8uRFZ3" (leading underscore)
+    // and the current "E5dDz0rMQn4-" (trailing dash, sometimes both).
+    // Steam's plain names (Panel, Focusable, tool-tip-source) match neither.
     const HASHED = {
-        CAROUSEL: "._3q6eNRFBrPSFSGEn8uRFZ3"
+        CAROUSEL: ".E5dDz0rMQn4-",
+        CLASS_PATTERN: "^_|-$"
     };
-
-    // Steam's review palette (src/queue-common/steam-palette.js).
-    const PALETTE = window.ILAP && window.ILAP.SteamPalette;
+    const HASHED_CLASS = new RegExp(HASHED.CLASS_PATTERN);
 
     const TIMING = {
         LOOP_PAUSE_MS: 500,             // pause between slides in the processing loop
@@ -37,7 +40,7 @@
     const UNKNOWN_NAME = 'Unknown Game';
 
     class SlideScanner {
-        // A node qualifies as a queue slide only if it actually carries a game
+        // A node qualifies as a queue slide only if it actually has a game
         // link or the Ignore icon — used to validate whatever a selector returns,
         // so a class change can never hand back a non-slide (e.g. the Prev button).
         static _isSlide(el) {
@@ -155,7 +158,7 @@
                 b.getBoundingClientRect().left > a.getBoundingClientRect().left ? b : a);
         }
 
-        static getGameInfo(slide, nameExtractorAdapter) {
+        static getGameInfo(slide, nameExtractorAdapter, palette) {
             let name = null;
             
             const links = slide.querySelectorAll('a[href*="/app/"]');
@@ -191,7 +194,7 @@
                 
                 const checkColor = (el) => {
                     const color = getComputedStyle(el).color;
-                    return PALETTE.isBad(color);
+                    return palette.isBad(color);
                 };
 
                 if (checkColor(reviewLink) || Array.from(reviewLink.querySelectorAll('*')).some(c => checkColor(c))) {
@@ -225,6 +228,7 @@
         //   nameExtractor  { get(appid, el) → string }
         //   gate           { reserve() → Promise<{ ok }> }, the shared rate governor
         //   reward         { check() → a STATUS value, STATUS } (src/queue-common/sale-reward.js)
+        //   palette        { isBad(colour) } (src/queue-common/steam-palette.js)
         constructor(deps) {
             const need = (adapter, fn, what) => {
                 if (!adapter || typeof adapter[fn] !== 'function') {
@@ -242,11 +246,10 @@
             }
             // Without the palette no review reads as bad: Keep High Score would
             // silently ignore nothing, the 1.2.2 failure.
-            if (!PALETTE || typeof PALETTE.isBad !== 'function') {
-                throw new TypeError('[ILAP] DiscoveryQueueAutomator needs window.ILAP.SteamPalette');
-            }
+            need(deps.palette, 'isBad', 'palette');
 
             this.userdata = deps.userdata;
+            this.palette = deps.palette;
             this.stats = deps.stats;
             this.nameExtractor = deps.nameExtractor;
             this.gate = deps.gate;
@@ -339,7 +342,7 @@
                 return this._advanceViaContinue(dialog);
             }
 
-            const gameInfo = SlideScanner.getGameInfo(slide, this.nameExtractor);
+            const gameInfo = SlideScanner.getGameInfo(slide, this.nameExtractor, this.palette);
 
             // Keep High Score advances past POSITIVE games without ignoring.
             // Mixed/negative are NOT skipped — they fall through to the ignore path.
@@ -493,11 +496,11 @@
             const ariaPressed = element.getAttribute('aria-pressed');
             if (ariaPressed !== null) return ariaPressed === 'true';
             // In-DOM ignored signal (verified by live probe): an un-ignored
-            // button carries exactly ONE hashed (underscore) class; on ignore Steam
-            // adds a SECOND hashed class within ~400ms. So "≥2 hashed classes" is a
+            // button has exactly ONE hashed class; on ignore Steam adds a
+            // SECOND hashed class within ~400ms. So "≥2 hashed classes" is a
             // real, fast, language-independent confirmation — this is what makes the
             // primary _waitForActiveState succeed before we ever touch userdata.
-            const hashedClasses = Array.from(element.classList).filter(c => c.startsWith('_'));
+            const hashedClasses = Array.from(element.classList).filter(c => HASHED_CLASS.test(c));
             return hashedClasses.length >= 2;
         }
 

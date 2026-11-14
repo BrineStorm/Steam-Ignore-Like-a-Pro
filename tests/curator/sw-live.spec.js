@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { test, expect, chromium } = require('@playwright/test');
-const { AUTH_FILE } = require('../_fixtures.js');
+const { AUTH_FILE, CHROMIUM_MODE } = require('../_fixtures.js');
 const {
     setExtensionStorage,
     getExtensionStorage,
@@ -19,7 +19,7 @@ const { readUserdata, readSid, unignore, pollUserdata, ensureNotIgnored } = requ
 // every other suite loads dist/chromium-test, whose manifest swaps src/background.js
 // for an empty stub (build.js --test) so a seeded queue can't be drained out from
 // under a spec by a worker nobody asked for. The consequence is that the shipping
-// service worker — the one that carries the cross-origin credentialed POST, the
+// service worker — the one that sends the cross-origin credentialed POST, the
 // cached-sessionid handoff and the halt counter — was covered only by the Node
 // unit in tests/cross-cutting/background.unit.spec.js, where `fetch` is a stub.
 // Everything that can only break against real Chrome and real Steam (cookies on a
@@ -40,7 +40,9 @@ const PROD_EXT = path.join(__dirname, '..', '..', 'dist', 'chromium');
 // failed POSTs, so a worker that cannot reach Steam sets ilap_sw_halt instead of
 // failing quietly. Both are free, global Valve titles — no region lock (which
 // would be classified and skipped rather than ignored) and no age gate.
-const APPIDS = ['400', '620'];   // Portal, Portal 2
+// Half-Life, Left 4 Dead: global, and outside the test account's library and
+// wishlist, both of which the drainer skips (it owns Portal, Portal 2, Dota 2).
+const APPIDS = ['70', '500'];
 
 function curatorJob() {
     return {
@@ -60,7 +62,7 @@ function curatorJob() {
 async function launchProduction() {
     const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ilap-swlive-'));
     const context = await chromium.launchPersistentContext(userDataDir, {
-        headless: false,
+        ...CHROMIUM_MODE,
         viewport: { width: 1440, height: 810 },
         baseURL: 'https://store.steampowered.com',
         args: [

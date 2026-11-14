@@ -39,7 +39,7 @@ test.afterEach(async ({ context }) => {
 // zero-POST failure now means something new.
 //
 // CONSOLE ONLY, deliberately — nothing is written to disk. `test-results/` is
-// gitignored, but this dump carries account-shaped data (appids, the tab's
+// gitignored, but this dump contains account-shaped data (appids, the tab's
 // session map) and the working tree is cloud-synced, where .gitignore protects
 // nothing. Runs only after an assertion has already failed, so a green run pays
 // for none of it.
@@ -175,7 +175,7 @@ test.describe('Manual Ignore — container strategies across Steam surfaces', ()
             }
 
             // Not `.first()`: a match can be rendered and `:visible` and still be
-            // unpressable — a non-focused carousel page carries
+            // unpressable — a non-focused carousel page has
             // `pointer-events: none`, so its anchors keep a box but own no point of
             // it (see pressPoint in _helpers.js). Any capsule of this surface proves
             // the strategy, so take the first one a press would actually reach.
@@ -210,7 +210,7 @@ test.describe('Manual Ignore — container strategies across Steam surfaces', ()
             expect(calls[0].appid).toBe(appid);
             expect(calls[0].reason).toBe(0);
 
-            // The badge must carry the variant class of the strategy this
+            // The badge must have the variant class of the strategy this
             // surface resolves through AND be tied to the swiped appid. `:visible`
             // because one game can sit in several New & Trending tabs: every row
             // gets a badge, and the first in DOM order may be in a hidden tab.

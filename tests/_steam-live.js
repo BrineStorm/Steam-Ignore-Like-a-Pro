@@ -5,7 +5,7 @@
 // (page.evaluate), exactly like the extension's own requests. A standalone
 // `request.newContext({ storageState })` — and even the browser context's shared
 // `context.request` — reads dynamicstore ANONYMOUSLY, which would make every
-// userdata assertion pass vacuously; only a real page-context fetch carries the
+// userdata assertion pass vacuously; only a real page-context fetch sends the
 // live session. So each of these takes a `page` that is already on a store page.
 
 // { ids: string[], ownedCount } from live dynamicstore/userdata, or null.

@@ -1,3 +1,11 @@
+// The Discovery Queue panel in Steam's queue modal: it injects with its
+// button and Keep High Score box, Start runs the loop (the running class),
+// Stop goes back to idle, the box toggles, and the panel leaves with the
+// modal. One test ignores ~12 REAL games across a queue boundary (Continue),
+// which the run's teardown rolls back. The cross-tab cap: two seeded live
+// ilap_dq_active slots refuse Start ("max {n}"), nothing runs or is ignored,
+// and the button goes back to idle.
+
 const { test, expect } = require('../_fixtures.js');
 const { setExtensionStorage, getExtensionStorage } = require('../_extension.js');
 const { interceptIgnoreApi } = require('../curator/_helpers.js');
@@ -77,7 +85,7 @@ test.describe('Discovery Queue UI', () => {
         await expect(btn).toHaveClass(/running/, { timeout: 5000 });
         await expect(btn).toContainText(/stop/i);
 
-        // The running button label carries the processed (ignored) counter. Wait
+        // The running button label shows the processed (ignored) counter. Wait
         // until it reaches the target.
         const TARGET = 14;   // > the 12 a single served queue holds — forces one Continue
         await expect.poll(async () => {
@@ -126,7 +134,7 @@ test.describe('Discovery Queue UI', () => {
         // Refused look, never entered the running state, and nothing was ignored.
         await expect(btn).toHaveClass(/refused/, { timeout: 5000 });
         await expect(btn).not.toHaveClass(/running/);
-        await expect(btn).toContainText(/\d/); // localized "Max {n} …" carries the numeral
+        await expect(btn).toContainText(/\d/); // localized "Max {n} …" has the numeral
         expect(calls).toHaveLength(0);
 
         // The message auto-reverts to the idle Start button.

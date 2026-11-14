@@ -1,3 +1,6 @@
+// The default binding moved to Ctrl: a Ctrl+Click ignores and a right swipe
+// no longer does. Two click shortcuts side by side keep their own reasons.
+
 const { test, expect } = require('../_fixtures.js');
 const {
     SEL,

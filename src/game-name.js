@@ -176,7 +176,7 @@
     window.ILAP.getGameName = (appid, el) => extractorProvider.find(appid, el) || placeholder(appid);
     // Async flavour: the DOM strategies first, synchronously, before the caller
     // mutates the container; appdetails only when they all miss (a bare
-    // <a><img></a> capsule carries no name at all).
+    // <a><img></a> capsule has no name at all).
     window.ILAP.resolveGameName = async (appid, el) => {
         const name = extractorProvider.find(appid, el);
         if (name) return name;

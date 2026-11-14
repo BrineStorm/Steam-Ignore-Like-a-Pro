@@ -25,7 +25,7 @@ function loadAuth(opts) {
     let clock = 1_700_000_000_000;
     const calls = [];
     // A /account/ response in the shape probeLogin reads: `ok` plus the final
-    // `url`, which is what carries the login redirect.
+    // `url`, which is what shows the login redirect.
     const respond = () => {
         const verdict = o.verdict();       // true | false | null (null = the fetch itself fails)
         if (verdict === null) return Promise.reject(new Error('offline'));

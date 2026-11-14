@@ -13,8 +13,8 @@ const {
 async function openPopupAndExpandSettings(page, context, expand = 'mi') {
     const extId = await getExtensionId(context);
     await page.goto(popupUrl(extId));
-    await page.locator('#settings-accordion > summary').click();
-    // Settings render lazily on accordion toggle; give it a tick.
+    await page.locator('#tab-settings').click();
+    // Settings render lazily as the tab opens; give it a tick.
     await page.locator('#dq-section summary').waitFor({ timeout: 5000 });
     // Click the title (not the DQ master switch, which stops propagation).
     await page.locator(`#${expand}-section summary .section-title`).click();
@@ -32,7 +32,7 @@ test.afterEach(async ({ context }) => {
     await clearExtensionStorage(context);
 });
 
-test.describe('Popup — settings accordion', () => {
+test.describe('Popup — settings tab', () => {
 
     test('Queue master toggle: defaults ON, click writes ilap_q_master=false', async ({ page, context }) => {
         await openPopupAndExpandSettings(page, context, 'dq');
@@ -176,11 +176,10 @@ test.describe('Popup — settings accordion', () => {
         await setExtensionStorage(context, { ilap_master_enabled: false });
         // Not openPopupAndExpandSettings: every feature subcategory IS inert while
         // the extension is off, so the helper's expand step cannot run. Only the
-        // accordion's own summary stays clickable — that is what makes the picker
-        // reachable at all.
+        // tab line stays live — that is what makes the picker reachable at all.
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
-        await page.locator('#settings-accordion > summary').click();
+        await page.locator('#tab-settings').click();
         // The real input is visually hidden — the .wide-track is the control.
         await page.locator('#surface-toggle ~ .wide-track').waitFor({ timeout: 5000 });
 
@@ -198,16 +197,16 @@ test.describe('Popup — settings accordion', () => {
         await setExtensionStorage(context, { ilap_master_enabled: false });
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
-        await page.locator('#settings-accordion > summary').click();
+        await page.locator('#tab-settings').click();
         await page.locator('#dq-section').waitFor({ timeout: 5000 });
 
         await expect(page.locator('#total-row')).toHaveJSProperty('inert', true);
         await expect(page.locator('#dq-section')).toHaveJSProperty('inert', true);
         await expect(page.locator('#mi-section')).toHaveJSProperty('inert', true);
-        // The survivors: the surface row and both accordions.
+        // The survivors: the surface row, the tab line and its panel.
         await expect(page.locator('#surface-row')).toHaveJSProperty('inert', false);
-        await expect(page.locator('#settings-accordion')).toHaveJSProperty('inert', false);
-        await expect(page.locator('#queue-accordion')).toHaveJSProperty('inert', false);
+        await expect(page.locator('#tabline')).toHaveJSProperty('inert', false);
+        await expect(page.locator('#tab-panel')).toHaveJSProperty('inert', false);
 
         // An inert control cannot take focus, so the keyboard cannot flip it.
         await page.locator('#q-master').evaluate(el => el.focus());
@@ -221,27 +220,35 @@ test.describe('Popup — settings accordion', () => {
         await expect(page.locator('#q-master')).toBeFocused();
     });
 
-    test('Master OFF: the language chip still switches the language', async ({ page, context }) => {
-        // The second control that outlives a disabled extension, and it is one by
-        // CONSEQUENCE rather than by design: the chip rides in the settings
-        // accordion's <summary>, which must stay clickable or the surface picker
-        // above becomes unreachable — so the summary is greyed but never gets
-        // pointer-events: none, and the chip inside it keeps working. Deliberate
-        // (the panel has to stay readable in the user's own language whatever the
-        // toggle says), and asserted here so nobody "fixes" the grey-but-live look.
+    test('Master OFF: the language tab still switches the language', async ({ page, context }) => {
+        // The panel has to stay readable in the user's own language whatever the
+        // toggle says, so the language tab outlives a disabled extension.
         await setExtensionStorage(context, { ilap_master_enabled: false });
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
 
         await expect(page.locator('#ui-wrapper')).toHaveClass(/disabled/);
-        await expect(page.locator('#lang-quick-code')).toHaveText('EN');
+        await expect(page.locator('#lang-code')).toHaveText('EN');
+        await page.locator('#tab-lang').click();
+        await expect(page.locator('#lang-pane')).toHaveJSProperty('inert', false);
 
-        await page.locator('#lang-quick').selectOption('ru');
+        await page.locator('.lang-opt[data-lang="ru"]').click();
 
         await expect.poll(async () =>
             (await getExtensionStorage(context, 'ilap_lang')).ilap_lang
         ).toBe('ru');
-        await expect(page.locator('#lang-quick-code')).toHaveText('RU');
+        await expect(page.locator('#lang-code')).toHaveText('RU');
+    });
+
+    test('The surface switch opens the settings under its "Interface:" caption', async ({ page, context }) => {
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        await page.locator('#tab-settings').click();
+        const caption = page.locator('#surface-row .surface-label');
+        await expect(caption).toHaveText('Interface:');
+        const cap = await caption.boundingBox();
+        const sw = await page.locator('#surface-row .wide-switch').boundingBox();
+        expect(cap.y + cap.height).toBeLessThanOrEqual(sw.y + 0.5);
     });
 
     test('Default and Already-Played selectors mutually exclude their chosen values', async ({ page, context }) => {
@@ -297,7 +304,7 @@ test.describe('Popup — settings accordion', () => {
         expect(await values('unignore-key')).toEqual(dflt);
     });
 
-    test('The un-ignore row carries no hover hint at all', async ({ page, context }) => {
+    test('The un-ignore row has no hover hint at all', async ({ page, context }) => {
         // It used to spell out the zigzag the circle label leaves out, as a
         // native title. The row is a label and a select now, with nothing that
         // pops up over them — the zigzag still fires the binding (the detector
@@ -358,49 +365,39 @@ test.describe('Popup — settings accordion', () => {
     });
 });
 
-test.describe('Popup — settings open-state persistence', () => {
+test.describe('Popup — settings tab open-state persistence', () => {
 
-    test('Accordion starts closed when no state is stored', async ({ page, context }) => {
+    test('The settings tab starts closed when no state is stored', async ({ page, context }) => {
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
 
-        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', false);
+        await expect(page.locator('#tab-settings')).toHaveAttribute('aria-selected', 'false');
+        await expect(page.locator('#settings-placeholder')).toBeHidden();
     });
 
-    test('Opening the accordion persists ilap_settings_open=true', async ({ page, context }) => {
+    test('Opening the settings tab persists ilap_popup_tab=settings, closing it persists none', async ({ page, context }) => {
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
 
-        await page.locator('#settings-accordion > summary').click();
+        await page.locator('#tab-settings').click();
         await page.locator('#dq-section summary').waitFor({ timeout: 5000 });
-
         await expect.poll(async () =>
-            (await getExtensionStorage(context, 'ilap_settings_open')).ilap_settings_open
-        ).toBe(true);
+            (await getExtensionStorage(context, 'ilap_popup_tab')).ilap_popup_tab
+        ).toBe('settings');
+
+        await page.locator('#tab-settings').click();
+        await expect.poll(async () =>
+            (await getExtensionStorage(context, 'ilap_popup_tab')).ilap_popup_tab
+        ).toBe('');
     });
 
-    test('Closing the accordion persists ilap_settings_open=false', async ({ page, context }) => {
-        await setExtensionStorage(context, { ilap_settings_open: true });
+    test('Stored open state reopens the settings tab (and renders settings) on next open', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_popup_tab: 'settings' });
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
 
-        // Restored open from storage.
-        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', true);
-
-        await page.locator('#settings-accordion > summary').click();
-
-        await expect.poll(async () =>
-            (await getExtensionStorage(context, 'ilap_settings_open')).ilap_settings_open
-        ).toBe(false);
-    });
-
-    test('Stored open state reopens the accordion (and renders settings) on next open', async ({ page, context }) => {
-        await setExtensionStorage(context, { ilap_settings_open: true });
-        const extId = await getExtensionId(context);
-        await page.goto(popupUrl(extId));
-
-        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', true);
-        // Settings panel was initialised eagerly (not only on a toggle click):
+        await expect(page.locator('#tab-settings')).toHaveAttribute('aria-selected', 'true');
+        // Settings panel was initialised eagerly (not only on a tab click):
         // the subcategory summaries are present even while collapsed.
         await expect(page.locator('#dq-section summary')).toBeVisible();
     });
@@ -411,7 +408,7 @@ test.describe('Popup — settings subcategory persistence', () => {
     async function openSettings(page, context) {
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
-        await page.locator('#settings-accordion > summary').click();
+        await page.locator('#tab-settings').click();
         await page.locator('#dq-section summary').waitFor({ timeout: 5000 });
     }
 
@@ -436,14 +433,14 @@ test.describe('Popup — settings subcategory persistence', () => {
 
     test('Stored subcategory state restores each area independently (MI open, DQ closed)', async ({ page, context }) => {
         await setExtensionStorage(context, {
-            ilap_settings_open: true,
+            ilap_popup_tab: 'settings',
             ilap_mi_open: true,
             ilap_dq_open: false,
         });
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
 
-        await expect(page.locator('#settings-accordion')).toHaveJSProperty('open', true);
+        await expect(page.locator('#tab-settings')).toHaveAttribute('aria-selected', 'true');
         await expect(page.locator('#mi-section')).toHaveJSProperty('open', true);
         await expect(page.locator('#dq-section')).toHaveJSProperty('open', false);
         await expect(page.locator('#default-key')).toBeVisible();
@@ -451,7 +448,7 @@ test.describe('Popup — settings subcategory persistence', () => {
 
     test('Subcategories are mutually exclusive: opening one collapses the other', async ({ page, context }) => {
         // Start with Manual Ignore expanded.
-        await setExtensionStorage(context, { ilap_settings_open: true, ilap_mi_open: true });
+        await setExtensionStorage(context, { ilap_popup_tab: 'settings', ilap_mi_open: true });
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
         await expect(page.locator('#mi-section')).toHaveJSProperty('open', true);
@@ -466,5 +463,39 @@ test.describe('Popup — settings subcategory persistence', () => {
         await expect.poll(async () =>
             (await getExtensionStorage(context, 'ilap_mi_open')).ilap_mi_open
         ).toBe(false);
+    });
+
+    test('Swapping subcategories moves both at once: the closing one shrinks with its rows shown, the panel never dips', async ({ page, context }) => {
+        await setExtensionStorage(context, { ilap_popup_tab: 'settings', ilap_dq_open: true });
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        await expect(page.locator('#dq-section')).toHaveJSProperty('open', true);
+        await expect(page.locator('#popup-root')).not.toHaveClass(/no-transition/);
+        await page.waitForTimeout(400);
+        // Every drawn frame for 0.6 s: the Discovery Queue box, the panel, and
+        // whether the closing box still draws its rows.
+        await page.evaluate(() => {
+            window.__swap = [];
+            const t0 = performance.now();
+            const f = () => {
+                const dq = document.getElementById('dq-section');
+                window.__swap.push({
+                    dq: dq.getBoundingClientRect().height,
+                    panel: document.getElementById('popup-root').getBoundingClientRect().height,
+                    rows: getComputedStyle(dq, '::details-content').contentVisibility,
+                });
+                if (performance.now() - t0 < 600) requestAnimationFrame(f);
+            };
+            requestAnimationFrame(f);
+        });
+        await page.locator('#mi-section summary .section-title').click();
+        await page.waitForTimeout(700);
+        const hs = await page.evaluate(() => window.__swap);
+        const start = hs[0], end = hs[hs.length - 1];
+        expect(start.dq - end.dq).toBeGreaterThan(20);
+        const shrinking = hs.filter(h => h.dq < start.dq - 1 && h.dq > end.dq + 1);
+        expect(shrinking.length).toBeGreaterThanOrEqual(4);
+        expect(shrinking.every(h => h.rows === 'visible')).toBe(true);
+        expect(Math.min(...hs.map(h => h.panel))).toBeGreaterThanOrEqual(Math.min(start.panel, end.panel) - 1);
     });
 });

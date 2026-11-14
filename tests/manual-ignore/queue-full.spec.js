@@ -38,7 +38,7 @@ function fullMiJob() {
 }
 
 // Its mirror at MIUNDO_MAX. No per-appid meta beyond the gesture stamp the
-// rollback entries carry, and appids that overlap nothing the page shows.
+// rollback entries have, and appids that overlap nothing the page shows.
 function fullMiUndoJob() {
     const appids = Array.from({ length: MI_MAX }, (_, i) => String(800000 + i));
     const meta = {};

@@ -19,14 +19,71 @@
         WRAPPER: `.game_capsule, .dailydeal_cap, .small_cap, .bundle_base_discount, [class*="ImpressionTrackedElement"], div[class*="StoreSaleWidget"], [class*="LibraryAssetExpandedDisplay"], .store_main_capsule, [class*="SaleSectionCtn"], .contenthubmaincarousel, .hero_capsule`
     };
 
+    // A container this many times wider than tall is a row with its cover at
+    // one end (coverOf).
+    const ROW_RATIO = 2.5;
+
+    // Where a game link's badge goes, first match wins: a list row, a capsule's
+    // art, a known wrapper, the art inside the link. A new surface is a new entry.
+    const CONTAINER_STRATEGIES = Object.freeze([
+        {
+            name: 'List Item',
+            match: (el) => el.closest(SELECTORS.LIST_ITEM),
+            resolve: (el) => ({ element: el.closest(SELECTORS.LIST_ITEM), type: 'list' })
+        },
+        {
+            name: 'Direct Image',
+            match: (el) => el.closest(SELECTORS.DIRECT_IMG),
+            resolve: (el) => {
+                const element = el.closest(SELECTORS.DIRECT_IMG);
+                const isHero = element.classList.contains('spotlight_img');
+                return { element, type: isHero ? 'hero' : 'grid' };
+            }
+        },
+        {
+            name: 'Generic Wrapper',
+            match: (el) => el.closest(SELECTORS.WRAPPER),
+            resolve: (el) => {
+                const wrapper = el.closest(SELECTORS.WRAPPER);
+                // .hero_capsule_img: the seasonal-sale hero capsule keeps its art as a
+                // SIBLING of an empty overlay anchor, so the ancestor-based strategies
+                // and the inside-the-link fallbacks all miss it.
+                let innerImage = wrapper.querySelector(`[class*="CapsuleImageCtn"], [class*="HeroCapsuleImageContainer"], .capsule_image, .main_capsule, .hero_capsule_img, img[class*="Capsule"]`);
+
+                if (!innerImage) {
+                    const link = el.tagName === 'A' ? el : wrapper.querySelector('a');
+                    if (link) {
+                        const rawImg = link.querySelector('img');
+                        if (rawImg && rawImg.clientWidth > 20) innerImage = rawImg;
+                    }
+                }
+
+                if (innerImage) {
+                    const isHero = wrapper.classList.contains('store_main_capsule') || wrapper.classList.contains('contenthubmaincarousel') || wrapper.classList.contains('hero_capsule');
+                    return { element: innerImage, type: isHero ? 'hero' : 'grid' };
+                }
+                return { element: wrapper, type: 'standard' };
+            }
+        },
+        {
+            name: 'Fallback',
+            match: (el) => el.querySelector('img, video'),
+            resolve: (el) => {
+                // A capsule LINK can be a tall multi-row card — cover art on
+                // top, then tag/price rows (e.g. a.sale_capsule wrapping
+                // .capsule_image_ctn + .capsule_row_ctn + .discount_block).
+                // The badge is anchored bottom:0 of its target, so pinning it
+                // to the whole link drops it on the price row; prefer the
+                // cover-art container when the link wraps one.
+                const art = el.querySelector('.capsule_image_ctn, [class*="CapsuleImageCtn"]');
+                return { element: art || el, type: 'grid' };
+            }
+        },
+    ]);
+
     class ContainerStrategyProvider {
-        constructor() {
-            this.strategies = [
-                this._strategyList(),
-                this._strategyDirectImage(),
-                this._strategyWrapper(),
-                this._strategyFallback()
-            ];
+        constructor(strategies = CONTAINER_STRATEGIES) {
+            this.strategies = strategies;
         }
 
         findContainer(linkElement) {
@@ -48,69 +105,25 @@
             return null;
         }
 
-        _strategyList() {
-            return {
-                name: 'List Item',
-                match: (el) => el.closest(SELECTORS.LIST_ITEM),
-                resolve: (el) => ({ element: el.closest(SELECTORS.LIST_ITEM), type: 'list' })
-            };
-        }
-
-        _strategyDirectImage() {
-            return {
-                name: 'Direct Image',
-                match: (el) => el.closest(SELECTORS.DIRECT_IMG),
-                resolve: (el) => {
-                    const element = el.closest(SELECTORS.DIRECT_IMG);
-                    const isHero = element.classList.contains('spotlight_img');
-                    return { element, type: isHero ? 'hero' : 'grid' };
-                }
-            };
-        }
-
-        _strategyWrapper() {
-            return {
-                name: 'Generic Wrapper',
-                match: (el) => el.closest(SELECTORS.WRAPPER),
-                resolve: (el) => {
-                    const wrapper = el.closest(SELECTORS.WRAPPER);
-                    // .hero_capsule_img: the seasonal-sale hero capsule keeps its art as a
-                    // SIBLING of an empty overlay anchor, so the ancestor-based strategies
-                    // and the inside-the-link fallbacks all miss it.
-                    let innerImage = wrapper.querySelector(`[class*="CapsuleImageCtn"], [class*="HeroCapsuleImageContainer"], .capsule_image, .main_capsule, .hero_capsule_img, img[class*="Capsule"]`);
-
-                    if (!innerImage) {
-                        const link = el.tagName === 'A' ? el : wrapper.querySelector('a');
-                        if (link) {
-                            const rawImg = link.querySelector('img');
-                            if (rawImg && rawImg.clientWidth > 20) innerImage = rawImg;
-                        }
-                    }
-
-                    if (innerImage) {
-                        const isHero = wrapper.classList.contains('store_main_capsule') || wrapper.classList.contains('contenthubmaincarousel') || wrapper.classList.contains('hero_capsule');
-                        return { element: innerImage, type: isHero ? 'hero' : 'grid' };
-                    }
-                    return { element: wrapper, type: 'standard' };
-                }
-            };
-        }
-
-        _strategyFallback() {
-            return {
-                name: 'Fallback',
-                match: (el) => el.querySelector('img, video'),
-                resolve: (el) => {
-                    // A capsule LINK can be a tall multi-row card — cover art on
-                    // top, then tag/price rows (e.g. a.sale_capsule wrapping
-                    // .capsule_image_ctn + .capsule_row_ctn + .discount_block).
-                    // The badge is anchored bottom:0 of its target, so pinning it
-                    // to the whole link drops it on the price row; prefer the
-                    // cover-art container when the link wraps one.
-                    const art = el.querySelector('.capsule_image_ctn, [class*="CapsuleImageCtn"]');
-                    return { element: art || el, type: 'grid' };
-                }
-            };
+        // The cover of a wide row (a search or bundle row, a home tab row),
+        // whose container is the whole row: an AI mark or a shot drawn on the
+        // row would land over its text and price. The element round the
+        // row's cover then, or `host` itself.
+        coverOf(host) {
+            const w = host.clientWidth, h = host.clientHeight;
+            if (!h || w < h * ROW_RATIO) return host;
+            let best = null, bestArea = 0;
+            for (const img of host.querySelectorAll('img')) {
+                // Steam's blank.gif spacer spans a .tab_item's whole row.
+                if ((img.getAttribute('src') || '').includes('blank.gif')) continue;
+                if (img.closest('.ilap-ignored-overlay')) continue;
+                const area = img.clientWidth * img.clientHeight;
+                if (area > bestArea) { best = img; bestArea = area; }
+            }
+            if (!best || best.clientWidth > w / 2) return host;
+            const box = best.parentElement;
+            if (!box || box === host || box.clientWidth > best.clientWidth * 1.25) return host;
+            return box;
         }
     }
 
@@ -188,6 +201,7 @@
     }
 
     window.ILAP.ManualIgnore.BADGE_CLASSES = BADGE_CLASSES;
+    window.ILAP.ManualIgnore.CONTAINER_STRATEGIES = CONTAINER_STRATEGIES;
     window.ILAP.ManualIgnore.ContainerStrategyProvider = ContainerStrategyProvider;
     window.ILAP.ManualIgnore.ContextScanner = ContextScanner;
 

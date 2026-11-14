@@ -6,9 +6,9 @@
 (function() {
     'use strict';
 
-    // Curator queue drainer. Runs in every store tab and, on Chromium, in the
-    // service worker (src/background.js); all of them share one lease/handoff
-    // protocol. With an empty queue it is idle after the boot read.
+    // Curator queue drainer. Runs in every store tab (curator/drainer-host.js) and,
+    // on Chromium, in the service worker (src/background.js); all of them share one
+    // lease/handoff protocol. With an empty queue it is idle after the boot read.
     //
     // Safety contract:
     //  - one POST at a time, each after a slot from the shared rate gate;
@@ -42,12 +42,16 @@
     // two userdata GETs (the swipe pass, then the resumed one), so at most two
     // per this long.
     const SWIPE_WAIT_MS = 30000;
+    // How often a long pass reads the account again. A built-in list runs for
+    // over an hour, and a game wishlisted meanwhile must still be spared.
+    const REREAD_MS = 10 * 60 * 1000;
 
-    // An MI entry carries its swipe's reason (0 Default, 2 Played Elsewhere).
+    // An MI entry keeps its swipe's reason (0 Default, 2 Played Elsewhere).
     const miReason = (meta) => (meta && Number.isFinite(meta.reason) ? meta.reason : REASON);
     // An MI entry that came from a bundle with no free job slot
-    // (Store.stageBundle): an automated ignore like a bundle job's.
-    const fromBundle = (meta) => !!(meta && meta.bundle);
+    // (Store.stageBundle) or from an AI game a page loaded while browsing
+    // (manual-ignore/ai-browse.js): an automated ignore like a bundle job's.
+    const automatedMi = (meta) => !!(meta && (meta.bundle || meta.auto));
 
     // What each job type does where the loop POSTs, lands or drops an entry.
     // Lease, cursor, gate and retries are shared. `entry` is _entryAt's;
@@ -56,22 +60,52 @@
     //   staleRead(d, entry, readAt)       the read may predate the change `satisfied`
     //                                     would undo, so it is not trusted for a dedupe
     //   onDeduped(d, entry)               what a dedupe skip records
-    //   superseded(d, entry)              a later user intent replaced it: skipped
-    //   landedReason(entry)               the game's reason once the POST lands, null = not ignored
+    //   superseded(d, entry, readAt)      a later user intent replaced it: skipped
+    //   landedReason(entry)               the game's reason once the POST lands, null = not ignored,
+    //                                     undefined = the entry is no game (a creator)
     //   post(d, entry)                    the POST for one entry
     //   onLanded(d, job, entry, prev)     Steam accepted it; runs before the cursor moves.
     //                                     `prev`: the reason before it, null = was not ignored
     //   droppedLogEntry(job, appid, meta) the log record of a drop, or null
-    //   onDropped(d, appid)               what the tabs are told about a drop
+    //   onDropped(d, appid, meta, why)    what a drop leaves: the tabs told, a mark kept.
+    //                                     `why` 'unavailable' or 'failed', as the log says
     //   onFinished(d, job)                the job ran to its end and was removed
     //   cancellable                       entries can be taken back before their POST
-    //   guardsWishlist(meta)              an automated ignore: a wishlisted game is
-    //                                     skipped and counted, and with no wishlist
-    //                                     read the pass stops before the entry
+    //   accountSkip(ignored, entry)       why the account's own lists leave this entry out:
+    //                                     'wishlisted' or 'owned' (skipped, counted),
+    //                                     'unread' (the pass stops before it), or null
+    //   readsUserdata                     the pass starts with a userdata read
+    //   needsRead                         with no read, or one that is empty on a dead
+    //                                     session, the pass stops: its dedupe is inverted,
+    //                                     so "not in the map" would skip every entry
+    //   freshCursor                       the cursor write reads the queue again after a
+    //                                     skip, in place of the step's snapshot
+    //   reconcile(d, entry, now, prev)    or null: what a gesture did to the entry while its
+    //                                     POST was out, `now` being its meta after the POST
+    //   needsApi                          the method of `api` a host must have to drain it
+
+    // An automated ignore never takes a game the user wishlisted or owns. A read
+    // with no wishlist or library cannot tell it safe, so it waits for the next pass.
+    // Owned games are already counted for the whole job (_countOwned).
+    const sparedByAccount = (ignored, e) => {
+        if (!ignored.wishlist || !ignored.owned) return 'unread';
+        if (ignored.wishlist.has(e.appid)) return 'wishlisted';
+        return ignored.owned.has(e.appid) ? 'owned' : null;
+    };
+    const noAccountSkip = () => null;
 
     // An ignore distrusts "on the list" for a game rolled back shortly before
     // the read: userdata lags a remove=1 as it lags an ignore.
     const ignoreReadIsStale = (d, e, readAt) => d._readPredatesUndo(e.appid, readAt);
+
+    // An automated ignore takes the game as it finds it, whatever its reason. A game
+    // ignored shortly before the read (or since) may not show in it yet, and the log
+    // is the word for it: a POST would replace the user's reason and count it twice.
+    const ignoredUnseen = (d, e, readAt) => d._readPredatesIgnore(e.appid, readAt);
+
+    // A rolled-back game is marked undone in the log, and a built-in list that
+    // ignored it is no longer all ignored, so the lists menu offers it again.
+    const markRolledBack = async (d, e) => d.marks.unmarkPresets(await d.log.markUndone(e.appid, e.entryTs));
 
     // Both rollbacks, the droplist undo and the solo un-ignore (gesture, badge
     // click): the game comes off the list.
@@ -80,18 +114,18 @@
         // "Not on the list" is not trusted for an ignore too fresh to show.
         staleRead: async (d, e) => Date.now() - (await d.log.lastIgnoredAt(e.appid)) < USERDATA_LAG_MS,
         // Marked undone, so a stale entry can't keep eating later undo budgets.
-        onDeduped: (d, e) => d.log.markUndone(e.appid, e.entryTs),
+        onDeduped: markRolledBack,
         // Re-ignored after the rollback was asked for: the later intent wins.
         superseded: (d, e) => d.log.wasReIgnoredAfter(e.appid, e.entryTs),
         landedReason: () => null,
         post: (d, e) => d.api.unignore(e.appid),
         async onLanded(d, job, e) {
-            await d.log.markUndone(e.appid, e.entryTs);
+            await markRolledBack(d, e);
             // Only on a landed POST: a dedupe skip rolled nothing back.
             await d.stats.dropCount();
             await d.store.signalUnignored(e.appid);
             // A bundle with this game in it is no longer all ignored.
-            await d.store.unmarkBundlesWith([e.appid]);
+            await d.marks.unmarkBundlesWith([e.appid]);
         },
         // A failed rollback stays undoable, so it leaves no skipped record.
         droppedLogEntry: () => null,
@@ -101,7 +135,11 @@
         },
         onFinished: (d, job) => d.stats.saveJob(job),
         cancellable: false,
-        guardsWishlist: () => false,
+        accountSkip: noAccountSkip,
+        readsUserdata: true,
+        needsRead: true,
+        freshCursor: true,
+        reconcile: null,
     };
 
     const CURATOR_POLICY = {
@@ -109,7 +147,7 @@
         satisfied: (ignored, e) => ignored.has(e.appid),
         staleRead: ignoreReadIsStale,
         onDeduped: async () => {},
-        superseded: async () => false,
+        superseded: ignoredUnseen,
         landedReason: () => REASON,
         post: (d, e) => d.api.ignore(e.appid, REASON),
         async onLanded(d, job, e) {
@@ -121,17 +159,21 @@
         // One entry in Last Ignored for the whole list (StatsLogic.jobEntry).
         onFinished: (d, job) => d.stats.saveJob(job),
         cancellable: false,
-        guardsWishlist: () => true,
+        accountSkip: sparedByAccount,
+        readsUserdata: true,
+        needsRead: false,
+        freshCursor: false,
+        reconcile: null,
     };
 
     // A bundle drains like a curator's list, with the reason of the gesture that
     // staged it (kept per app in `meta`, as the MI job keeps it).
-    // Run to its end, its capsules get the IGNORED badge (Store.markBundleDone).
+    // Run to its end, its capsules get the IGNORED badge (DoneMarks.markBundleDone).
     const BUNDLE_POLICY = Object.assign({}, CURATOR_POLICY, {
         landedReason: (e) => miReason(e.meta),
         post: (d, e) => d.api.ignore(e.appid, miReason(e.meta)),
         async onFinished(d, job) {
-            await d.store.markBundleDone(job);
+            await d.marks.markBundleDone(job);
             await d.stats.saveJob(job);
         },
     });
@@ -140,7 +182,7 @@
     // so the lists menu stops offering it until a release changes the list.
     const PRESET_POLICY = Object.assign({}, CURATOR_POLICY, {
         async onFinished(d, job) {
-            await d.store.markPresetDone(job);
+            await d.marks.markPresetDone(job);
             await d.stats.saveJob(job);
         },
     });
@@ -148,12 +190,13 @@
     const MI_POLICY = {
         // A swipe sets its reason: on the list with the other one, Steam takes
         // the same POST as a change of reason (verified live, both ways). A
-        // bundle's app takes any reason, as a bundle job does.
-        satisfied: (ignored, e) => (fromBundle(e.meta)
+        // bundle's app or a game shot while browsing takes any reason, as a
+        // bundle job does.
+        satisfied: (ignored, e) => (automatedMi(e.meta)
             ? ignored.has(e.appid) : ignored.get(e.appid) === miReason(e.meta)),
         staleRead: ignoreReadIsStale,
         onDeduped: async () => {},
-        superseded: async () => false,
+        superseded: async (d, e, readAt) => automatedMi(e.meta) && ignoredUnseen(d, e, readAt),
         landedReason: (e) => miReason(e.meta),
         post: (d, e) => d.api.ignore(e.appid, miReason(e.meta)),
         // Counted and logged only now that the POST landed. A change of reason
@@ -170,18 +213,79 @@
                 return;
             }
             await d.stats.save(name, miReason(e.meta), e.appid);
-            await d.log.append({ appid: e.appid, name, source: 'mi' });
+            // The game page's frame says which list or shot ignored it
+            // (manual-ignore/list-frame.js). A bundle's app keeps the bundle's id.
+            const meta = e.meta || {};
+            await d.log.append({ appid: e.appid, name, source: 'mi', auto: meta.auto,
+                curatorId: typeof meta.bundle === 'string' ? meta.bundle : undefined });
         },
         droppedLogEntry: (job, appid, meta) => ({ appid, name: meta ? meta.name : '', source: 'mi' }),
-        // The swipe's optimistic badge now lies: drop it, and say why.
-        async onDropped(d, appid) {
+        // The swipe's optimistic badge now lies: drop it, and say why. A game
+        // shot while browsing is remembered as refused here, in whichever host
+        // drains (the SW has no tab), so no page shoots it again for a while.
+        async onDropped(d, appid, meta, why) {
+            if (meta && meta.auto) await d.marks.markAiRefused(appid, why);
             await d.store.signalUnignored(appid, 'failed');
         },
         onFinished: async () => {},
         cancellable: true,
         // A swipe points at one game on purpose, wishlisted or not. A bundle's
-        // app that overflowed into this job is an automated ignore.
-        guardsWishlist: fromBundle,
+        // app that overflowed into this job and a game shot while browsing
+        // are automated ignores.
+        accountSkip: (ignored, e) => (automatedMi(e.meta) ? sparedByAccount(ignored, e) : null),
+        readsUserdata: true,
+        needsRead: false,
+        freshCursor: true,
+        // Taken back: a real rollback, except where the POST only changed a
+        // reason, which nothing rolls back. Given the other reason: it goes out
+        // too, and Steam takes the repeat as a change.
+        async reconcile(d, e, now, prev) {
+            if (now.cancelled) {
+                if (prev === null) await d.store.enqueueMiUndo({ appid: e.appid });
+            } else if (miReason(now) !== miReason(e.meta)) {
+                await d.store.enqueueMi({ appid: e.appid, name: now.name, reason: miReason(now), ts: now.ts });
+            }
+        },
+    };
+
+    // Steam's own creator ignore. An entry is a clan id in `appids`, its meta
+    // { name, ignore, ts }. Always sent: Steam takes a repeat as a no-op, and a
+    // read could not tell a creator ignored a moment ago anyway. Drained only by
+    // a store tab (the host that has `api.creator`).
+    const CREATOR_POLICY = {
+        satisfied: () => false,
+        staleRead: async () => false,
+        onDeduped: async () => {},
+        superseded: async () => false,
+        landedReason: () => undefined,
+        post: (d, e) => d.api.creator(e.appid, !!(e.meta && e.meta.ignore)),
+        async onLanded(d, job, e) {
+            const name = (e.meta && e.meta.name) || '';
+            const ignore = !!(e.meta && e.meta.ignore);
+            await d.creators.note(e.appid, name, ignore);
+            await d.log.append({ creator: e.appid, name, ignore, source: 'creator' });
+            await d.stats.saveCreator(name, e.appid, ignore);
+        },
+        droppedLogEntry: () => null,
+        // The link's grey comes from the mirror and the job, so it corrects
+        // itself; the user is told why.
+        async onDropped(d) {
+            await d.creators.signalFailed();
+        },
+        onFinished: async () => {},
+        cancellable: false,
+        accountSkip: noAccountSkip,
+        // Nothing in the read is a clan id: no GET for a creator pass.
+        readsUserdata: false,
+        needsRead: false,
+        freshCursor: true,
+        // Turned the other way while the POST was out: the last gesture goes out too.
+        async reconcile(d, e, now) {
+            if (!!now.ignore !== !!(e.meta && e.meta.ignore)) {
+                await d.store.enqueueCreator({ clanid: e.appid, name: now.name, ignore: !!now.ignore });
+            }
+        },
+        needsApi: 'creator',
     };
 
     // What a POST's result means for the entry (_handleResult): LANDED or DROPPED
@@ -196,12 +300,13 @@
         [T.MI]: MI_POLICY,
         [T.UNDO]: UNDO_POLICY,
         [T.MIUNDO]: UNDO_POLICY,
+        [T.CREATOR]: CREATOR_POLICY,
     });
 
-    // Meant to run and carries a list. 'paused' is user intent, 'enumerating' a
+    // Meant to run and has a list. 'paused' is user intent, 'enumerating' a
     // new job whose list is still being read; 'running' is a legacy stored value.
     const liveStatus = (j) => j.status === 'running' || j.status === 'pending';
-    const runnable = (j) => liveStatus(j) && Array.isArray(j.appids);
+    const runnable = (store, j) => liveStatus(j) && store.hasList(j);
 
     const isFn = (f) => typeof f === 'function';
     const hasFns = (obj, names) => !!obj && names.every(n => isFn(obj[n]));
@@ -215,21 +320,31 @@
         need(isFn(deps.probeLogin), 'probeLogin');
         need(!!deps.ownerId, 'ownerId');
         need(!!deps.store, 'store');
+        need(hasFns(deps.marks, ['markPresetDone', 'unmarkPresets', 'markBundleDone', 'unmarkBundlesWith', 'markAiRefused']), 'marks');
         need(hasFns(deps.lease, ['acquireLock', 'renewLock', 'holdsLock', 'releaseLock']), 'lease');
         need(hasFns(deps.api, ['ignore', 'unignore']), 'api');
-        need(hasFns(deps.gate, ['reserve', 'reportRateLimited', 'stopped', 'lastSlotAt']), 'gate');
+        need(hasFns(deps.gate, ['reserve', 'reportRateLimited', 'stopped', 'lastSlotAt', 'quietUntil']), 'gate');
         need(isFn(deps.fetchUserdata), 'fetchUserdata');
         need(hasFns(deps.log, ['append', 'markUndone', 'lastIgnoredAt', 'lastUndoneAt', 'wasReIgnoredAfter']), 'log');
         need(hasFns(deps.stats, ['save', 'saveHistory', 'saveJob', 'bumpCount', 'dropCount', 'recordTotal']), 'stats');
+        // A host that drains creator jobs needs where their results go.
+        if (deps.api.creator) {
+            need(isFn(deps.api.creator), 'api.creator');
+            need(hasFns(deps.creators, ['note', 'signalFailed']), 'creators');
+            need(isFn(deps.stats.saveCreator), 'stats.saveCreator');
+        }
     }
 
     class CuratorQueueDrainer {
         constructor(deps) {
             checkDeps(deps);
             this.store = deps.store;
+            this.marks = deps.marks;                   // DoneMarks: what a finished job leaves behind
             this.lease = deps.lease;
-            this.api = deps.api;                       // { ignore(appid, reason), unignore(appid) }
-            this.gate = deps.gate;                     // { reserve(), reportRateLimited(ms), stopped(), lastSlotAt() }
+            // { ignore(appid, reason), unignore(appid), creator?(clanid, ignore) }
+            this.api = deps.api;
+            this.creators = deps.creators || null;     // the creator mirror (src/creators.js), with api.creator
+            this.gate = deps.gate;                     // { reserve(), reportRateLimited(ms), stopped(), lastSlotAt(), quietUntil() }
             // Called, not captured: checkDeps only asks that `stopped` IS a
             // function, so a host handing over an object's method (rather than
             // the arrow both hosts pass today) would lose its receiver and throw
@@ -257,13 +372,15 @@
             this._timer = null;
             // -Infinity so a fake clock at 0 isn't read as "a pass just ran".
             this._lastWorkAt = -Infinity;
+            // No pass before this, whoever kicks: a read failed just now (_readFailed).
+            this._notBefore = 0;
             this._rekickTimer = null;
             // In memory: a re-login always comes with a fresh page and drainer.
             this._parkedUntil = 0;
         }
 
         // The host decides what wakes a pass: its storage listener calls this
-        // (the tab host below, background.js). The standby interval is armed by
+        // (drainer-host.js, background.js). The standby interval is armed by
         // drain() only while a job exists.
         kick() { this.drain().catch(() => {}); }
 
@@ -287,16 +404,21 @@
             }
         }
 
-        // Gesture jobs first: they are live user actions. Of the two, the rollback
+        // A solo un-ignore: a gesture that rolls back.
+        _isRollbackGesture(job) {
+            const traits = this.store.jobTraits(job);
+            return !!traits && traits.gesture && traits.undo;
+        }
+
+        // Gesture jobs first: they are live user actions. Of them, a rollback
         // first: it is the later intent, and it is the one whose wait shows (a
         // dimmed badge). A pass runs its job to the end, so `_preemptedBy` is what
         // makes this priority reach a gesture made mid-drain.
         async _pickJob(queue) {
             const ready = [];
             for (const j of queue) if (await this._drainable(j)) ready.push(j);
-            const { JOB_TYPE, jobType, jobTraits } = this.store;
-            return ready.find(j => jobType(j) === JOB_TYPE.MIUNDO)
-                || ready.find(j => jobTraits(j).gesture)
+            return ready.find(j => this._isRollbackGesture(j))
+                || ready.find(j => this.store.jobTraits(j).gesture)
                 || ready[0] || null;
         }
 
@@ -307,10 +429,13 @@
             return keyCursor != null ? keyCursor : (job.cursor || 0);
         }
 
-        // Meant to run, of a known type, and something left to do.
+        // Meant to run, of a known type this host can send, and something left
+        // to do. A job whose POST this host lacks waits for one that has it.
         async _drainable(job) {
-            return !!this.store.jobTraits(job) && runnable(job)
-                && (await this._cursorOf(job)) < job.appids.length;
+            const policy = this._policyOf(job);
+            if (!policy || (policy.needsApi && !this.api[policy.needsApi])) return false;
+            return runnable(this.store, job)
+                && (await this._cursorOf(job)) < this.store.listLength(job);
         }
 
         // A gesture made mid-pass ends the pass, so the next one picks it; this
@@ -321,13 +446,17 @@
         // drainer free (Firefox with one store tab), a swipe would wait out the
         // whole pass, which the swiping itself slows to ACTIVE_GAP.
         async _preemptedBy(queue, job) {
-            const { JOB_TYPE, jobType, jobTraits } = this.store;
-            if (jobType(job) === JOB_TYPE.MIUNDO) return false;
-            const rollback = queue.find(j => jobType(j) === JOB_TYPE.MIUNDO);
+            const { jobTraits } = this.store;
+            if (this._isRollbackGesture(job)) return false;
+            const rollback = queue.find(j => this._isRollbackGesture(j));
             if (rollback && await this._drainable(rollback)) return true;
             if (jobTraits(job).gesture) return false;
-            const swipes = queue.find(j => jobType(j) === JOB_TYPE.MI);
-            return !!swipes && await this._waitedTooLong(swipes);
+            // Every other gesture waits the same way a swipe does.
+            for (const j of queue) {
+                const traits = jobTraits(j);
+                if (traits && traits.gesture && await this._waitedTooLong(j)) return true;
+            }
+            return false;
         }
 
         // Has the oldest undrained entry of this gesture job been queued for
@@ -361,10 +490,10 @@
         async _collectDrained(queue) {
             let removed = 0;
             for (const j of queue) {
-                if (!runnable(j) || !this.store.jobTraits(j)) continue;
+                if (!runnable(this.store, j) || !this.store.jobTraits(j)) continue;
                 const cursor = await this._cursorOf(j);
-                if (cursor < j.appids.length) continue;
-                if (await this.store.removeIfDrained(j.id, cursor)) {
+                if (cursor < this.store.listLength(j)) continue;
+                if (await this.store.removeIfDrained(j.id, cursor, j)) {
                     await this._policyOf(j).onFinished(this, j);
                     await this.store.signalCompleted();
                     removed += 1;
@@ -373,17 +502,14 @@
             return removed;
         }
 
-        // A cancel that landed while the POST was in flight was told it cancelled
-        // (the cursor had not moved yet), but the ignore did land. Checked after
-        // the cursor moved, so later cancels are refused; the correction is a real
-        // rollback with the gesture's own time. Not where the POST only
-        // changed a reason (`prev`): the game was on the list before the swipe,
-        // and nothing rolls a change of reason back.
-        async _compensateCancelled(job, appid, prev) {
-            if (prev !== null) return;
-            const after = (await this.store.getQueue()).find(j => j.id === job.id);
-            const meta = after && after.meta ? after.meta[appid] : null;
-            if (meta && meta.cancelled) await this.store.enqueueMiUndo({ appid });
+        // A gesture that landed while the POST was out rewrote this entry, since
+        // the cursor had not moved yet, and was told it took. Checked after the
+        // cursor moved, when a later gesture starts an entry of its own. A job
+        // made anew under its id has entries of its own, none of them this one.
+        async _reconcile(job, entry, prev) {
+            const after = (await this.store.getQueue()).find(j => this.store.sameJob(j, job));
+            const now = after && after.meta ? after.meta[entry.appid] : null;
+            if (now) await entry.policy.reconcile(this, entry, now, prev);
         }
 
         // Step over an entry that will never be performed. `why`: 'unavailable'
@@ -395,14 +521,15 @@
             if (why === 'unavailable') await this.store.bumpSkipped(cur.id);
             const entry = policy.droppedLogEntry(cur, appid, meta);
             if (entry) await this.log.append(Object.assign(entry, { skipped: why }));
-            await policy.onDropped(this, appid);
+            await policy.onDropped(this, appid, meta, why);
         }
 
         // Resolving does not mean a pass ran: not while one is running, while
         // parked, or inside MIN_PASS_GAP_MS (that kick returns through `rekick`).
         async drain() {
             if (this.draining || Date.now() < this._parkedUntil) return;
-            const wait = MIN_PASS_GAP_MS - (Date.now() - this._lastWorkAt);
+            const now = Date.now();
+            const wait = Math.max(MIN_PASS_GAP_MS - (now - this._lastWorkAt), this._notBefore - now);
             if (wait > 0) { this._armRekick(wait); return; }
             this.draining = true;
             try {
@@ -424,6 +551,13 @@
                     // userdata GET. Re-enabling the master kicks via onChanged;
                     // other stops are re-asked by the standby tick or SW alarm.
                     if (await this.stopped()) break;
+                    // Nothing could go out before this (a 429 penalty, a visible
+                    // source running): a pass now would only spend its userdata read.
+                    const quiet = await this.gate.quietUntil();
+                    if (quiet > Date.now()) {
+                        this._armRekick(quiet - Date.now());
+                        break;
+                    }
                     const got = await this.lease.acquireLock(job.curatorId, this.ownerId, job.id);
                     if (!got) break;   // another drainer owns this job → stay standby
                     this._lastWorkAt = Date.now();
@@ -433,7 +567,8 @@
                     } finally {
                         await this.lease.releaseLock(job.curatorId, this.ownerId);
                     }
-                    // Still drainable, so re-picking would busy-loop: wait for a kick.
+                    // Still drainable, so re-picking would busy-loop. The next try is
+                    // the standby tick, the worker's alarm, or a kick from elsewhere.
                     if (result === VERDICT.STOP) break;
                 }
             } finally {
@@ -441,14 +576,22 @@
             }
         }
 
-        // One entry of `cur` at `cursor`, with what the loop decides by.
-        _entryAt(cur, cursor) {
-            const appid = String(cur.appids[cursor]);
+        // The pass could not read the account, and the next one needs the same read:
+        // no sooner than a standby tick, whoever kicks. Another host's release is a
+        // kick, so hosts would otherwise take turns at MIN_PASS_GAP_MS.
+        _readFailed() {
+            this._notBefore = Date.now() + RETRY_TICK_MS;
+            return VERDICT.STOP;
+        }
+
+        // One entry of `cur` at `cursor` of its list `appids`, with what the loop
+        // decides by.
+        _entryAt(cur, appids, cursor) {
+            const appid = String(appids[cursor]);
             const meta = cur.meta ? cur.meta[appid] : null;
             return {
                 appid, meta,
                 policy: this._policyOf(cur),
-                isUndo: this.store.jobTraits(cur).undo,
                 // "Last user intent wins" boundary: the droplist undo job's static
                 // snapshot, or a solo gesture's own time.
                 entryTs: (meta && meta.ts) || cur.snapshotTs || 0,
@@ -467,14 +610,33 @@
                 await policy.onDeduped(this, entry);
                 return 'dedupe';
             }
-            if (await policy.superseded(this, entry)) return 'reignored';
-            if (policy.guardsWishlist(meta)) {
-                // A failed read, or one with no wishlist: the entry cannot be
-                // told safe, so it waits for the next pass.
-                if (!ignored.wishlist) return 'nowishlist';
-                if (ignored.wishlist.has(entry.appid)) return 'wishlisted';
+            if (await policy.superseded(this, entry, readAt)) return 'reignored';
+            return policy.accountSkip(ignored, entry);
+        }
+
+        // The count of owned games a curator, list or bundle job shows under its
+        // ⚠, from this pass's read: every game of the job in the user's library
+        // that is neither on the ignore list nor wishlisted, wherever the cursor
+        // is, so the number is there as soon as the job is. The games themselves
+        // are skipped when the cursor reaches them. `counted` (job id → list
+        // length) counts each job once per pass, and again once its list arrives
+        // or grows. A later pass counts anew with its own read. `listOf`: the
+        // pass's list reader (_drainJob).
+        async _countOwned(queue, ignored, counted, listOf) {
+            const { owned, wishlist } = ignored;
+            if (!owned || !wishlist) return;
+            for (const j of queue) {
+                const traits = this.store.jobTraits(j);
+                if (!traits || traits.undo || traits.gesture || !this.store.hasList(j)) continue;
+                const size = this.store.listLength(j);
+                if (counted.get(j.id) === size) continue;
+                const appids = await listOf(j);
+                if (!appids) continue;
+                counted.set(j.id, size);
+                const n = appids.map(String)
+                    .filter(a => owned.has(a) && !ignored.has(a) && !wishlist.has(a)).length;
+                await this.store.setOwned(j.id, n);
             }
-            return null;
         }
 
         // A read made at `readAt` may still list a game rolled back shortly
@@ -483,6 +645,13 @@
         async _readPredatesUndo(appid, readAt) {
             const undoneAt = await this.log.lastUndoneAt(appid);
             return undoneAt > 0 && undoneAt > readAt - USERDATA_LAG_MS;
+        }
+
+        // The same for an ignore: a read made at `readAt` may not list a game
+        // ignored shortly before it (or since). Older than that, a game the read
+        // does not list came off the list in Steam itself.
+        async _readPredatesIgnore(appid, readAt) {
+            return (await this.log.lastIgnoredAt(appid)) > readAt - USERDATA_LAG_MS;
         }
 
         // The game's reason before the entry's POST, null = not on the list, or
@@ -498,7 +667,7 @@
             if (res && res.ok) {
                 const next = policy.landedReason(entry);
                 if (next === null) ignored.delete(appid);
-                else ignored.set(appid, next);
+                else if (next !== undefined) ignored.set(appid, next);
                 await policy.onLanded(this, cur, entry, prev);
                 return VERDICT.LANDED;
             }
@@ -518,40 +687,88 @@
                 this._parkedUntil = Date.now() + DEAD_SESSION_PARK_MS;
                 return VERDICT.STOP;
             }
+            // Steam refused this one entry with a live session (a creator the
+            // user follows, the 100-creator limit): retrying would be refused too.
+            if (res && res.refused) {
+                await this._dropEntry(cur, appid, meta, 'failed');
+                return VERDICT.DROPPED;
+            }
             if (attempt < MAX_FAILS) return VERDICT.RETRY;
             await this._dropEntry(cur, appid, meta, 'failed');
             return VERDICT.DROPPED;
         }
 
-        async _drainJob(job) {
-            const isUndoJob = this.store.jobTraits(job).undo;
-            // A swipe job survives a failed userdata read (no dedupe, every POST
-            // fires). An undo job must not: its dedupe is inverted, so an empty set
-            // would skip the whole job with no requests. An automated ignore stops
-            // at its first entry that needs the wishlist (_skipReason).
-            const readAt = Date.now();
-            const userdata = await this.fetchUserdata().catch(() => null);
-            if (isUndoJob && !userdata) return VERDICT.STOP;
+        // The entry's POST, and the VERDICT its result comes to. Both can outlast the
+        // lease on their own (a 10 s fetch deadline, an appdetails read on a 400, a
+        // login probe, against LEASE_MS): renew on a timer meanwhile, or a standby
+        // drainer takes the lease and sends this same entry again. A renewal still
+        // in flight is awaited, so its write cannot land after the pass has released
+        // the lease and put it back.
+        async _send(job, cur, entry, ignored, attempt, prev) {
+            let renewing = Promise.resolve();
+            const beat = setInterval(() => {
+                renewing = this.lease.renewLock(job.curatorId, this.ownerId, job.id).catch(() => {});
+            }, HEARTBEAT_MS);
+            try {
+                const res = await entry.policy.post(this, entry);
+                return await this._handleResult(cur, entry, res, ignored, attempt, prev);
+            } finally {
+                clearInterval(beat);
+                await renewing;
+            }
+        }
+
+        // The read a pass opens with: the map, null with none to go by, or
+        // VERDICT.STOP. A swipe job survives a failed userdata read (no dedupe,
+        // every POST fires). A rollback must not (policy.needsRead). An automated
+        // ignore stops at its first entry that needs the wishlist and library
+        // (_skipReason).
+        async _openRead(policy, readAt) {
+            const userdata = policy.readsUserdata
+                ? await this.fetchUserdata().catch(() => null) : null;
+            if (policy.needsRead && !userdata) return this._readFailed();
             // A logged-out read is also an empty set: confirm the session first.
-            if (isUndoJob && userdata.size === 0
-                && (await this.probeLogin()) !== true) return VERDICT.STOP;
+            if (policy.needsRead && userdata.size === 0
+                && (await this.probeLogin()) !== true) return this._readFailed();
             // The read already made is Steam's own total, free: keep it for the
             // popup. An empty set is also what a signed-out read returns, so it
             // counts only where the session was just confirmed above. A read this
             // soon after a POST from any source may not show it while the counter
             // already does: the last snapshot plus the counter stays right then.
-            if (userdata && (userdata.size > 0 || isUndoJob)
+            if (userdata && (userdata.size > 0 || policy.needsRead)
                 && readAt - (await this.gate.lastSlotAt()) >= USERDATA_LAG_MS) {
                 await this.stats.recordTotal(userdata.size);
             }
-            const ignored = userdata || new Map();
+            return userdata;
+        }
+
+        async _drainJob(job) {
+            // A stored list never changes, so a pass reads each one once. A
+            // record's own list is read with the queue on every step: a gesture
+            // job grows while it drains.
+            const lists = new Map();
+            const listOf = async (j) => {
+                if (Array.isArray(j.appids)) return j.appids;
+                if (!lists.has(j.id)) lists.set(j.id, await this.store.getList(j));
+                return lists.get(j.id);
+            };
+            const jobPolicy = this._policyOf(job);
+            let readAt = Date.now();
+            const userdata = await this._openRead(jobPolicy, readAt);
+            if (userdata === VERDICT.STOP) return VERDICT.STOP;
+            let ignored = userdata || new Map();
+            let nextReadAt = readAt + REREAD_MS;
+            const counted = new Map();
             let lastBeat = Date.now();
             let fails = 0;
 
             while (true) {
                 const queue = await this.store.getQueue();
                 const cur = queue.find(j => j.id === job.id);
-                if (!cur || !liveStatus(cur)) return;
+                // Removed, or removed and made again under its reused id (the
+                // gesture jobs): the next pass picks the new one at its own cursor.
+                if (!this.store.sameJob(cur, job) || !liveStatus(cur)) return;
+                await this._countOwned(queue, ignored, counted, listOf);
                 if (await this._preemptedBy(queue, cur)) return;
                 if (!(await this.lease.holdsLock(job.curatorId, this.ownerId))) return;
 
@@ -562,21 +779,42 @@
                     lastBeat = Date.now();
                 }
 
+                // A long pass goes by what the account says now. A read that fails
+                // leaves the last good one in place, and is not asked again at once.
+                // So does an empty one where that would skip every entry left
+                // (policy.needsRead): no session is confirmed here, as at the start.
+                if (jobPolicy.readsUserdata && Date.now() >= nextReadAt) {
+                    const at = Date.now();
+                    nextReadAt = at + REREAD_MS;
+                    const again = await this.fetchUserdata().catch(() => null);
+                    if (again && (again.size > 0 || !jobPolicy.needsRead)) {
+                        ignored = again;
+                        readAt = at;
+                        counted.clear();   // the owned counts go by this read too
+                    }
+                }
+
                 const cursor = await this._cursorOf(cur);
-                if (cursor >= cur.appids.length) {
+                const appids = await listOf(cur);
+                // A list gone from under its record has nothing left to send.
+                if (!appids) {
+                    await this.store.removeJob(job.id);
+                    return;
+                }
+                if (cursor >= appids.length) {
                     // Kept if a gesture appended meanwhile: loop on and drain it.
-                    if (!(await this.store.removeIfDrained(job.id, cursor))) continue;
+                    if (!(await this.store.removeIfDrained(job.id, cursor, job))) continue;
                     await this._policyOf(cur).onFinished(this, cur);
                     await this.store.signalCompleted();
                     return;
                 }
 
-                const entry = this._entryAt(cur, cursor);
+                let entry = this._entryAt(cur, appids, cursor);
                 // `snapshot`: a queue read since which no network wait happened, so
                 // the cursor write need not read the queue again. After a POST it
                 // must: a remove can land during the request.
                 const advance = async (snapshot) => {
-                    await this.store.setCursor(job.id, cursor + 1, snapshot);
+                    await this.store.setCursor(job.id, cursor + 1, snapshot, job);
                     fails = 0;
                 };
 
@@ -584,28 +822,27 @@
                 // through them back to back.
                 const skip = await this._skipReason(entry, ignored, readAt);
                 // The cursor stays: the next pass reads userdata again.
-                if (skip === 'nowishlist') return VERDICT.STOP;
+                if (skip === 'unread') return this._readFailed();
                 if (skip) {
                     if (skip === 'wishlisted') await this.store.bumpWishlisted(cur.id);
                     // What the cursor write must not do is outlive its job. A
                     // Remove landing between the queue read and setCursor takes
                     // the job AND its cursor key; the stale snapshot still lists
                     // the job, so setCursor puts the key back. For a job whose id
-                    // is REUSED — the two gesture jobs, fixed at `job_mi` and
-                    // `job_mi_undo` — the next one of its kind then mounts already
+                    // is REUSED — the gesture jobs, `job_mi` and the others — one
+                    // of its kind made in between then mounts already
                     // past its own end: nothing is sent, and removeIfDrained
                     // clears it with none of removeJob's pulses, so the badge
                     // stays (or stays pale) with nothing said. Curator and
-                    // droplist-undo ids carry a Date.now(), so the same race there
+                    // droplist-undo ids include a Date.now(), so the same race there
                     // only leaks a key nobody reads.
                     //
-                    // So re-read for a gesture job, and for any undo pass: its
-                    // markUndone reads every log chunk and writes one back, which
-                    // is the widest window of the three. What keeps the snapshot
-                    // is the curator run — hundreds of dedupe skips back to back,
-                    // the case the snapshot was introduced for.
-                    const reusedId = this.store.jobTraits(cur).gesture;
-                    await advance(entry.isUndo || reusedId ? undefined : queue);
+                    // So a gesture job reads the queue again, and so does any undo
+                    // pass: its markUndone reads and writes the log between the queue
+                    // read and the cursor write (policy.freshCursor). What keeps the
+                    // snapshot is the curator run — hundreds of dedupe skips back to
+                    // back, the case the snapshot is there for.
+                    await advance(entry.policy.freshCursor ? undefined : queue);
                     continue;
                 }
 
@@ -615,101 +852,43 @@
                 const slot = await this.gate.reserve({ gesture: !!this.store.jobTraits(cur).gesture });
                 if (!slot.ok) return VERDICT.STOP;
 
-                // The wait can be long: re-check pause/remove, a cancel of this very
-                // entry, and the lease before the POST.
+                // The wait can be long: re-check pause/remove, a later intent and the
+                // lease before the POST, and go by the entry as a gesture left it (a
+                // cancel, another reason or direction).
                 const freshQueue = await this.store.getQueue();
                 const fresh = freshQueue.find(j => j.id === job.id);
-                if (!fresh || !liveStatus(fresh)) return;
-                if (entry.policy.cancellable && fresh.meta && fresh.meta[entry.appid]
-                    && fresh.meta[entry.appid].cancelled) {
+                if (!this.store.sameJob(fresh, job) || !liveStatus(fresh)) return;
+                entry = this._entryAt(fresh, appids, cursor);
+                if (entry.policy.cancellable && entry.meta && entry.meta.cancelled) {
                     await advance(freshQueue);
+                    continue;
+                }
+                // An ignore of the game that landed from another host during the
+                // wait wins over this rollback or automated ignore. The log was read
+                // since the queue snapshot, so the cursor write reads the queue
+                // again (see the skips).
+                if (await entry.policy.superseded(this, entry, readAt)) {
+                    await advance();
                     continue;
                 }
                 if (!(await this.lease.holdsLock(job.curatorId, this.ownerId))) return;
 
-                // The POST and its handling can outlast the lease on their own (a
-                // 10 s fetch deadline, an appdetails read on a 400, a login probe,
-                // against LEASE_MS): renew on a timer meanwhile, or a standby
-                // drainer takes the lease and sends this same entry again. A renewal
-                // still in flight is awaited, so its write cannot land after the
-                // pass has released the lease and put it back. `prev` is read
-                // before the timer starts: a throw between the two would leave it
-                // renewing the lease for good.
+                // `prev` is read before _send's timer starts: a throw between the two
+                // would leave it renewing the lease for good.
                 const prev = await this._prevReason(entry.appid, ignored, readAt);
-                let renewing = Promise.resolve();
-                const beat = setInterval(() => {
-                    renewing = this.lease.renewLock(job.curatorId, this.ownerId, job.id).catch(() => {});
-                }, HEARTBEAT_MS);
-                let verdict;
-                try {
-                    const res = await entry.policy.post(this, entry);
-                    verdict = await this._handleResult(cur, entry, res, ignored, fails + 1, prev);
-                } finally {
-                    clearInterval(beat);
-                    await renewing;
-                }
+                const verdict = await this._send(job, cur, entry, ignored, fails + 1, prev);
                 if (verdict === VERDICT.STOP) return VERDICT.STOP;
                 if (verdict === VERDICT.RETRY) {
                     fails += 1;
                     continue;
                 }
                 await advance();
-                if (verdict === VERDICT.LANDED && entry.policy.cancellable) {
-                    await this._compensateCancelled(job, entry.appid, prev);
+                if (verdict === VERDICT.LANDED && entry.policy.reconcile) {
+                    await this._reconcile(job, entry, prev);
                 }
             }
         }
     }
 
     window.ILAP.Curator.CuratorQueueDrainer = CuratorQueueDrainer;
-
-    // Tab host. The service worker builds its own drainer (src/background.js),
-    // where utils.js and its POST are absent.
-    if (window.ILAP.apiIgnoreGame) {
-        const I = window.ILAP;
-        const Store = I.Curator.Store;
-        // 400 classification wraps the POST here, not inside apiIgnoreGame: EQ and
-        // DQ share that function and neither retries nor skips a failed appid.
-        const drainer = new CuratorQueueDrainer({
-            ownerId: I.newOwnerId('d_'),
-            store: Store,
-            lease: I.Curator.Lease,
-            api: {
-                ignore: async (appid, reason) =>
-                    I.classifyRefusal(appid, await I.apiIgnoreGame(appid, reason)),
-                unignore: async (appid) =>
-                    I.classifyRefusal(appid, await I.apiUnignoreGame(appid))
-            },
-            gate: {
-                reserve: (opts) => I.IgnoreGate.reserve(opts),
-                reportRateLimited: (ms) => I.IgnoreGate.reportRateLimited(ms),
-                stopped: () => I.IgnoreGate.stopVerdict(),
-                lastSlotAt: () => I.IgnoreGate.lastSlotAt()
-            },
-            fetchUserdata: () => I.fetchIgnoredAppsStrict(),
-            probeLogin: () => I.SteamAuth.probeLogin(),
-            stats: {
-                save: (name, reason, appid) => I.saveStats(name, I.StatsLogic.miSourceLabel(reason), appid),
-                saveHistory: (name, reason, appid) => I.saveHistory(name, I.StatsLogic.miSourceLabel(reason), appid),
-                saveJob: (job) => I.saveJobHistory(job),
-                bumpCount: () => I.bumpIgnoredCount(),
-                dropCount: () => I.dropIgnoredCount(),
-                recordTotal: (size) => I.recordIgnoredTotal(size),
-            },
-            log: I.IgnoreLog.drainerHooks()
-        });
-        I.Curator.drainer = drainer;
-        chrome.storage.onChanged.addListener((changes, area) => {
-            if (area !== 'local') return;
-            const touched = changes[Store.QUEUE_KEY]
-                || changes[I.Settings.KEYS.MASTER]   // re-enabling the master resumes a gate-stopped drain
-                || Object.keys(changes).some(k => k.indexOf(I.Curator.Lease.LOCK_PREFIX) === 0);
-            if (touched) drainer.kick();
-        });
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => drainer.kick());
-        } else {
-            drainer.kick();
-        }
-    }
 })();

@@ -183,7 +183,7 @@ test.describe('on-page widget — surface mode', () => {
         await page.locator('.ilap-launcher').click();
         await expect(page.locator('.ilap-panel')).toHaveClass(/open/);
 
-        await page.locator('#settings-accordion > summary').click();
+        await page.locator('#tab-settings').click();
         const surface = page.locator('#surface-toggle');
         // The checkbox is a visually-collapsed segmented toggle; wait on its
         // visible .wide-track surface, then assert against the input itself.

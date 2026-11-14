@@ -14,7 +14,7 @@
 // "bridge tab" kept open per context. Because the bridge tab is never
 // interacted with, its widget stays passive and never writes storage.
 
-// A static store page carries the injected bridge content script without
+// A static store page gets the injected bridge content script without
 // touching search history or recommendations, and renders the same whether or
 // not the session is logged in. Drawn at random per context rather than fixed:
 // every Firefox test opens one of these, so a single URL would be hundreds of
@@ -89,7 +89,7 @@ function bridgeRequest(page, msg) {
 }
 
 // Firefox storage transport: a store page opened once per context and reused,
-// carrying the injected bridge content script. Created lazily AFTER the
+// with the injected bridge content script. Created lazily AFTER the
 // context's initial page exists, so it never becomes context.pages()[0] (the
 // `page` fixture takes index 0). Cookies are already injected by the fixture,
 // so the store page loads logged-in.

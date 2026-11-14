@@ -16,6 +16,8 @@ const fromLogic = (name) => LOGIC.match(new RegExp(`${name}:\\s*"([^"]+)"`))[1];
 const NEXT_ARROW = fromLogic('NEXT_ARROW');
 const IGNORE_ICON = fromLogic('IGNORE_ICON');
 const CAROUSEL = fromLogic('CAROUSEL');
+// What a hashed class looks like, in either of Steam's formats.
+const HASHED_CLASS = fromLogic('CLASS_PATTERN');
 // How long the automator waits for the Ignore button to show the ignore.
 const CONFIRM_PRIMARY_MS = Number(LOGIC.match(/CONFIRM_PRIMARY_MS:\s*(\d+)/)[1]);
 
@@ -71,7 +73,7 @@ const BANDS = ['Overwhelmingly Positive', 'Very Positive', 'Mostly Positive', 'P
     'Mixed', 'Overwhelmingly Negative', 'Very Negative', 'Mostly Negative', 'Negative'];
 
 // What the centre card says about itself: its rating IN WORDS, and the colour of
-// the element carrying those words. The product classifies on the colour alone,
+// the element with those words. The product classifies on the colour alone,
 // so reading both is the whole point — a guard that read the colour and called
 // it "Mixed" because the constant said so would be circular.
 const READ_CARD = ({ S, BB }) => {
@@ -95,7 +97,7 @@ const READ_CARD = ({ S, BB }) => {
 
     const words = rev.textContent.trim().replace(/\s+/g, ' ');
     const band = BB.find((b) => new RegExp(`\\b${b}\\b`, 'i').test(words)) || null;
-    // The node whose own text IS the band words carries the band colour; its
+    // The node whose own text IS the band words has the band colour; its
     // siblings hold the review count in a different shade.
     const node = band
         ? [rev, ...rev.querySelectorAll('*')].find((el) =>
@@ -155,6 +157,6 @@ const nextSlide = (page) => page.evaluate(({ S, D }) => {
 }, { S: SEL, D: NEXT_ARROW });
 
 module.exports = {
-    SEL, BANDS, NEXT_ARROW, IGNORE_ICON, CONFIRM_PRIMARY_MS,
+    SEL, BANDS, NEXT_ARROW, IGNORE_ICON, HASHED_CLASS, CONFIRM_PRIMARY_MS,
     openQueueModal, readCard, waitForCard, nextSlide,
 };

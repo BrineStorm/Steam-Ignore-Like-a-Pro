@@ -1,11 +1,11 @@
 {
   "extName": {
-    "message": "Steam Ignore Like A Pro — Ignoruj gry szybko"
+    "message": "Steam Ignore Like a Pro — Filtr AI i ignorowanie"
   },
   "extNameChrome": {
-    "message": "Steam Ignore Like A Pro — Ignoruj gry szybko i automatycznie"
+    "message": "Steam Ignore Like a Pro — Steam bez chłamu, filtr gier AI i masowy ignor"
   },
   "extDescription": {
-    "message": "Dodawaj gry do listy ignorowanych w Sklepie Steam jednym gestem myszy albo całymi listami według własnego wyboru lub kuratorów."
+    "message": "Filtruj gry AI, ignoruj dowolną grę jednym gestem myszy albo całe listy niechcianych gier naraz i wiele więcej."
   }
 }

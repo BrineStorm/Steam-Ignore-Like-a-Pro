@@ -275,6 +275,7 @@
                 nameExtractor: nameExtractorAdapter,
                 gate: gateAdapter,
                 reward: I.SaleReward,
+                palette: I.SteamPalette,
             }),
             ui: new I.Discovery.UI(new I.ResourceService()),
             registry: I.Discovery.Registry,

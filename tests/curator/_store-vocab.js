@@ -7,8 +7,8 @@ const { loadEscape } = require('../_escape.js');
 // The job-type vocabulary of src/curator/store.js, for the stub stores unit specs
 // hand to the drainer and the staging services. Those read it through the store
 // they are given (`store.JOB_TYPE`, `store.jobType`, `store.jobTraits`,
-// `store.cappedCount`); taking it from the REAL file keeps a stub from drifting
-// off the vocabulary it stands in for.
+// `store.cappedCount`, `store.listLength`, `store.hasList`, `store.sameJob`); taking
+// it from the REAL file keeps a stub from drifting off the vocabulary it stands in for.
 let cached = null;
 function storeVocab() {
     if (cached) return Object.assign({}, cached);
@@ -17,8 +17,8 @@ function storeVocab() {
     loadEscape(sandbox);
     vm.runInContext(fs.readFileSync(
         path.join(__dirname, '..', '..', 'src', 'curator', 'store.js'), 'utf8'), sandbox);
-    const { JOB_TYPE, jobType, jobTraits, cappedCount } = sandbox.window.ILAP.Curator.Store;
-    cached = { JOB_TYPE, jobType, jobTraits, cappedCount };
+    const { JOB_TYPE, jobType, jobTraits, cappedCount, listLength, hasList, sameJob } = sandbox.window.ILAP.Curator.Store;
+    cached = { JOB_TYPE, jobType, jobTraits, cappedCount, listLength, hasList, sameJob };
     return Object.assign({}, cached);
 }
 

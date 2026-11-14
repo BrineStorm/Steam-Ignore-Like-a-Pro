@@ -110,8 +110,6 @@ function loadController() {
         Date, Math, Promise, Object, Array, String, JSON,
     };
     vm.createContext(sandbox);
-    // logic.js reads the shared review palette at load time; same ordering note
-    // as automator.unit.spec.js.
     vm.runInContext(src('queue-common', 'steam-palette.js'), sandbox);
     loadSettingsSchema(sandbox);
     vm.runInContext(src('master-switch.js'), sandbox);   // the real get + onChanged pair
@@ -126,6 +124,7 @@ function loadController() {
             nameExtractor: { get: () => 'Unknown Game' },
             gate: { reserve: async () => ({ ok: true }) },
             reward: { check: async () => 'allowed', STATUS: { ALLOWED: 'allowed', PENDING: 'pending', UNKNOWN: 'unknown' } },
+            palette: ILAP.SteamPalette,
         }),
         ui: new FakeUI(),
         registry,

@@ -1,3 +1,12 @@
+// The toolbar popup's main panel: the master switch persists and dims the
+// UI, the count and the last game follow storage (Steam's own total in
+// #count-tip, in words before the first read), the history shows the latest
+// three, names are escaped, and the panel redraws on a storage change. A
+// write of drain keys alone (the gate slot, a job cursor, the total) repaints
+// the total and leaves the rest standing (a sentinel in #dynamic-hint). Reads
+// go by what a write feeds: none for keys no panel shows, the queue snapshot
+// for drain progress, a named read for a setting, never get(null).
+
 const { test, expect } = require('../_fixtures.js');
 const {
     getExtensionId,
@@ -6,6 +15,7 @@ const {
     clearExtensionStorage,
     popupUrl,
 } = require('../_extension.js');
+const { colours, gap } = require('../_pixels.js');
 
 test.beforeEach(async ({ context }) => {
     await clearExtensionStorage(context);
@@ -38,7 +48,7 @@ test.describe('Popup — main view', () => {
         await expect(page.locator('#ui-wrapper')).toHaveClass(/disabled/);
     });
 
-    test('Master toggle off: the header icon greys out, the language picker does not', async ({ page, context }) => {
+    test('Master toggle off: the header icon and the lists button grey out, the tabs do not', async ({ page, context }) => {
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
         await page.locator('#master-toggle + .slider').click();
@@ -49,24 +59,26 @@ test.describe('Popup — main view', () => {
                 const cs = getComputedStyle(document.querySelector(sel));
                 return { filter: cs.filter, opacity: cs.opacity };
             };
-            return {
-                icon: of('#ilap-header-icon'),
-                settingsLabel: of('#settings-accordion > summary > span'),
-                chip: of('.lang-chip'),
-            };
+            return { icon: of('#ilap-header-icon'), lists: of('#lists-btn'), ai: of('#tab-ai') };
         });
         // The icon shares the header with the master switch, which must stay lit.
         expect(styles.icon.filter).toContain('grayscale');
-        expect(styles.settingsLabel.filter).toContain('grayscale');
-        // The language picker is the one thing in that bar left untouched, so its
-        // droplist opens opaque instead of showing the page through itself.
-        expect(styles.chip.filter).toBe('none');
-        expect(styles.chip.opacity).toBe('1');
-
-        await page.locator('.lang-chip').click();
-        const menu = page.locator('.lang-chip .select-menu');
-        await expect(menu).toHaveClass(/open/);
-        expect(await menu.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+        // The lists only add jobs, so their button goes grey and dead.
+        expect(styles.lists.filter).toContain('grayscale');
+        await expect(page.locator('#lists-btn')).toHaveAttribute('aria-disabled', 'true');
+        // force: Playwright would wait forever on an aria-disabled button.
+        await page.locator('#lists-btn').click({ force: true });
+        await page.waitForTimeout(400);
+        await expect(page.locator('#lists-drawer')).not.toHaveClass(/open/);
+        // The tabs stay as they are, so the AI pane opens opaque instead
+        // of showing the page through itself.
+        expect(styles.ai.filter).toBe('none');
+        expect(styles.ai.opacity).toBe('1');
+        await page.locator('#tab-ai').click();
+        const pane = page.locator('#ai-tab-pane');
+        await expect(pane).toBeVisible();
+        // Once it has faded in.
+        await expect.poll(() => pane.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
     });
 
     test('the boot guard freezes the PSEUDO-elements too, not just their hosts', async ({ page, context }) => {
@@ -74,10 +86,13 @@ test.describe('Popup — main view', () => {
         // state — so .no-transition has to cover everything that moves. `*`
         // matches elements only: the switch knob (.slider:before) and the
         // accordion chevron (summary::after) are pseudo-elements, and without
-        // their own selector they slid/rotated into place on every open.
+        // their own selector they slid/rotated into place on every open. The
+        // settings tab restores open, so its subcategories' chevrons exist.
+        await setExtensionStorage(context, { ilap_popup_tab: 'settings' });
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
         await expect(page.locator('#popup-root')).not.toHaveClass(/no-transition/);
+        await page.locator('#mi-section > summary').waitFor();
 
         const frozen = await page.evaluate(() => {
             document.getElementById('popup-root').classList.add('no-transition');
@@ -85,7 +100,7 @@ test.describe('Popup — main view', () => {
                 getComputedStyle(document.querySelector(sel), pseudo).transitionDuration;
             return {
                 knob: dur('#master-toggle + .slider', '::before'),
-                chevron: dur('#settings-accordion > summary', '::after'),
+                chevron: dur('#mi-section > summary', '::after'),
             };
         });
         expect(frozen.knob).toBe('0s');
@@ -284,20 +299,122 @@ test.describe('Popup — main view', () => {
         expect(lines).toBe(2);
     });
 
-    test('The bars\' titles light up on hover, the gear turns and grows, the stack\'s bars drop in', async ({ page, context }) => {
+    test('The tabs light up on hover, the gear turns and grows, the stack\'s bars drop in', async ({ page, context }) => {
         const extId = await getExtensionId(context);
         await page.goto(popupUrl(extId));
-        const title = page.locator('#settings-accordion > summary .summary-title > span');
-        const colour = () => title.evaluate(el => getComputedStyle(el).color);
-        expect(await colour()).toBe('rgb(221, 226, 231)');
-        await page.locator('#settings-accordion > summary').hover();
+        const tab = page.locator('#tab-settings');
+        const colour = () => tab.evaluate(el => getComputedStyle(el).color);
+        expect(await colour()).toBe('rgb(143, 180, 214)');
+        await tab.hover();
         await expect.poll(colour).toBe('rgb(255, 255, 255)');
-        await expect.poll(() => page.locator('.gear-ico').evaluate(el => getComputedStyle(el).transform))
-            .toMatch(/^matrix\((0\.88|0\.884)/);
+        // rotate(45deg) scale(1.15): cos 45° × 1.15 ≈ 0.813.
+        await expect.poll(() => page.locator('#tab-settings .gear-ico').evaluate(el => getComputedStyle(el).transform))
+            .toMatch(/^matrix\(0\.81/);
 
-        await page.locator('#queue-accordion > summary .summary-title').hover();
-        const dropping = await page.locator('.queue-ico rect').evaluateAll(els => els.map(el => el.getAnimations().length));
-        expect(dropping).toEqual([1, 1, 1]);
+        await page.locator('#queue-btn').click();
+        await expect(page.locator('#queue-drawer')).not.toHaveClass(/sliding/);
+        await page.locator('.queue-title').hover();
+        // By the rule hover applies, not by the motions alive: under load the
+        // bottom bar's .36 s drop can be over before the read.
+        const dropping = await page.locator('.queue-ico rect').evaluateAll(els => els.map(el => getComputedStyle(el).animationName));
+        expect(dropping).toEqual(['ilap-queue-drop', 'ilap-queue-drop', 'ilap-queue-drop']);
+    });
+
+    test("the gesture card's left edge is red by Ignore and blue by Already played, blended only where the two lines meet", async ({ page, context }) => {
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        const card = page.locator('#dynamic-hint');
+        const RED = [255, 90, 95], BLUE = [60, 168, 252], CARD = [26, 41, 57];
+        // The default bindings show both lines, each label in its colour.
+        await expect(card.locator('.hint-line')).toHaveCount(2);
+        await expect(card.locator('.is-ignore .hint-label')).toHaveCSS('color', 'rgb(255, 90, 95)');
+        await expect(card.locator('.is-played .hint-label')).toHaveCSS('color', 'rgb(60, 168, 252)');
+
+        // Every pixel row down the middle of the card's 3px left edge, the
+        // top and bottom rows left out (the card's edge may cut them).
+        const edge = async () => {
+            const box = await card.boundingBox();
+            const ys = [];
+            for (let y = Math.ceil(box.y) + 1; y < Math.floor(box.y + box.height) - 1; y++) ys.push(y + 0.5);
+            const px = await colours(page, ys.map(y => [box.x + 1.5, y]).concat([[box.x + 4.5, ys[2]]]));
+            return { ys, px: px.slice(0, -1), inside: px[px.length - 1] };
+        };
+        const { ys, px, inside } = await edge();
+        const [first, second] = await card.locator('.hint-line').evaluateAll(els => els.map(e => e.getBoundingClientRect().toJSON()));
+        const mid = (first.bottom + second.top) / 2;
+        let blended = 0;
+        ys.forEach((y, i) => {
+            if (y < mid - 5) expect(gap(px[i], RED), `red at y ${y}`).toBeLessThanOrEqual(2);
+            else if (y > mid + 5) expect(gap(px[i], BLUE), `blue at y ${y}`).toBeLessThanOrEqual(2);
+            else {
+                // Red passing into blue: each channel between the two, so the
+                // blend never darkens toward the card.
+                for (let c = 0; c < 3; c++) {
+                    expect(px[i][c], `y ${y}`).toBeGreaterThanOrEqual(Math.min(RED[c], BLUE[c]) - 2);
+                    expect(px[i][c], `y ${y}`).toBeLessThanOrEqual(Math.max(RED[c], BLUE[c]) + 2);
+                }
+                if (gap(px[i], RED) > 10 && gap(px[i], BLUE) > 10) blended++;
+            }
+        });
+        // A short blend of a few rows, and no more: the rest is solid.
+        expect(blended).toBeGreaterThanOrEqual(4);
+        expect(blended).toBeLessThanOrEqual(9);
+        // The stripe is the edge's 3px, the card's own colour right of it.
+        expect(gap(inside, CARD)).toBeLessThanOrEqual(2);
+
+        // Already played off: one line, red from top to bottom.
+        await setExtensionStorage(context, { ilap_platform_key: 'off' });
+        await expect(card.locator('.hint-line')).toHaveCount(1);
+        const one = await edge();
+        one.ys.forEach((y, i) => expect(gap(one.px[i], RED), `red at y ${y}`).toBeLessThanOrEqual(2));
+    });
+
+    test('the Already played line leaves and comes back over 0.3 s, the card and the panel following', async ({ page, context }) => {
+        const extId = await getExtensionId(context);
+        await page.goto(popupUrl(extId));
+        await expect(page.locator('#popup-root')).not.toHaveClass(/no-transition/);
+        const card = page.locator('#dynamic-hint');
+        await expect(card.locator('.hint-line')).toHaveCount(2);
+        // Every drawn frame's card and panel height and line count, for 1.2 s.
+        const trace = async (write) => {
+            await page.evaluate(() => {
+                window.__hs = [];
+                const t0 = performance.now();
+                const f = () => {
+                    window.__hs.push({
+                        card: document.getElementById('dynamic-hint').getBoundingClientRect().height,
+                        panel: document.getElementById('popup-root').getBoundingClientRect().height,
+                        lines: document.querySelectorAll('#dynamic-hint .hint-line').length,
+                    });
+                    if (performance.now() - t0 < 1200) requestAnimationFrame(f);
+                };
+                requestAnimationFrame(f);
+            });
+            await setExtensionStorage(context, write);
+            await page.waitForTimeout(1400);
+            return page.evaluate(() => window.__hs);
+        };
+        const between = (hs, a, b, k) => hs.filter(h => h[k] > Math.min(a, b) + 1 && h[k] < Math.max(a, b) - 1);
+
+        // Off: the card and the panel shrink through several drawn heights, the
+        // leaving line still there while they do.
+        const off = await trace({ ilap_platform_key: 'off' });
+        const tall = off[0], short = off[off.length - 1];
+        expect(short.lines).toBe(1);
+        expect(tall.card - short.card).toBeGreaterThan(10);
+        const offMid = between(off, tall.card, short.card, 'card');
+        expect(offMid.length).toBeGreaterThanOrEqual(4);
+        expect(offMid.every(h => h.lines === 2)).toBe(true);
+        expect(between(off, tall.panel, short.panel, 'panel').length).toBeGreaterThanOrEqual(4);
+
+        // Back on: the same the other way, to the very height it had.
+        const on = await trace({ ilap_platform_key: 'swipeLeft' });
+        const back = on[on.length - 1];
+        expect(back.lines).toBe(2);
+        expect(between(on, short.card, back.card, 'card').length).toBeGreaterThanOrEqual(4);
+        expect(Math.abs(back.card - tall.card)).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(back.panel - tall.panel)).toBeLessThanOrEqual(0.5);
+        await expect(card).not.toHaveAttribute('style', /overflow/);
     });
 
     test('History entry escapes HTML in game names (XSS safety)', async ({ page, context }) => {
@@ -353,8 +470,11 @@ test.describe('Popup — main view', () => {
         });
         const reads = () => page.evaluate(() => window.__reads.splice(0));
 
-        // Keys no panel renders: the gate's stamps, the widget's own state, MI pulses.
+        // Keys no panel renders: the gate's stamps, the widget's own state, MI pulses,
+        // what a store page keeps for itself (a shot per game on the AI tab's High).
         await setExtensionStorage(context, {
+            ilap_ai_shot_count: 67,
+            ilap_ai_note_collapsed: true,
             ilap_ignore_gate: Date.now(),
             ilap_ignore_gate_penalty: { until: 0 },
             ilap_ignore_foreground_at: Date.now(),

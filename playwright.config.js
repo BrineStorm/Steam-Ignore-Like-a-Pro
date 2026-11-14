@@ -36,7 +36,9 @@ module.exports = defineConfig({
   reporter: [['list'], ['./tests/_progress-reporter.js']],
 
   use: {
-    // Extensions only work in headed mode (visible browser)
+    // Headed for the projects that launch through this config, the login setup
+    // above all. The Chromium extension runs go through tests/_fixtures.js,
+    // which launches them with no window (ILAP_HEADED=1 shows them).
     headless: false,
     
     // Take a screenshot if test fails
@@ -85,7 +87,7 @@ module.exports = defineConfig({
       // The canary is excluded here as well as by its own testMatch: it needs no
       // extension and no session, so running it inside the headed extension
       // project would only make it slower and flakier than it has to be.
-      testIgnore: /auth\.setup\.spec\.js|canary[\/]/,
+      testIgnore: /auth\.setup\.spec\.js|canary[\/]|slow-machine[\\/]/,
       // 75 s, over the 30 s default, because the heaviest Manual-Ignore specs
       // spend their budget in three sequential live waits, not one: a storefront
       // widget hydrating (15 s), the deferred swipe reaching its POST
@@ -106,6 +108,31 @@ module.exports = defineConfig({
             ],
         }
       },
+    },
+    {
+      // The popup specs that never open a Steam page (a11y answers its one
+      // store page from a route) and need no session, so a CI runner can run
+      // them after `node build.js --test`: the toolbar panel's AI tab,
+      // settings, built-in lists, languages and accessibility. Left out on
+      // purpose: motion, popup-height and tooltips measure frame timing and
+      // Windows font metrics, which a Linux runner does not have.
+      // `npm run test:ui-offline`.
+      name: 'ui-offline',
+      testMatch: /popup[\\/](ai-tab|settings|presets|language|a11y)\.spec\.js/,
+      timeout: 75 * 1000,
+      retries: 1,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      // The extension with the CPU slowed six times, functions checked and no
+      // time measured. Before a release, by hand: `npm run test:slow`. Generous
+      // limits, since waiting is the point, and no retries, since a test green
+      // only on its second try is what this suite looks for.
+      name: 'slow-machine',
+      testMatch: /slow-machine[\\/].*\.spec\.js/,
+      timeout: 240 * 1000,
+      expect: { timeout: 30 * 1000 },
+      use: { ...devices['Desktop Chrome'], navigationTimeout: 120 * 1000 },
     },
     {
       // Firefox runs the browser-driven suites that operate on store pages. The
@@ -150,6 +177,8 @@ module.exports = defineConfig({
         // The canary asserts Steam's markup, not our rendering of it — one
         // engine is enough, and it has its own project.
         /canary[\/]/,
+        // Slowed over CDP, which Firefox does not have.
+        /slow-machine[\\/]/,
         /\.unit\.spec\.js$/,
         /cross-cutting[\\/]/,
         /decision-matrix\.spec\.js/,

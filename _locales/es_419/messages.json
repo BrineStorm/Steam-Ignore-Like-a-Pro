@@ -1,11 +1,11 @@
 {
   "extName": {
-    "message": "Steam Ignore Like A Pro — Ignora juegos rápido"
+    "message": "Steam Ignore Like a Pro — Filtro de IA e ignorar"
   },
   "extNameChrome": {
-    "message": "Steam Ignore Like A Pro — Ignora juegos rápido y automáticamente"
+    "message": "Steam Ignore Like a Pro — Steam sin basura, filtro de IA e ignorar en masa"
   },
   "extDescription": {
-    "message": "Agrega juegos a tu lista de ignorados en la tienda de Steam con un gesto del mouse, o listas enteras a tu elección o de mentores."
+    "message": "Filtra los juegos hechos con IA, ignora cualquier juego con un gesto del mouse o listas enteras de juegos no deseados y mucho más."
   }
 }

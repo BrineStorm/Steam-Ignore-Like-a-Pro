@@ -13,26 +13,26 @@
     // first. One swipe too many on a game capsule must never ignore dozens of apps.
     const CONFIRM_MS = 8000;
 
-    // The store's anonymous item lookup: a bundle's or a package's apps with their
-    // names and the bundle's own name. No key or token, and it answers the store
-    // origin's CORS, so a content script can ask it like the sale-reward check.
-    const GET_ITEMS = 'https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=';
+    // The store page's own config (#application_config), or {}.
+    function pageConfig() {
+        try {
+            const el = document.getElementById('application_config');
+            return (el && JSON.parse(el.dataset.config)) || {};
+        } catch (e) {
+            return {};
+        }
+    }
 
     // The language Steam shows this page in, for the names it returns.
     function storeLanguage() {
-        const m = document.cookie.match(/(?:^|;\s*)Steam_Language=([a-z_]+)/);
-        return m ? m[1] : 'english';
+        const lang = pageConfig().LANGUAGE;
+        return typeof lang === 'string' && /^[a-z_]+$/.test(lang) ? lang : 'english';
     }
 
-    // The account's store country from the page config, US when it is not there.
+    // The account's store country, US when the page does not say.
     function storeCountry() {
-        try {
-            const el = document.getElementById('application_config');
-            const cfg = el && JSON.parse(el.dataset.config);
-            return cfg && /^[A-Z]{2}$/.test(cfg.COUNTRY) ? cfg.COUNTRY : 'US';
-        } catch (e) {
-            return 'US';
-        }
+        const cc = pageConfig().COUNTRY;
+        return typeof cc === 'string' && /^[A-Z]{2}$/.test(cc) ? cc : 'US';
     }
 
     // { name, apps: [{ appid, name }] } for `ref` ({ kind: 'bundle' | 'sub', id }),
@@ -40,30 +40,18 @@
     // stream like every read outside a drain pass.
     async function fetchBundle(ref) {
         const idKey = ref.kind === 'bundle' ? 'bundleid' : 'packageid';
-        const input = {
-            ids: [{ [idKey]: Number(ref.id) }],
-            context: { language: storeLanguage(), country_code: storeCountry() },
-            data_request: { include_included_items: true },
-        };
         await window.ILAP.IgnoreGate.paceRead();
-        try {
-            const res = await window.ILAP.SteamNet.fetchWithTimeout(GET_ITEMS + encodeURIComponent(JSON.stringify(input)));
-            if (!res.ok) return null;
-            const data = await res.json();
-            const item = data && data.response && Array.isArray(data.response.store_items)
-                ? data.response.store_items[0] : null;
-            if (!item) return null;
-            const included = item.included_items && Array.isArray(item.included_items.included_apps)
-                ? item.included_items.included_apps
-                : (Array.isArray(item.included_appids) ? item.included_appids.map(appid => ({ appid })) : []);
-            const sanitize = window.ILAP.Sanitizer.sanitizeName;
-            const apps = included
-                .filter(a => a && /^\d+$/.test(String(a.appid)))
-                .map(a => ({ appid: String(a.appid), name: a.name ? sanitize(String(a.name)) : '' }));
-            return { name: item.name ? sanitize(String(item.name)) : '', apps };
-        } catch (e) {
-            return null;
-        }
+        const item = await window.ILAP.SteamNet.fetchStoreItem({ [idKey]: Number(ref.id) },
+            { language: storeLanguage(), country_code: storeCountry() }, { include_included_items: true });
+        if (!item) return null;
+        const included = item.included_items && Array.isArray(item.included_items.included_apps)
+            ? item.included_items.included_apps
+            : (Array.isArray(item.included_appids) ? item.included_appids.map(appid => ({ appid })) : []);
+        const sanitize = window.ILAP.Sanitizer.sanitizeName;
+        const apps = included
+            .filter(a => a && /^\d+$/.test(String(a.appid)))
+            .map(a => ({ appid: String(a.appid), name: a.name ? sanitize(String(a.name)) : '' }));
+        return { name: item.name ? sanitize(String(item.name)) : '', apps };
     }
 
     class BundleRequests {
@@ -135,6 +123,7 @@
 
     window.ILAP.ManualIgnore.BundleRequests = BundleRequests;
     window.ILAP.ManualIgnore.fetchBundle = fetchBundle;
+    window.ILAP.ManualIgnore.storeCountry = storeCountry;
     window.ILAP.ManualIgnore.BUNDLE_CONFIRM_MS = CONFIRM_MS;
 
 })();

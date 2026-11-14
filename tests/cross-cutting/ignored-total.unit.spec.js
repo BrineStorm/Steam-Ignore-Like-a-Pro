@@ -29,7 +29,7 @@ const ignoredOf = (appids) => new Map(appids.map((a) => [a, 0]));
 // (a function: asked on each call).
 function bootPoll(stored, opts) {
     const store = Object.assign({}, stored);
-    const calls = { session: 0, probe: 0, fetch: 0, recorded: [] };
+    const calls = { session: 0, probe: 0, fetch: 0, recorded: [], synced: [] };
     const sandbox = {
         Date, Math,
         document: { readyState: 'complete' },
@@ -55,6 +55,7 @@ function bootPoll(stored, opts) {
             IgnoreGate: { lastSlotAt: async () => (typeof opts.lastSlotAt === 'function'
                 ? opts.lastSlotAt() : opts.lastSlotAt || 0) },
             recordIgnoredTotal: async (n) => { calls.recorded.push(n); },
+            Creators: { syncFromAccount: async (map) => { calls.synced.push(map); } },
         } },
     };
     vm.createContext(sandbox);
@@ -97,6 +98,8 @@ test.describe('Steam ignore-list total (unit)', () => {
         await b.flush();
         expect(b.calls.fetch).toBe(1);
         expect(b.calls.recorded).toEqual([3]);
+        // The creator mirror is synced from the same read.
+        expect(b.calls.synced).toHaveLength(1);
         expect(b.store.ilap_ignored_total_poll).toBeGreaterThan(Date.now() - MIN);
     });
 

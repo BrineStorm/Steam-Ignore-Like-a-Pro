@@ -3,13 +3,15 @@
     'use strict';
 
     // Curator storage model.
-    //  - Retention cache (`ilap_curator_cache`): enumerated apps per curator, so
-    //    re-adding one within a week costs no network. TTL 7 days, LRU 10.
-    //  - Job queue (`ilap_curator_queue`): user-owned fields only
-    //    (filter/status/appids), every write through `mutateQueue`.
-    //  - Drain progress: a cursor and two skip counts per job, each in its own key
+    //  - Job queue (`ilap_curator_queue`): user-owned fields only (filter,
+    //    status, a gesture or bundle job's list), every write through `mutateQueue`.
+    //  - Job lists (`ilap_curator_appids_<jobId>`): the games of a curator,
+    //    built-in list or undo job, kept out of the queue record (getList).
+    //  - Drain progress: a cursor and three skip counts per job, each in its own key
     //    that only the lease holder (curator/lease.js) writes.
     //  - Cross-tab pulses: completed / un-ignored / undo-failed.
+    // What a finished job leaves behind (a built-in list done, a bundle badged)
+    // is curator/done-marks.js, what a curator's pages gave is curator/cache.js.
     // Keeping the drainer's frequent writes out of the queue array is what makes
     // cross-tab last-writer-wins harmless: a drain can never clobber a pause or
     // remove, and a queue write can never lose a cursor advance.
@@ -17,11 +19,12 @@
     window.ILAP = window.ILAP || {};
     window.ILAP.Curator = window.ILAP.Curator || {};
 
-    const CACHE_KEY = 'ilap_curator_cache';
     const QUEUE_KEY = 'ilap_curator_queue';
     const CURSOR_PREFIX = 'ilap_curator_cursor_';
     const SKIPPED_PREFIX = 'ilap_curator_skipped_';
     const WISHLISTED_PREFIX = 'ilap_curator_wishlisted_';
+    const OWNED_PREFIX = 'ilap_curator_owned_';
+    const LIST_PREFIX = 'ilap_curator_appids_';
     const PULSE_KEY = 'ilap_curator_pulse';
     // Games whose marks every Manual-Ignore tab drops (see signalUnignored).
     const UNIGNORE_PULSE_KEY = 'ilap_unignored';
@@ -31,20 +34,9 @@
     // caches for it, and the flag it sets after repeated failed POSTs.
     const SW_SID_KEY = 'ilap_sw_sid';
     const SW_HALT_KEY = 'ilap_sw_halt';
-    // A built-in list run to its end: `ilap_preset_done_<key>` = the list's rev
-    // (data/presets.json). One key per list, so two drainers finishing two lists
-    // at once never write over each other.
-    const PRESET_DONE_PREFIX = 'ilap_preset_done_';
+    // A built-in list's job names it `preset_<key>` in place of a curator id.
     const PRESET_ID_PREFIX = 'preset_';
-    // Bundles whose job ran to its end, for the IGNORED badge on their capsules:
-    // `ilap_ignored_bundles` = { '<bundle|sub>_<id>': { ts, appids } }. The
-    // appids let a rollback of any of its games take the mark off.
-    const IGNORED_BUNDLES_KEY = 'ilap_ignored_bundles';
-    const IGNORED_BUNDLES_MAX = 300;
-    const BUNDLE_KEY_RE = /^(bundle|sub)_\d+$/;
 
-    const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
-    const CACHE_MAX = 10;
     // Curator, built-in list and bundle jobs plus at most one undo job; the
     // gesture jobs sit outside it.
     const MAX_JOBS = 3;
@@ -55,8 +47,11 @@
     //   gesture — auto-filled by a live gesture: drains first, has no curator.
     // A preset job is a built-in list (data/presets.json), drained like a curator's.
     // A bundle job is a store bundle or package staged by a gesture on its capsule.
+    // A creator job is Steam's own creator ignore: its entries are clan ids, not
+    // appids, each with the direction the user asked for.
     const JOB_TYPE = Object.freeze({
-        CURATOR: 'curator', PRESET: 'preset', BUNDLE: 'bundle', UNDO: 'undo', MI: 'mi', MIUNDO: 'miundo'
+        CURATOR: 'curator', PRESET: 'preset', BUNDLE: 'bundle', UNDO: 'undo', MI: 'mi', MIUNDO: 'miundo',
+        CREATOR: 'creator'
     });
     const JOB_TRAITS = Object.freeze({
         [JOB_TYPE.CURATOR]: Object.freeze({ undo: false, gesture: false }),
@@ -65,6 +60,7 @@
         [JOB_TYPE.UNDO]: Object.freeze({ undo: true, gesture: false }),
         [JOB_TYPE.MI]: Object.freeze({ undo: false, gesture: true }),
         [JOB_TYPE.MIUNDO]: Object.freeze({ undo: true, gesture: true }),
+        [JOB_TYPE.CREATOR]: Object.freeze({ undo: false, gesture: true }),
     });
     // A job with no `type` predates the field and is a curator job. A type this
     // build does not know (after a downgrade) has no traits: it could be a
@@ -78,6 +74,20 @@
         return !(traits && traits.gesture);
     }).length;
 
+    // A job's list of games. Gesture and bundle jobs keep it in the record as
+    // `appids`, beside the per-entry `meta`. Curator, built-in list and undo
+    // jobs keep it under LIST_PREFIX + id, written with the record and never
+    // changed, and `total` is its length. Such a list runs to 20000 games, and
+    // the drainer reads the queue on every step. A record of an older build
+    // keeps any list in `appids`.
+    const listLength = (job) => (Array.isArray(job.appids) ? job.appids.length : (job.total || 0));
+    // A stored list is never empty: every stager refuses an empty one.
+    const hasList = (job) => Array.isArray(job.appids) || job.total > 0;
+    // The same job, and not another one made later under its id: the gesture
+    // jobs reuse theirs (MI_JOB_ID and the others), and a record made anew has
+    // a later `addedAt`.
+    const sameJob = (a, b) => !!a && !!b && a.id === b.id && a.addedAt === b.addedAt;
+
     // The Manual-Ignore job: a swipe enqueues here and the drainer POSTs through
     // the rate gate. One at a time, auto-created and auto-removed; may exceed
     // MAX_JOBS. A swipe is refused while MI_MAX entries wait undrained.
@@ -88,6 +98,11 @@
     // are the cursor's coordinates), and every gesture rewrites the whole queue
     // record. This bounds a job that never empties, whatever has drained.
     const GESTURE_JOB_CEILING = 1000;
+    // The games the AI browsing switch queues (enqueueMiMany, all `auto`) share
+    // that job with the user's swipes and may take half of it: a scroll through
+    // an AI-heavy page while the queue waits (a 429 penalty, a halted route)
+    // must not leave a swipe refused.
+    const AUTO_SHARE = 2;
 
     // The solo un-ignore job: the same machinery, a separate job, because the
     // direction is a property of the whole pass (see JOB_TRAITS.undo), not of
@@ -96,32 +111,20 @@
     const MIUNDO_JOB_ID = 'job_mi_undo';
     const MIUNDO_MAX = 200;
 
-    // --- pure helpers -------------------------------------------------------
-
-    function isFresh(entry, now, ttl) {
-        return !!entry && (now - (entry.fetchedAt || 0)) < (ttl || CACHE_TTL);
-    }
-
-    // Drop expired entries, then keep only the `max` most-recently-fetched.
-    function evictCache(cache, now, ttl, max) {
-        ttl = ttl || CACHE_TTL;
-        max = max || CACHE_MAX;
-        const live = Object.keys(cache || {})
-            .map(k => [k, cache[k]])
-            .filter(([, v]) => v && (now - (v.fetchedAt || 0)) < ttl)
-            .sort((a, b) => (b[1].fetchedAt || 0) - (a[1].fetchedAt || 0))
-            .slice(0, max);
-        const out = {};
-        for (const [k, v] of live) out[k] = v;
-        return out;
-    }
+    // The creator job: the same machinery again, one entry per clan id. Steam
+    // keeps at most 100 ignored curators and creators, so a job past that many
+    // waiting would only be refused.
+    const CREATOR_ID = 'creator';
+    const CREATOR_JOB_ID = 'job_creator';
+    const CREATOR_MAX = 100;
 
     // --- chrome.storage.local wrappers --------------------------------------
-    // Duplicated on purpose. SEVEN copies, and this is the list — a reader who
+    // Duplicated on purpose. TWELVE copies, and this is the list — a reader who
     // finds one that is not here has found a drift, not a discovery:
-    //   gate.js, curator/lease.js, this file, discovery-queue/registry.js,
-    //   ignore-log.js, background.js, and explore-queue/utils.js (inline, in
-    //   QueueSettings and RunLedger).
+    //   gate.js, curator/lease.js, this file, curator/done-marks.js, curator/cache.js,
+    //   discovery-queue/registry.js, ignore-log.js, background.js, creators.js,
+    //   queue-common/sale-reward.js, queue-common/automation-notice.js, and
+    //   explore-queue/utils.js (inline, in QueueSettings and RunLedger).
     // popup.html does not load utils.js, and a shared shim would be a new
     // cross-world file for a few stable lines. Pure helpers go to escape.js and
     // Steam reads to steam-net.js instead of being copied.
@@ -135,7 +138,7 @@
     // update swaps every script while a store page keeps running the old one,
     // and its chrome.storage calls throw from then on). That is deliberate: the
     // tab has no storage left, so there is nothing to recover — the guard would
-    // only be turning a throw into a silent no-op, seven times over. The callers
+    // only be turning a throw into a silent no-op, twelve times over. The callers
     // that are fire-and-forget absorb it instead (manual-ignore/main.js
     // _dispatch and its boot, curator/main.js pick and the droplist's cross,
     // the drainer's kick, ExploreAutomator.kick). Note serialChain hands the CALLER its rejection —
@@ -151,21 +154,6 @@
         return new Promise(resolve => chrome.storage.local.remove(keys, resolve));
     }
 
-    // --- cache ----------------------------------------------------------------
-
-    async function getCache(curatorId) {
-        const res = await get(CACHE_KEY);
-        const cache = res[CACHE_KEY] || {};
-        return cache[curatorId] || null;
-    }
-
-    async function putCache(curatorId, entry) {
-        const res = await get(CACHE_KEY);
-        const cache = res[CACHE_KEY] || {};
-        cache[curatorId] = Object.assign({}, entry, { fetchedAt: entry.fetchedAt || Date.now() });
-        await set({ [CACHE_KEY]: evictCache(cache, Date.now()) });
-    }
-
     // --- queue ----------------------------------------------------------------
 
     async function getQueue() {
@@ -173,32 +161,62 @@
         return Array.isArray(res[QUEUE_KEY]) ? res[QUEUE_KEY] : [];
     }
 
-    async function setQueue(queue) {
-        await set({ [QUEUE_KEY]: queue });
-    }
-
     // Serialized read-modify-write within this context: the drainer, the applet
     // and the curator button share a page's context, and overlapping get→set
     // pairs would lose a write. The mutator gets a copy and returns the next
     // array, or a non-array to skip the write.
+    // `lists`: { [jobId]: appids } to store in the same write, each only if its
+    // job is in the next queue, so a list never lands without its record.
+    // `also()`: more keys for the same write, asked once the mutator has run.
     const queueSerial = window.ILAP.serialChain();
-    function mutateQueue(mutator) {
+    function mutateQueue(mutator, lists, also) {
         return queueSerial(async () => {
             const queue = await getQueue();
             const next = mutator(queue.slice());
             if (!Array.isArray(next)) return queue;
-            await setQueue(next);
+            const write = Object.assign({}, also && also(), { [QUEUE_KEY]: next });
+            for (const id of Object.keys(lists || {})) {
+                if (next.some(j => j.id === id)) write[LIST_PREFIX + id] = lists[id];
+            }
+            await set(write);
             return next;
         });
     }
 
-    // Patch one job by id; `patch` is an object or (job) => partial. No-op if gone.
-    async function updateJob(id, patch) {
-        const next = await mutateQueue(queue => queue.map(j => j.id === id
-            ? Object.assign({}, j, typeof patch === 'function' ? patch(j) : patch)
-            : j));
+    // Patch one job by id; `patch` is an object or (job) => partial. A job gone,
+    // or a patch that answers null, writes nothing.
+    // `list`: the job's games, stored with the patch (see mutateQueue).
+    async function updateJob(id, patch, list) {
+        const next = await mutateQueue((queue) => {
+            const job = queue.find(j => j.id === id);
+            const changes = job && (typeof patch === 'function' ? patch(job) : patch);
+            if (!changes) return null;
+            return queue.map(j => (j === job ? Object.assign({}, j, changes) : j));
+        }, list ? { [id]: list } : null);
         return next.find(j => j.id === id) || null;
     }
+
+    // From the storage change of a queue write: did a rollback job leave the queue?
+    function undoJobLeft(change) {
+        const left = new Set((change.newValue || []).map(j => j.id));
+        return (change.oldValue || []).some((j) => {
+            const traits = jobTraits(j);
+            return !!traits && traits.undo && !left.has(j.id);
+        });
+    }
+
+    // The job's games: the record's own, or the stored list. Null when a stored
+    // list is gone, which only a remove from another context racing a write of
+    // the queue leaves behind.
+    async function getList(job) {
+        if (Array.isArray(job.appids)) return job.appids;
+        const key = LIST_PREFIX + job.id;
+        const v = (await get(key))[key];
+        return Array.isArray(v) ? v : null;
+    }
+
+    // Everything a job keeps beside its record.
+    const sideKeys = (id) => [CURSOR_PREFIX + id, SKIPPED_PREFIX + id, WISHLISTED_PREFIX + id, OWNED_PREFIX + id, LIST_PREFIX + id];
 
     // Removing a gesture job must correct what its gestures already painted:
     //  - MI: the undrained entries were badged optimistically and will now never
@@ -218,80 +236,26 @@
             ? ((await getCursor(id)) || 0) : 0;
         const orphaned = type === JOB_TYPE.MI ? (job.appids || []).slice(cursor) : [];
         const strandedUndo = type === JOB_TYPE.MIUNDO && (job.appids || []).length > cursor;
-        await remove([CURSOR_PREFIX + id, SKIPPED_PREFIX + id, WISHLISTED_PREFIX + id]);
+        await remove(sideKeys(id));
         if (orphaned.length) await signalUnignored(orphaned, 'removed');
         if (strandedUndo) await signalUndoFailed('removed');
     }
 
     // The drainer's removal of a job its snapshot saw finished. Emptiness is
     // re-checked inside the mutation, because a gesture may have appended to the
-    // job since. Returns true only if the job was removed.
-    async function removeIfDrained(id, cursor) {
+    // job since. Returns true only if the job was removed. `job`: the record the
+    // snapshot had, so one made anew under its id since is left alone.
+    async function removeIfDrained(id, cursor, job) {
         let removed = false;
         await mutateQueue((queue) => {
             const j = queue.find(x => x.id === id);
-            if (!j) return null;                                   // already gone elsewhere
-            if ((cursor || 0) < (j.appids || []).length) return null; // grew → keep it
+            if (!j || (job && !sameJob(j, job))) return null;      // already gone elsewhere
+            if ((cursor || 0) < listLength(j)) return null;        // grew → keep it
             removed = true;
             return queue.filter(x => x.id !== id);
         });
-        if (removed) await remove([CURSOR_PREFIX + id, SKIPPED_PREFIX + id, WISHLISTED_PREFIX + id]);
+        if (removed) await remove(sideKeys(id));
         return removed;
-    }
-
-    // A built-in list job that ran to its end: its list is marked done with its
-    // rev. The drainer's call only — a list the user removed was not run, so it
-    // stays on offer.
-    async function markPresetDone(job) {
-        if (!job || !job.presetKey) return;
-        await set({ [PRESET_DONE_PREFIX + job.presetKey]: job.presetRev || '' });
-    }
-
-    // The marks map, serialized within this context like the queue. Two contexts
-    // finishing two bundles in the same instant can lose one mark (no CAS): the
-    // bundle then shows no badge, and a swipe on it re-runs a job of dedupe skips.
-    const bundleSerial = window.ILAP.serialChain();
-    async function getBundleMarks() {
-        const marks = (await get(IGNORED_BUNDLES_KEY))[IGNORED_BUNDLES_KEY];
-        return marks && typeof marks === 'object' ? marks : {};
-    }
-
-    // A bundle job that ran to its end: its capsules get the IGNORED badge. The
-    // oldest marks go past IGNORED_BUNDLES_MAX.
-    function markBundleDone(job) {
-        if (!job || !BUNDLE_KEY_RE.test(String(job.curatorId))) return Promise.resolve();
-        return bundleSerial(async () => {
-            const marks = await getBundleMarks();
-            marks[job.curatorId] = { ts: Date.now(), appids: (job.appids || []).map(String) };
-            const keep = Object.keys(marks).sort((a, b) => (marks[b].ts || 0) - (marks[a].ts || 0))
-                .slice(0, IGNORED_BUNDLES_MAX);
-            const next = {};
-            for (const k of keep) next[k] = marks[k];
-            await set({ [IGNORED_BUNDLES_KEY]: next });
-        });
-    }
-
-    // Games rolled back: a bundle with any of them in it is no longer all ignored.
-    function unmarkBundlesWith(appids) {
-        const gone = new Set((appids || []).map(String));
-        return bundleSerial(async () => {
-            const marks = await getBundleMarks();
-            const hit = Object.keys(marks).filter(k => (marks[k].appids || []).some(a => gone.has(String(a))));
-            if (!hit.length) return;
-            for (const k of hit) delete marks[k];
-            await set({ [IGNORED_BUNDLES_KEY]: marks });
-        });
-    }
-
-    // The built-in lists the menu cannot offer: queued, or done at the rev this
-    // build ships. `revs` = { <key>: rev } (data/presets.json → rev). A Set of keys.
-    async function blockedPresets(revs) {
-        const keys = Object.keys(revs || {});
-        const res = await get([QUEUE_KEY].concat(keys.map(k => PRESET_DONE_PREFIX + k)));
-        const queue = Array.isArray(res[QUEUE_KEY]) ? res[QUEUE_KEY] : [];
-        const queued = new Set(queue.map(j => j.curatorId));
-        return new Set(keys.filter(k =>
-            queued.has(PRESET_ID_PREFIX + k) || res[PRESET_DONE_PREFIX + k] === revs[k]));
     }
 
     // Queue a built-in list. `key` names the list ('ai_2025', 'denuvo'), `rev`
@@ -302,11 +266,11 @@
         const curatorId = PRESET_ID_PREFIX + key;
         const list = (appids || []).map(String);
         if (!list.length) return { kind: 'empty' };
+        const jobId = 'job_' + curatorId + '_' + Date.now();
         let outcome = null;
         await mutateQueue((queue) => {
             if (queue.some(j => j.curatorId === curatorId)) { outcome = { kind: 'queued' }; return null; }
             if (cappedCount(queue) >= MAX_JOBS) { outcome = { kind: 'full' }; return null; }
-            const jobId = 'job_' + curatorId + '_' + Date.now();
             outcome = { kind: 'added', jobId };
             return queue.concat([{
                 id: jobId,
@@ -314,12 +278,11 @@
                 curatorId,
                 presetKey: key,
                 presetRev: rev || '',
-                appids: list,
                 total: list.length,
                 status: 'pending',
                 addedAt: Date.now()
             }]);
-        });
+        }, { [jobId]: list });
         return outcome;
     }
 
@@ -329,7 +292,7 @@
     // per-entry data lives in `meta`. Several appids go in as a whole or not at
     // all (a bundle that overflowed into the MI job).
     // Returns { kind:'added', total } or { kind:'full' }.
-    async function appendToAutoJob(spec, appids, meta) {
+    async function appendToAutoJob(spec, appids, meta, share = 1) {
         const adding = Array.from(new Set(appids.map(String)));
         // Dedupe only against the entries not drained yet: a game ignored,
         // drained, undone and swiped again is a real new ignore. The cursor read
@@ -337,6 +300,10 @@
         // superset of the real pending tail.
         const drained = (await getCursor(spec.jobId)) || 0;
         let outcome = { kind: 'full' };
+        // A job made anew starts at its first entry, whatever cursor key an earlier
+        // job of its id left behind. Written with the record: no reader sees one
+        // without the other.
+        let created = false;
         await mutateQueue((queue) => {
             const idx = queue.findIndex(j => jobType(j) === spec.type);
             const job = idx === -1 ? null : queue[idx];
@@ -354,8 +321,8 @@
             const fresh = adding.filter(a => !already(a));
             // The cap counts what still waits, not what already landed. A stale
             // `drained` is low, so it errs toward full.
-            const full = current.length - drained + fresh.length > spec.max
-                || current.length + fresh.length > GESTURE_JOB_CEILING;
+            const full = current.length - drained + fresh.length > spec.max / share
+                || current.length + fresh.length > GESTURE_JOB_CEILING / share;
             if (fresh.length && full) return null;  // full → no-op
             const nextAppids = current.concat(fresh);
             // Meta is refreshed on a deduped gesture too: another tab may have
@@ -368,8 +335,9 @@
             }
             const nextJob = Object.assign({}, base, { appids: nextAppids, meta: nextMeta, total: nextAppids.length });
             outcome = { kind: 'added', total: nextAppids.length };
-            return idx === -1 ? queue.concat([nextJob]) : queue.map((j, i) => i === idx ? nextJob : j);
-        });
+            created = idx === -1;
+            return created ? queue.concat([nextJob]) : queue.map((j, i) => i === idx ? nextJob : j);
+        }, null, () => (created ? { [CURSOR_PREFIX + spec.jobId]: 0 } : null));
         return outcome;
     }
 
@@ -387,20 +355,41 @@
     }
 
     // Several swipes' worth at once, all in or none (a bundle with no free job
-    // slot). Each entry: { appid, name?, reason?, ts? }.
+    // slot, the AI games a page loads while browsing). Each entry:
+    // { appid, name?, reason?, ts?, bundle?, auto? }, `bundle` the bundle's
+    // curatorId ('bundle_<id>' | 'sub_<id>'). A batch of `auto` entries
+    // fits only into its share of the job (AUTO_SHARE).
     async function enqueueMiMany(entries) {
         const byId = new Map(entries.map(e => [String(e.appid), e]));
+        const share = entries.length && entries.every(e => e.auto) ? AUTO_SHARE : 1;
         return appendToAutoJob(MI_SPEC, Array.from(byId.keys()), (pending, appid) => {
             const entry = byId.get(appid);
-            // A bundle's app that a swipe already queued keeps the swipe's entry:
-            // its reason is the badge the user saw, and a game swiped on purpose
-            // is not held back by the wishlist.
-            if (entry.bundle && pending && !pending.cancelled) return pending;
-            const meta = { name: entry.name || '', reason: entry.reason || 0 };
+            // A bundle's app or a game shot while browsing that a swipe already
+            // queued keeps the swipe's entry: its reason is the badge the user
+            // saw, and a game swiped on purpose is not held back by the wishlist.
+            const automated = entry.bundle || entry.auto;
+            if (automated && pending && !pending.cancelled) return pending;
+            // The name comes from Steam's DOM: sanitized before storage (escape.js).
+            const meta = { name: window.ILAP.Sanitizer.sanitizeName(entry.name || ''), reason: entry.reason || 0 };
             const ts = pending && !pending.cancelled && Number.isFinite(pending.ts) ? pending.ts : entry.ts;
             if (Number.isFinite(ts)) meta.ts = ts;
-            if (entry.bundle) meta.bundle = true;
+            if (entry.bundle) meta.bundle = String(entry.bundle);
+            if (entry.auto) meta.auto = true;
             return meta;
+        }, share);
+    }
+
+    // The games a gesture put in the MI job that still wait there, as appid
+    // strings: taken-back entries and games shot while browsing left out. The
+    // cursor read can only be stale-low, so at worst one of them has just landed.
+    async function waitingSwipes() {
+        const [queue, drained] = await Promise.all([getQueue(), getCursor(MI_JOB_ID)]);
+        const job = queue.find(j => jobType(j) === JOB_TYPE.MI);
+        if (!job) return [];
+        const meta = job.meta || {};
+        return (job.appids || []).slice(drained || 0).map(String).filter((appid) => {
+            const m = meta[appid];
+            return !(m && (m.cancelled || m.auto));
         });
     }
 
@@ -409,7 +398,7 @@
     // while a job slot is free, named after the bundle, so Pause, Remove and the
     // progress bar work as for any job. With every slot taken its apps go into
     // the MI job instead, as a whole or not at all. Merged so, it gets no
-    // IGNORED badge (only a bundle job marks one, Store.markBundleDone), so a
+    // IGNORED badge (only a bundle job marks one, DoneMarks.markBundleDone), so a
     // later swipe on it stages it again, as a run of dedupe skips. `reason` is the gesture's,
     // kept per app in `meta` as the MI job keeps it.
     // { kind: 'added', jobId } | { kind: 'merged' } (into the MI job)
@@ -445,12 +434,26 @@
         if (outcome) return outcome;
         const ts = Date.now();
         const merged = await enqueueMiMany(appids.map(appid => ({
-            appid, name: byId.get(appid).name, reason, ts, bundle: true
+            appid, name: byId.get(appid).name, reason, ts, bundle: curatorId
         })));
         return merged.kind === 'added' ? { kind: 'merged' } : merged;
     }
 
-    // A solo un-ignore. The entry carries the gesture time: this job lives on
+    const CREATOR_SPEC = {
+        jobId: CREATOR_JOB_ID, type: JOB_TYPE.CREATOR, curatorId: CREATOR_ID, max: CREATOR_MAX
+    };
+
+    // A creator ignore (`ignore` true) or its rollback, by clan id. An entry
+    // still waiting for the same creator takes the new direction: the last
+    // gesture is the one sent.
+    async function enqueueCreator({ clanid, name, ignore }) {
+        const ts = Date.now();
+        return appendToAutoJob(CREATOR_SPEC, [String(clanid)], () => ({
+            name: String(name || ''), ignore: !!ignore, ts
+        }));
+    }
+
+    // A solo un-ignore. The entry keeps the gesture time: this job lives on
     // and grows, so a job-level snapshot time would be the first gesture's.
     async function enqueueMiUndo(entry) {
         const ts = Date.now();
@@ -507,9 +510,11 @@
     // cleanup, so a write after it would leak the key. No CAS, so a remove from
     // another context can still slip between the read and the write.
     // `queue`: a snapshot the caller read with no network wait since, to check
-    // against instead of reading the queue again.
-    async function setCursor(jobId, value, queue) {
-        if (!(queue || await getQueue()).some(j => j.id === jobId)) return false;
+    // against instead of reading the queue again. `job`: the record the caller
+    // drains, so a job made anew under its id since keeps its own cursor.
+    async function setCursor(jobId, value, queue, job) {
+        const mine = (j) => j.id === jobId && (!job || sameJob(j, job));
+        if (!(queue || await getQueue()).some(mine)) return false;
         await set({ [CURSOR_PREFIX + jobId]: value });
         return true;
     }
@@ -526,6 +531,16 @@
     const bumpSkipped = (jobId) => bumpCounter(SKIPPED_PREFIX, jobId);
     // Entries skipped because the game is on the user's wishlist.
     const bumpWishlisted = (jobId) => bumpCounter(WISHLISTED_PREFIX, jobId);
+    // How many of the job's games are in the user's library: counted over the
+    // whole job on each pass, so it is set, not bumped. Same guard as the cursor,
+    // and no write when the number is the same.
+    async function setOwned(jobId, n) {
+        if (!(await getQueue()).some(j => j.id === jobId)) return false;
+        const key = OWNED_PREFIX + jobId;
+        const v = (await get(key))[key];
+        if ((Number.isFinite(v) ? v : 0) !== n) await set({ [key]: n });
+        return true;
+    }
 
     // --- pulses -----------------------------------------------------------------
 
@@ -556,21 +571,18 @@
 
     window.ILAP.Curator.Store = {
         // pure
-        isFresh, evictCache, jobType, jobTraits, cappedCount,
-        // cache
-        getCache, putCache,
+        jobType, jobTraits, cappedCount, listLength, hasList, sameJob,
         // queue
-        getQueue, mutateQueue, updateJob, removeJob, removeIfDrained,
-        enqueueMi, enqueueMiMany, enqueueMiUndo, cancelMiEntry, stagePreset, stageBundle,
-        markPresetDone, blockedPresets, getBundleMarks, markBundleDone, unmarkBundlesWith,
+        getQueue, mutateQueue, updateJob, undoJobLeft, getList, removeJob, removeIfDrained,
+        enqueueMi, enqueueMiMany, enqueueMiUndo, enqueueCreator, cancelMiEntry, waitingSwipes, stagePreset, stageBundle,
         signalCompleted, signalUnignored, signalUndoFailed,
         // drain progress
-        getCursor, setCursor, bumpSkipped, bumpWishlisted,
+        getCursor, setCursor, bumpSkipped, bumpWishlisted, setOwned,
         // constants
-        JOB_TYPE, CACHE_KEY, QUEUE_KEY, CURSOR_PREFIX, SKIPPED_PREFIX, WISHLISTED_PREFIX, PULSE_KEY,
+        JOB_TYPE, QUEUE_KEY, CURSOR_PREFIX, SKIPPED_PREFIX, WISHLISTED_PREFIX, OWNED_PREFIX, LIST_PREFIX, PULSE_KEY,
         UNIGNORE_PULSE_KEY, UNDO_FAILED_KEY, SW_SID_KEY, SW_HALT_KEY,
-        PRESET_DONE_PREFIX, IGNORED_BUNDLES_KEY, BUNDLE_KEY_RE,
-        CACHE_TTL, CACHE_MAX, MAX_JOBS, MI_ID, MI_JOB_ID, MI_MAX,
-        MIUNDO_ID, MIUNDO_JOB_ID, MIUNDO_MAX, GESTURE_JOB_CEILING
+        PRESET_ID_PREFIX,
+        MAX_JOBS, MI_ID, MI_JOB_ID, MI_MAX, AUTO_SHARE,
+        MIUNDO_ID, MIUNDO_JOB_ID, MIUNDO_MAX, CREATOR_ID, CREATOR_JOB_ID, CREATOR_MAX, GESTURE_JOB_CEILING
     };
 })();

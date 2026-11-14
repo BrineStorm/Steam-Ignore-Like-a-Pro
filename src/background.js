@@ -28,6 +28,7 @@ importScripts(
     'ignore-log.js',
     'curator/lease.js',
     'curator/store.js',
+    'curator/done-marks.js',
     'curator/drainer.js'
 );
 
@@ -52,6 +53,7 @@ importScripts(
     const HALT_RETRY_MS = 3600000;    // 1 h
     const MAX_WAIT_MS = 20000;        // a reserve() wait beyond this outlives the SW
     const HALT_AFTER = 2;             // consecutive failed POSTs before halting
+    const OWNER_ID = ILAP.newOwnerId('sw_');   // this worker's lease identity
 
     // Storage shim, duplicated per world on purpose (see src/curator/store.js).
     const get = (q) => new Promise(r => chrome.storage.local.get(q, r));
@@ -168,6 +170,16 @@ importScripts(
     // Total only: +1 for a drained curator ignore, −1 for a confirmed rollback.
     const bumpCount = () => writeStats([Stats.COUNT_KEY], Stats.countState);
     const dropCount = () => writeStats([Stats.COUNT_KEY], Stats.uncountState);
+    // The strict userdata read as a store page's readers get it (utils.js): an
+    // all-empty answer that contradicts the last total is no read. A 429 on it
+    // raises the shared penalty.
+    async function readUserdata() {
+        const map = await Net.fetchIgnoredAppsStrict({ onRateLimited: (ms) => Gate.reportRateLimited(ms) });
+        if (!map || !Stats.looksAnonymous(map)) return map;
+        const snapshot = (await get({ [Stats.TOTAL_KEY]: null }))[Stats.TOTAL_KEY];
+        return Stats.contradictsTotal(snapshot, Date.now()) ? null : map;
+    }
+
     // Steam's ignore-list size from the drainer's userdata read, on the same chain.
     const recordTotal = (size) => writeStats([Stats.COUNT_KEY], (r) => Stats.totalState(r, size, Date.now()));
 
@@ -208,19 +220,21 @@ importScripts(
 
     const drainer = new ILAP.Curator.CuratorQueueDrainer({
         store: Store,
+        marks: ILAP.Curator.DoneMarks,
         lease: Lease,
         api: { ignore: apiIgnore, unignore: apiUnignore },
         gate: {
             reserve: swReserve,
             reportRateLimited: (ms) => Gate.reportRateLimited(ms),
             stopped: () => Gate.stopVerdict(),
-            lastSlotAt: () => Gate.lastSlotAt()
+            lastSlotAt: () => Gate.lastSlotAt(),
+            quietUntil: () => Gate.quietUntil()
         },
-        fetchUserdata: Net.fetchIgnoredAppsStrict,
+        fetchUserdata: readUserdata,
         probeLogin: probeLoginAndReap,
         stats: { save: saveStats, saveHistory, saveJob, bumpCount, dropCount, recordTotal },
         log: Log.drainerHooks(),
-        ownerId: ILAP.newOwnerId('sw_'),
+        ownerId: OWNER_ID,
         standbyMs: 0,  // no in-memory standby tick; the alarm below is the retry
         // A deferred pass comes back through kick(): halt check first, alarm after.
         rekick: () => kick()
@@ -290,7 +304,7 @@ importScripts(
             || changes[ILAP.Settings.KEYS.MASTER]
             || changes[SID_KEY]
             || changes[HALT_KEY]
-            || Object.keys(changes).some(k => k.indexOf(Lease.LOCK_PREFIX) === 0);
+            || Lease.freedByOther(changes, OWNER_ID);
         if (touched) kick();
     });
     chrome.alarms.onAlarm.addListener((a) => {

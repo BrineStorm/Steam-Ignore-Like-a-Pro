@@ -12,8 +12,9 @@
     const LAST_KEY = 'ilap_last_ignored_name';
     const HISTORY_LIMIT = 20;   // max entries kept in ilap_ignored_history
     // Every history label (stored, so never renamed): the two queue automators,
-    // Manual Ignore's two reasons, and the four kinds of queue job that leave
-    // one entry when they finish (jobEntry).
+    // Manual Ignore's two reasons, the four kinds of queue job that leave
+    // one entry when they finish (jobEntry), and a creator ignore or rollback
+    // (creatorState).
     const SOURCE = Object.freeze({
         EQ: 'Explore Auto-Queue',
         DQ: 'Queue',
@@ -23,6 +24,7 @@
         PRESET: 'Built-in List',
         BUNDLE: 'Bundle',
         UNDO: 'Undo',
+        CREATOR: 'Creator',
     });
 
     // An MI entry's reason → its label. 2 is the Played Elsewhere swipe; a reason
@@ -71,7 +73,7 @@
     }
 
     // The count-only half of the record, for an ignore that must be COUNTED but
-    // not SHOWN: a drained curator ignore. The curator path carries no name
+    // not SHOWN: a drained curator ignore. The curator path has no name
     // (enumeration reads appids only), and a job of several hundred would flush
     // the 20-entry "Last Ignored" history of hand-made swipes in one pass — so
     // it lands in the total and nowhere else.
@@ -84,7 +86,7 @@
     // is deliberately NOT rewound — it is a "what did I ignore lately" log, and
     // an entry that was rolled back still happened (the undo applet reads the
     // separate ilap_ignore_log for what is undoable). Count-only for the same
-    // reason curator ignores are: an undo job drains in batches and carries no
+    // reason curator ignores are: an undo job drains in batches and has no
     // name, so there is nothing to put in Last Ignored anyway.
     function uncountState(current) {
         return { [COUNT_KEY]: decrement((current || {})[COUNT_KEY]) };
@@ -100,11 +102,24 @@
         };
     }
 
+    // A creator ignore (`ignore` true) or its rollback, landed: shown, not
+    // counted, since no game joined or left the list. `curatorId` is the clan
+    // id, which opens the creator's page from the entry as it opens a curator's.
+    function creatorState(current, name, clanid, ignore) {
+        const prev = Array.isArray((current || {})[HISTORY_KEY]) ? current[HISTORY_KEY] : [];
+        const entry = { name, source: SOURCE.CREATOR, curatorId: String(clanid) };
+        if (!ignore) entry.unignore = true;
+        return {
+            [HISTORY_KEY]: [entry, ...prev].slice(0, HISTORY_LIMIT),
+            [LAST_KEY]: name
+        };
+    }
+
     // A finished queue job as ONE history entry: a curator's list, a built-in
     // list, a bundle or an undo. Its games stay out (a job of hundreds would flush the
     // hand-made swipes), the job itself goes in. `name` is what the entry is
     // matched by in Last Ignored, the popup draws the label from the rest
-    // (popup_main.js historyLabel). null for a job that leaves no entry: the
+    // (popup_history.js historyLabel). null for a job that leaves no entry: the
     // two gesture jobs record each game, and an unknown type records nothing.
     // Each entry keeps its job's id (jobState).
     function jobEntry(job) {
@@ -112,29 +127,30 @@
         if (entry && job.id) entry.jobId = String(job.id);
         return entry;
     }
-    function kindEntry(job) {
-        if (!job) return null;
-        const type = job.type || 'curator';
-        if (type === 'curator') {
+    const JOB_ENTRIES = Object.assign(Object.create(null), {
+        curator(job) {
             const id = /^\d+$/.test(String(job.curatorId)) ? String(job.curatorId) : null;
             const entry = { name: String(job.curatorName || job.curatorId || ''), source: SOURCE.CURATOR, filter: job.filter || '' };
             if (id) entry.curatorId = id;
             return entry;
-        }
-        if (type === 'preset') return { name: String(job.presetKey || ''), source: SOURCE.PRESET, presetKey: String(job.presetKey || '') };
-        if (type === 'bundle') {
+        },
+        preset: (job) => ({ name: String(job.presetKey || ''), source: SOURCE.PRESET, presetKey: String(job.presetKey || '') }),
+        bundle(job) {
             // `bundle` is the store path the popup opens, kept only in its known shape.
             const m = String(job.curatorId || '').match(/^(bundle|sub)_(\d+)$/);
             const entry = { name: String(job.curatorName || ''), source: SOURCE.BUNDLE };
             if (m) entry.bundle = m[1] + '/' + m[2];
             return entry;
-        }
-        if (type === 'undo') {
+        },
+        undo(job) {
             const entry = { name: 'undo', source: SOURCE.UNDO };
             if (job.scope && Number(job.scope.n) > 0) entry.scope = { n: Number(job.scope.n), unit: job.scope.unit };
             return entry;
-        }
-        return null;
+        },
+    });
+    function kindEntry(job) {
+        const make = job && JOB_ENTRIES[job.type || 'curator'];
+        return make ? make(job) : null;
     }
 
     // The history write for a finished job: shown, not counted (each of its
@@ -178,11 +194,27 @@
         return Math.max(0, snapshot.total + ((count || 0) - (snapshot.tallyAt || 0)));
     }
 
+    // All three lists empty is what Steam answers an anonymous request. It is also
+    // a fresh account, which contradictsTotal tells apart.
+    function looksAnonymous(map) {
+        const none = (s) => !s || s.size === 0;
+        return map.size === 0 && none(map.owned) && none(map.wishlist);
+    }
+
+    // A list Steam counted lately cannot be empty now, so an all-empty read is no
+    // read of this account, and the wishlist and library guards must not take it
+    // for one. A week on it may really be empty, and this must not stop a drain
+    // for good.
+    const TOTAL_TRUSTED_MS = 7 * 24 * 60 * 60 * 1000;
+    function contradictsTotal(snapshot, now) {
+        return !!snapshot && snapshot.total > 0 && now - snapshot.ts < TOTAL_TRUSTED_MS;
+    }
+
     window.ILAP = window.ILAP || {};
     window.ILAP.StatsLogic = {
         increment, decrement, pushHistory, nextState, countState, uncountState, historyState,
-        jobEntry, jobState,
-        totalState, displayTotal,
+        jobEntry, jobState, creatorState,
+        totalState, displayTotal, looksAnonymous, contradictsTotal,
         miSourceLabel, COUNT_KEY, HISTORY_KEY, LAST_KEY, TOTAL_KEY, HISTORY_LIMIT, SOURCE
     };
 

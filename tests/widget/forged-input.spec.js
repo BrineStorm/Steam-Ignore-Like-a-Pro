@@ -97,7 +97,7 @@ test.describe('on-page widget — forged selects inside a real pick', () => {
 
     const SETTINGS = {
         [STATE_KEY]: 0, [PIN_KEY]: false,
-        ilap_settings_open: true, ilap_mi_open: true, ilap_dq_open: false,
+        ilap_popup_tab: 'settings', ilap_mi_open: true, ilap_dq_open: false,
         ilap_shortcut_key: 'swipeRight', ilap_platform_key: 'swipeLeft',
         ilap_unignore_key: 'zigzag', ilap_lang: 'en',
     };
@@ -115,7 +115,6 @@ test.describe('on-page widget — forged selects inside a real pick', () => {
     // on the first `change` it hears. No eval: the store page's CSP decides that.
     //   other  — set another select and fire `change` at it
     //   value  — rewrite the picked select's value
-    //   nested — set the picked select and fire a second `change` at it
     async function onFirstChange(page, mode, id, value) {
         await page.evaluate(([mode, id, value]) => {
             const root = document.getElementById('ilap-widget-host').shadowRoot;
@@ -161,16 +160,34 @@ test.describe('on-page widget — forged selects inside a real pick', () => {
             .toBe('swipeRight');
     });
 
-    test('the language chip refuses a nested forged change', async ({ context, page }) => {
+    // A section's state is a stored setting: a forged click on its heading opens
+    // nothing and writes nothing, a real one does both.
+    test('a section heading refuses a forged click, and takes a real one', async ({ context, page }) => {
         await openPanel(context, page);
-        await onFirstChange(page, 'nested', null, 'fr');
-
-        await page.locator('.lang-chip').click();
-        await page.locator('.lang-chip .select-opt[data-value="de"]').click();
-
+        expect(await pageClick(page, '#dq-section > summary')).toBe('clicked');
         await page.waitForTimeout(1000);
-        expect(await page.evaluate(() => window.__ilapForged)).toBe(1);
+        const stored = await getExtensionStorage(context, ['ilap_dq_open', 'ilap_mi_open']);
+        expect(stored.ilap_dq_open, 'the page must not open a section').toBe(false);
+        expect(stored.ilap_mi_open, 'the page must not shut one either').toBe(true);
+
+        await page.locator('#dq-section-title').click();
+        await expect.poll(async () => (await getExtensionStorage(context, ['ilap_dq_open'])).ilap_dq_open,
+            { timeout: 8000 }).toBe(true);
+    });
+
+    // The language grid has no select: a language is a button, and only a
+    // real click on it is taken.
+    test('the language grid refuses a forged click, and takes a real one', async ({ context, page }) => {
+        await openPanel(context, page);
+        await page.locator('#tab-lang').click();
+        await expect(page.locator('.lang-opt[data-lang="fr"]')).toBeVisible();
+        expect(await pageClick(page, '.lang-opt[data-lang="fr"]')).toBe('clicked');
+        await page.waitForTimeout(1000);
         const stored = await getExtensionStorage(context, ['ilap_lang']);
-        expect(stored.ilap_lang, 'the page must not choose the language').not.toBe('fr');
+        expect(stored.ilap_lang, 'the page must not choose the language').toBe('en');
+
+        await page.locator('.lang-opt[data-lang="de"]').click();
+        await expect.poll(async () => (await getExtensionStorage(context, ['ilap_lang'])).ilap_lang,
+            { timeout: 8000 }).toBe('de');
     });
 });

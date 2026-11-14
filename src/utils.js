@@ -34,10 +34,23 @@
     const Net = window.ILAP.SteamNet;
     const fetchWithTimeout = Net.fetchWithTimeout;
 
+    // The strict userdata read as every reader on a store page gets it: an
+    // all-empty answer that contradicts the last total is no read (stats.js).
+    // A 429 on it raises the shared penalty (gate.js, loaded after this file),
+    // whoever reads: Steam asks for less of everything.
+    const reportRateLimited = (ms) => window.ILAP.IgnoreGate.reportRateLimited(ms);
+    async function readUserdata(opts) {
+        const map = await Net.fetchIgnoredAppsStrict(Object.assign({ onRateLimited: reportRateLimited }, opts));
+        if (!map || !StatsLogic.looksAnonymous(map)) return map;
+        const key = StatsLogic.TOTAL_KEY;
+        const stored = await new Promise(resolve => chrome.storage.local.get(key, resolve));
+        return StatsLogic.contradictsTotal(stored[key], Date.now()) ? null : map;
+    }
+
     // Lenient userdata read: an empty Set on failure, for callers where missing
     // data only disables an optimization (DQ confirmation). Never for undo.
     async function fetchIgnoredApps() {
-        const ignored = await Net.fetchIgnoredAppsStrict();
+        const ignored = await readUserdata();
         return new Set(ignored ? ignored.keys() : []);
     }
 
@@ -45,7 +58,7 @@
     // read failed or had no list: the queue helpers skip a wishlisted game, and
     // must not take a failure for an empty list.
     async function fetchWishlist() {
-        const ignored = await Net.fetchIgnoredAppsStrict();
+        const ignored = await readUserdata();
         return ignored ? ignored.wishlist : null;
     }
     // One game: true, false, or null when the read failed.
@@ -109,20 +122,24 @@
     // rateLimited: a 429, which throttles the account; callers report it to the
     // gate. status: 0 when the request never completed; the drainer's 400
     // classifier reads it.
-    async function post(fields) {
+    // The creator ignore goes through the same POST to its own endpoint, read by
+    // its own result parser (Net.creatorResult).
+    async function post(fields, url = Net.IGNORE_URL, toResult = Net.ignoreResult) {
         const sessionid = SessionService.getID();
         if (!sessionid) return Net.ignoreFailed();
 
         // Encoded per field, so no cookie value can break the body's structure.
         const body = new URLSearchParams(Object.assign({ sessionid }, fields)).toString();
         try {
-            OwnIgnorePosts.mark();
-            const response = await fetchWithTimeout(Net.IGNORE_URL, {
+            // Only an ignore POST is what the native-ignore watcher would mistake
+            // for the user's own (steam-activity.js).
+            if (url === Net.IGNORE_URL) OwnIgnorePosts.mark();
+            const response = await fetchWithTimeout(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
                 body: body
             });
-            return Net.ignoreResult(response);
+            return await toResult(response);
         } catch (e) { return Net.ignoreFailed(); }
     }
 
@@ -134,6 +151,11 @@
         // Paced through the gate like an ignore.
         unignore(appid) {
             return post(Net.unignoreFields(appid));
+        },
+
+        // Steam's own creator ignore (`ignore` true) or its rollback.
+        creator(clanid, ignore) {
+            return post(Net.creatorFields(clanid, ignore), Net.CREATOR_IGNORE_URL, Net.creatorResult);
         }
     };
 
@@ -155,6 +177,12 @@
         saveHistory(gameName, source, appid) {
             const safeName = sanitizeName(gameName);
             return this._write((result) => StatsLogic.historyState(result, safeName, source, appid));
+        },
+
+        // Shown but not counted: a creator ignore or rollback (StatsLogic.creatorState).
+        saveCreator(name, clanid, ignore) {
+            const safeName = sanitizeName(name);
+            return this._write((result) => StatsLogic.creatorState(result, safeName, clanid, ignore));
         },
 
         // Shown but not counted: a queue job that ran to its end (StatsLogic.jobState).
@@ -219,16 +247,18 @@
     window.ILAP.getSessionID = SessionService.getID;
     window.ILAP.apiIgnoreGame = SteamAPI.ignore;
     window.ILAP.apiUnignoreGame = SteamAPI.unignore;
+    window.ILAP.apiCreatorIgnore = SteamAPI.creator;
     window.ILAP.fetchIgnoredApps = fetchIgnoredApps;
     window.ILAP.fetchWishlist = fetchWishlist;
     window.ILAP.isWishlisted = isWishlisted;
-    window.ILAP.fetchIgnoredAppsStrict = Net.fetchIgnoredAppsStrict;
+    window.ILAP.fetchIgnoredAppsStrict = readUserdata;
     window.ILAP.classifyRefusal = Net.classifyRefusal;
     window.ILAP.SteamAuth = SteamAuth;
     window.ILAP.OwnIgnorePosts = OwnIgnorePosts;
     window.ILAP.saveStats = (name, source, appid) => StatsManager.save(name, source, appid);
     window.ILAP.saveHistory = (name, source, appid) => StatsManager.saveHistory(name, source, appid);
     window.ILAP.saveJobHistory = (job) => StatsManager.saveJob(job);
+    window.ILAP.saveCreatorHistory = (name, clanid, ignore) => StatsManager.saveCreator(name, clanid, ignore);
     window.ILAP.bumpIgnoredCount = () => StatsManager.bumpCount();
     window.ILAP.dropIgnoredCount = () => StatsManager.dropCount();
     window.ILAP.recordIgnoredTotal = (size) => StatsManager.recordTotal(size);

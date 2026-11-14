@@ -44,7 +44,7 @@ class ProgressReporter {
 
         const file = path.relative(process.cwd(), test.location.file).split(path.sep).join('/');
         // The file suite's own title IS the path, which the location already
-        // carries — so only a real describe block is worth prefixing with.
+        // has — so only a real describe block is worth prefixing with.
         const parent = test.parent && test.parent.title;
         const name = parent && !parent.endsWith('.spec.js') ? `${parent} › ${test.title}` : test.title;
         this._write(`${mark}\t${file}:${test.location.line}\t${name}\t${result.duration}ms`);

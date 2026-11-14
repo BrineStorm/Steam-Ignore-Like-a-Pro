@@ -1,0 +1,57 @@
+Filter AI games on the Steam Store, and ignore games with one mouse gesture or whole lists at once.
+
+Steam Ignore Like a Pro is a free, open-source extension that makes Steam more convenient and respects your privacy. Its AI tab marks, blurs or ignores games made with AI on every store page. The extension brings Steam's "Ignore" button to every game capsule in the store, so you no longer open a game's page just to click "Ignore" once. Everything works exactly as in Steam, because the extension uses Steam's own ignore.
+
+HOW TO USE:
+1. Open any page in the Steam Store.
+2. Hold the right mouse button on a game's capsule and swipe right (or left to ignore it with the "Already Played" mark).
+3. An "IGNORED" badge appears on the game right away. The ignore itself reaches Steam moments later.
+4. Click the badge to take the ignore back if you change your mind.
+
+HOW TO FILTER AI GAMES:
+1. Open the extension's panel and its AI tab.
+2. Pick the "High" filter level and click the save button next to the slider.
+3. Open any Steam page with lots of game capsules and scroll. As soon as an AI game comes into view, you see an animation and the game is added to your ignore list.
+4. If you like, you can turn the animation off or pick a level that only marks AI games and leaves them off your ignore list.
+
+FEATURES:
+▪ Free, private and open source - a lightweight extension with no frameworks, no tracking and no telemetry. It works in your browser's session and never passes it anywhere else.
+▪ One-gesture ignore - Hold the right mouse button and swipe right to ignore a game anywhere its capsule appears.
+▪ Ignore with the "Already Played" mark - Swipe left to ignore a game you played on another platform with that mark right away, instead of opening its page and clicking "Ignore" -> "Played on Another Platform".
+▪ AI game filter - The extension can mark games made with AI right on their capsules, or add them to your account's ignore list automatically.
+▪ Built-in ignore lists - Ignore every game with AI content, Denuvo, kernel access, invasive EULA terms, known bad games and more at once, whichever you pick. The lists are built in advance and come with the extension. Games in your library and on your wishlist are skipped.
+▪ Bulk ignore from curator lists - Ignore lists from Steam curators right from their pages. Pick a curator that marks games you don't like, and the extension ignores the whole list.
+▪ Creator ignore - Ignore a developer or publisher with one click on the button right next to its link on a game's page.
+▪ Discovery Queue ignore - Open the Discovery Queue on a tag, genre or category page, and the extension ignores every game in the queue or only the badly reviewed ones.
+▪ Classic Discovery Queue Helper - The extension automatically ignores games as you go through your daily Steam Discovery Queue, by your ignore criteria (for example, bad reviews), or ignores them and moves the queue forward right away.
+▪ Undo - You can take back the ignore of a game or a creator at any time right on the game's capsule or next to the creator's link, and roll back recent ignores as a list in a separate undo menu by adding an undo task.
+▪ Customizable - You can customize the extension quite widely, change hotkeys, turn individual modules and ignore modes on or off, move the extension's interface on the page and much more.
+▪ 24 interface languages - switchable on the fly, independently of your Steam language.
+
+Q: Why use this instead of Steam's native ignore?
+A: Steam's native "Ignore" button is missing on many Steam pages and widgets, and where it exists, ignoring takes several clicks (hover over the game's capsule -> click ▪▪▪ -> click "Ignore"), with no "Played on Another Platform" option in that menu. Steam also has no way to ignore a list of games at once. The extension gives you one-gesture ignore on any Steam page and widget, plus bulk ignore from built-in lists and ignore automation.
+
+Q: How do I ignore many games on Steam at once?
+A: Steam itself ignores one game at a time. With the extension you can, for example, add a built-in list to the ignore queue (games with AI content, Denuvo, kernel access, invasive EULA terms, known bad games and more), add a curator's whole list to the ignore queue, ignore a whole bundle with one gesture, ignore a creator, turn on the high AI filter level, run the Discovery Queue helper on a tag or genre, or simply swipe away unwanted games' capsules as you browse the store.
+
+Q: Does using this extension comply with Steam's rules?
+A: Yes, as far as ignores and un-ignores by gesture, button or hotkey go. Each one fires once per action you take, like a click on Steam's "Ignore" button. The queue helpers, the high AI filter level, the ignore queue (curator lists, built-in lists and bundles) and bulk undo are automation. Section 4.C of the Steam Subscriber Agreement prohibits non-human-controlled interaction with Steam, including earning rewards or progress without genuine user input, so use the automation features at your own discretion and with the risk in mind. The extension doesn't earn sale rewards for you and isn't designed to. It also has a built-in safeguard that paces the requests it sends to Steam, one at a time. The final word, however, belongs to Valve, along with the company's stance on and measures against this or any other Steam automation extension.
+
+Q: Can I undo an ignore?
+A: Yes, at any time. Steam's Ignore button on the game's page keeps working alongside the extension. You can also draw a circle or a zigzag over a game's capsule, or click the IGNORED badge on it, to take a single ignore back. Or open the extension's popup, click the undo button (↩️) and choose which recent ignores to roll back, the last N games or everything from the last N hours or days. Ignored creators can be brought back in the same place, on the "Creators" tab.
+
+Q: Does it work if my Steam interface is not in English?
+A: Yes. The extension is language-agnostic. It works regardless of the language settings you have chosen in your Steam account.
+
+Q: Does it work on macOS and Linux?
+A: Yes. On macOS and Linux the right-click menu opens as soon as the right button is pressed, so the extension holds that menu back on a click over a game's capsule when ignore or undo is set to a gesture. You can also assign the ignore to other keys (for example Shift + Left-Click) in SETTINGS -> Manual Ignore.
+
+Q: Can I ignore a bundle or a set of several games?
+A: Yes. Swipe over the bundle's capsule, then swipe over it once more to confirm. Every game and DLC in the bundle goes to the ignore queue and is ignored at the usual pace. Games in your library and on your wishlist are skipped.
+
+PRIVACY & SAFETY:
+▪ Works through Steam itself, either clicking Steam's own buttons or sending the same requests it sends.
+▪ No tracking, no analytics, no external servers. We do not collect, receive, or share any personal user data. Your settings, ignore history and pending queue are saved locally in your own browser, and requests go directly to Steam's official servers (store.steampowered.com and api.steampowered.com).
+▪ No passwords or Steam API keys are stored, and nothing is sent anywhere but Steam. The extension uses your active Steam session in the browser and, to check the reward for going through a Discovery Queue during a sale, the access token the Steam store page already contains. The token goes only to Steam's own API and is never stored.
+
+Steam Ignore Like a Pro is not affiliated with or sponsored by Valve Corporation or Steam.

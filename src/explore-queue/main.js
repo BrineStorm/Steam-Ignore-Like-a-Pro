@@ -56,6 +56,21 @@
             return window.ILAP.isWishlisted(appid);
         } };
 
+        const Settings = window.ILAP.Settings;
+        const aiVerdict = new Explore.AiVerdict({
+            readOptions: () => new Promise(resolve => {
+                const K = Settings.KEYS;
+                chrome.storage.local.get([K.AI_LEVEL, K.AI_KEEP_TRANSLATION, K.AI_KEEP_INGAME], (d) => resolve({
+                    high: Settings.normalizeAiLevel(d[K.AI_LEVEL]) === Settings.AI_LEVELS.HIGH,
+                    keep: { translation: d[K.AI_KEEP_TRANSLATION] === true, ingame: d[K.AI_KEEP_INGAME] === true },
+                }));
+            }),
+            aiGames: (keep) => window.ILAP.loadPresets().then(data => window.ILAP.aiGames(data, keep)),
+            disclosure: () => Explore.Context.getAiDisclosure(),
+            nameOf: (appid) => window.ILAP.getGameName(appid, Explore.Context.getGameContainer()),
+            rules: window.ILAP.AiDisclosure,
+        });
+
         // 6. Automator DI Assembly
         const automator = new Explore.AutomatorClass({
             settings: queueSettings,
@@ -71,7 +86,8 @@
             reward: window.ILAP.SaleReward,
             notice: window.ILAP.AutomationNotice,
             runs: runs,
-            wishlist: wishlistAdapter
+            wishlist: wishlistAdapter,
+            ai: aiVerdict
         });
 
         // 7. Run

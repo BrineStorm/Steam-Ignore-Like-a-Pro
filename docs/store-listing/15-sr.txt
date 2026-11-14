@@ -1,0 +1,57 @@
+Filtrirajte AI igre u Steam prodavnici i ignorišite igre jednim pokretom miša ili cele liste odjednom.
+
+Steam Ignore Like a Pro je besplatna open-source ekstenzija koja čini Steam udobnijim i poštuje vašu privatnost. Kartica AI označava, zamagljuje ili sama ignoriše igre napravljene uz AI na svakoj stranici prodavnice. Ekstenzija prenosi Steamovo dugme „Ignoriši“ na omot svake igre u prodavnici, i više ne morate da otvarate stranicu igre zbog jednog klika na „Ignoriši“. Sve radi potpuno isto kao u Steamu, jer ekstenzija koristi Steamovo sopstveno ignorisanje.
+
+KAKO SE KORISTI:
+1. Otvorite bilo koju stranicu u Steam prodavnici.
+2. Držite desni taster miša na omotu igre i prevucite udesno (ili ulevo za ignorisanje sa oznakom „Već igrano“).
+3. Na igri se odmah pojavljuje bedž „IGNORED“. Samo ignorisanje stiže do Steama posle nekoliko trenutaka.
+4. Ako se predomislite, kliknite na bedž da poništite ignorisanje.
+
+KAKO FILTRIRATI AI IGRE:
+1. Otvorite panel ekstenzije i karticu AI.
+2. Izaberite nivo filtera „Visok“ i kliknite na dugme za čuvanje pored klizača.
+3. Otvorite bilo koju Steam stranicu sa mnogo omota igara i listajte. Čim se AI igra nađe u vašem vidnom polju, videćete animaciju i igra će biti dodata na listu ignorisanih.
+4. Po želji možete da isključite animaciju ili izaberete nivo na kojem ekstenzija samo označava AI igre i ne dodaje ih na listu ignorisanih.
+
+FUNKCIJE:
+▪ Besplatna, privatna i open-source - lagana ekstenzija bez frejmvorka, praćenja i telemetrije. Radi u sesiji vašeg pregledača i nigde je dalje ne prosleđuje.
+▪ Ignorisanje jednim pokretom - Držite desni klik i prevucite udesno da ignorišete igru svuda gde se pojavljuje njen omot.
+▪ Ignorisanje sa oznakom „Već igrano“ - Prevucite ulevo da igru koju ste igrali na drugoj platformi odmah ignorišete sa ovom oznakom, umesto da otvarate njenu stranicu i kliknete na „Ignoriši“ -> „Igrano na drugoj platformi“.
+▪ Filter AI igara - Ekstenzija može sama da označava igre napravljene uz AI direktno na njihovim omotima ili da ih automatski dodaje na listu ignorisanih vašeg naloga.
+▪ Gotove liste za ignorisanje - Ignorišite odjednom sve igre sa AI sadržajem, Denuvom, pristupom kernelu, invazivnim EULA uslovima, kao i poznate loše igre i još mnogo toga, po vašem izboru. Liste su sastavljene unapred i ugrađene u ekstenziju. Igre iz vaše biblioteke i sa vaše liste želja se preskaču.
+▪ Masovno ignorisanje po listama kuratora - Ignorišite liste Steam kuratora direktno sa njihovih stranica. Izaberite kuratora koji označava igre koje vam se ne sviđaju, i ekstenzija će ignorisati celu listu.
+▪ Ignorisanje tvoraca - Ignorišite developera ili izdavača klikom na dugme tik uz link ka njemu na stranici igre.
+▪ Ignorisanje u redu otkrića (Discovery Queue) - Otvorite red otkrića na stranici taga, žanra ili kategorije, i ekstenzija će ignorisati sve igre u redu ili samo one sa lošim recenzijama.
+▪ Pomoćnik klasičnog reda otkrića - Ekstenzija automatski ignoriše igre dok pregledate svoj dnevni izbor Steam preporuka, po vašim uslovima (na primer, loše recenzije), ili ih ignoriše i odmah pomera red dalje.
+▪ Poništavanje ignorisanja - Ignorisanje igre ili tvorca možete u svakom trenutku poništiti direktno na omotu igre ili pored linka ka tvorcu, a skorašnja ignorisanja vratiti listom u posebnom meniju za poništavanje, dodavanjem zadatka za poništavanje.
+▪ Fleksibilna podešavanja - Ekstenziju možete prilično da prilagodite, menjate prečice, uključujete i isključujete pojedinačne module i režime ignorisanja, menjate mesto ekstenzije na stranici i još mnogo toga.
+▪ 24 jezika interfejsa - Menjaju se u letu, nezavisno od jezika Steama.
+
+P: Zašto koristiti ovo umesto ugrađenog ignorisanja igara u Steamu?
+O: Ugrađenog dugmeta „Ignoriši“ nema na mnogim stranicama i u vidžetima Steama, a tamo gde postoji, ignorisanje traži nekoliko klikova (pređete kursorom preko omota igre -> kliknete na ▪▪▪ -> kliknete na „Ignoriši“), i u tom meniju nema opcije „Igrano na drugoj platformi“. Uz to, u Steamu ne možete da ignorišete listu igara odjednom. Ekstenzija vam daje ignorisanje jednim pokretom na bilo kojoj stranici i u bilo kom vidžetu Steama, plus masovno ignorisanje po gotovim listama i automatizaciju ignorisanja.
+
+P: Kako da ignorišem mnogo igara odjednom na Steamu?
+O: Sam Steam ignoriše igre jednu po jednu. Uz ekstenziju možete, na primer, da dodate gotovu listu u red zadataka za ignorisanje (igre sa AI sadržajem, Denuvom, pristupom kernelu, invazivnim EULA uslovima, poznate loše igre i još mnogo toga), da u njega dodate celu listu kuratora, da jednim pokretom ignorišete ceo paket, ignorišete tvorca, uključite visok nivo AI filtera, pustite pomoćnika reda otkrića po tagu ili žanru, ili jednostavno brzo prevučete preko omota neželjenih igara u prodavnici.
+
+P: Da li je korišćenje ove ekstenzije u skladu sa pravilima Steama?
+O: Da, kada je reč o ignorisanju ili njegovom poništavanju pokretima, dugmadima ili prečicama. Svako od njih se aktivira jednom po vašoj radnji, kao klik na Steamovo dugme „Ignoriši“. Pomoćnici reda otkrića, visok nivo AI filtera, red zadataka za ignorisanje (liste kuratora, gotove liste i paketi) i masovno poništavanje spadaju u automatizaciju. Odeljak 4.C Steam ugovora o pretplati (Steam Subscriber Agreement) zabranjuje interakciju sa Steamom kojom ne upravlja čovek, uključujući sticanje nagrada ili napretka bez stvarnih radnji korisnika, zato funkcije automatizacije koristite po sopstvenom nahođenju i svesni rizika. Ekstenzija ne osvaja nagrade sa rasprodaja umesto vas i nije napravljena za to. Ima i ugrađenu zaštitu koja određuje tempo zahteva ka Steamu, jedan po jedan. Ipak, poslednja reč pripada kompaniji Valve, kao i stav i mere kompanije prema ovoj i bilo kojoj drugoj ekstenziji za automatizaciju Steama.
+
+P: Mogu li da poništim ignorisanje?
+O: Da, u bilo kom trenutku. Dugme za ignorisanje na stranici igre i dalje radi uz ekstenziju. Možete i da nacrtate krug ili cik-cak na omotu igre, ili da kliknete na bedž IGNORED na igri, da biste poništili jedno ignorisanje. Ili otvorite popup ekstenzije, kliknite na dugme za poništavanje (↩️) i podesite koja skorašnja ignorisanja treba vratiti, poslednjih N igara ili sve iz poslednjih N sati ili dana. Ignorisani tvorci se vraćaju na istom mestu, na kartici „Tvorci“.
+
+P: Da li ekstenzija radi ako mi Steam nije na engleskom?
+O: Da. Ekstenzija ne zavisi od jezika. Radi uz bilo koja jezička podešavanja vašeg Steam naloga.
+
+P: Da li ekstenzija radi na macOS-u i Linuxu?
+O: Da. Na macOS-u i Linuxu kontekstni meni se otvara odmah na pritisak desnog tastera, pa ekstenzija zadržava taj meni pri kliku na omot igre ako su ignorisanje ili poništavanje podešeni na pokrete. Ignorisanje možete da dodelite i drugim tasterima (na primer Shift + levi klik) u PODEŠAVANJA -> Ručno ignorisanje.
+
+P: Mogu li da ignorišem set ili bundle od više igara?
+O: Da. Prevucite preko omota paketa, pa prevucite preko njega još jednom za potvrdu. Sve igre i DLC-ovi iz paketa idu u red zadataka za ignorisanje i ignorišu se uobičajenim tempom. Igre iz vaše biblioteke i sa vaše liste želja se preskaču.
+
+PRIVATNOST I BEZBEDNOST:
+▪ Radi preko samog Steama, klikom na Steamova sopstvena dugmad ili slanjem istih zahteva koje šalje i on.
+▪ Bez praćenja, bez analitike, bez spoljnih servera. Ne prikupljamo, ne primamo i ne delimo nikakve lične podatke korisnika. Vaša podešavanja, istorija ignorisanja i red zadataka na čekanju čuvaju se lokalno u vašem pregledaču, a zahtevi idu direktno na zvanične Steam servere (store.steampowered.com i api.steampowered.com).
+▪ Ne čuvaju se lozinke ni Steam API ključevi i ništa se ne šalje nigde osim Steamu. Ekstenzija koristi vašu aktivnu Steam sesiju i, za proveru nagrade za prolazak kroz red otkrića tokom rasprodaje, pristupni token koji stranica Steam prodavnice već sadrži. On ide samo Steamovom API-ju i nikada se ne čuva.
+
+Steam Ignore Like a Pro nije povezan sa kompanijom Valve Corporation ni sa Steamom i oni ga ne sponzorišu.

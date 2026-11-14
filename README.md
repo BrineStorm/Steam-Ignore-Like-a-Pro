@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/icons/icon128.png" alt="Steam Ignore Like A Pro icon" width="128" />
+<img src="assets/icons/icon128.png" alt="Steam Ignore Like a Pro icon" width="128" />
 
-# Steam Ignore Like A Pro
+# Steam Ignore Like a Pro
 
 ### Ignore Steam games with a gesture, a hotkey, or let the queue helpers do it for you.
 
@@ -18,7 +18,7 @@
 
 **[Website](https://steamignorelikeapro.com) · [Changelog](CHANGELOG.md)**
 
-[What it does](#what-it-does) · [Automation helpers](#automation-helpers) · [Privacy](#privacy) · [Install](#install) · [FAQ](#faq)
+[What it does](#what-it-does) · [AI filter](#ai-filter) · [Automation helpers](#automation-helpers) · [Privacy](#privacy) · [Install](#install) · [FAQ](#faq)
 
 <br />
 
@@ -28,7 +28,7 @@
 
 ---
 
-A browser extension that lets you ignore Steam games straight from the storefront. **Steam Ignore Like A Pro** turns ignoring into a single gesture or hotkey, available on every Steam Store page.
+A browser extension that lets you ignore Steam games straight from the storefront. **Steam Ignore Like a Pro** turns ignoring into a single gesture or hotkey, available on every Steam Store page.
 
 Steam's native ignore is missing from many widgets and requires multiple clicks. Steam also lacks an "Already Played" feature outside of the game's full store page, and offers no way to automate ignoring during feed browsing. This extension allows this.
 
@@ -46,12 +46,30 @@ You can freely switch any of them to hold <kbd>Ctrl</kbd>, <kbd>Shift</kbd> or <
 
 The same ignore gesture works on a bundle's capsule. Swipe over it once more to confirm, and every game and DLC in the bundle goes to the ignore queue.
 
+A button next to a developer's or publisher's link on a game page ignores that creator on Steam, and so does a swipe over the link. The undo menu rolls creators back as well.
+
+The gestures work the same way in the Steam desktop client.
+
+<img src="assets/demo-steam-client.gif" alt="Demo in the Steam desktop client" width="600" />
+
+## AI filter
+
+The AI tab in the extension's panel has a slider of filter levels for AI games.
+
+- **Low** (default) - AI games get an AI flag across the store, and the flag says how the game uses AI when that is known, such as translation only or AI inside the game. An AI game's own page shows the developers' AI disclosure near the top. A game stays in the AI lists after its developer removes the disclosure, and the flag's tooltip on its page says so.
+- **Medium** - The covers of AI games are blurred too.
+- **High** - Every AI game you see on a store page goes to the ignore queue with a short animation. Pick the animation from a tomato, an emoji of your choice, a red swipe and more, or turn it off. The Classic Discovery Queue helper also ignores every game whose Steam page has an AI Generated Content Disclosure, whatever its reviews.
+
+Two switches keep games that use AI only for translation or have AI inside the game, for the AI lists too. High is automation, so the [FAQ](#faq) answer about Steam's rules applies to it.
+
+<img src="assets/demo-ai.gif" alt="Demo AI filter" width="600" />
+
 ## Panel & history
 
 - **Quick Settings** - Customize gestures or hotkeys, configure ignore modes to suit your browsing style, and toggle specific features or the entire extension directly from the panel.
 - **Recent** - One timeline of your recent ignores and un-ignores in the extension panel, each with an icon of where it came from. Click an entry to open the game, curator or bundle. This is just the extension's own local log.
 - **Bulk Un-ignore** - The **Undo** button in the panel rolls back everything from the last N hours or days, or the last N titles, without hunting down each store page. It also reaches games the per-game gesture can't, such as ones ignored in another tab or by the queue automators, and is paced by the same rate limiter as the ignores.
-- **Localization** - The interface is available in 23 languages. Pick yours right in the panel.
+- **Localization** - The interface is available in 24 languages. Pick yours right in the panel.
 
 ### Where the panel lives
 
@@ -69,13 +87,15 @@ You can freely switch between the two views with the toggle in the settings, and
 
 ### Curator Ignore Queue
 
-Stage a whole curator's list into an ignore queue from the curator page, optionally filtered, and let the extension work through it at a measured pace. Jobs can be paused, resumed, or dropped while they run, and progress is visible in the interface. On Chrome/Edge the queue keeps draining in the background with no Steam tab open. On Firefox it advances while a Steam Store page is open. Games on your wishlist are skipped and counted.
+Stage a whole curator's list into an ignore queue from the curator page, optionally filtered, and let the extension work through it at a measured pace. Jobs can be paused, resumed, or dropped while they run, and progress is visible in the interface. On Chrome/Edge the queue keeps draining in the background with no Steam tab open. On Firefox it advances while a Steam Store page is open. Games in your library and on your wishlist are skipped and counted.
 
 <img src="assets/demo-curator.gif" alt="Demo Curator Ignore Queue" width="600" />
 
 ### Built-in Ignore Lists
 
-Add a whole list to the same ignore queue with the lists icon on the **Ignore Tasks Queue** panel. The lists are AI-generated content (by release year), Denuvo DRM, kernel-level anti-cheat, In-App Purchases and every VR game. They are built from what Steam shows on each game's store page and come with the extension. Games on your wishlist are skipped here too.
+Add a whole list to the same ignore queue with the lists icon in the lower left corner of the extension's panel. The lists are AI-generated content (by release year), Denuvo DRM, kernel access (kernel-level anti-cheat and EULAs that ask for kernel access), In-App Purchases, every VR game, known bad games, lesser-known bad games, invasive EULA terms and EULA that can change at any time. They are built in advance and come with the extension. A blue dot marks a list that changed after you ran it. Games in your library and on your wishlist are skipped here too.
+
+<img src="assets/demo-lists.gif" alt="Demo Built-in Ignore Lists" width="600" />
 
 ### Genre/Category Discovery Queue Auto-Ignore
 
@@ -142,35 +162,28 @@ Steam's native "Ignore" button is missing on many Steam pages and widgets, and w
 <details>
 <summary><strong>How do I ignore many games on Steam at once?</strong></summary>
 
-Steam itself ignores one game at a time. With the extension you can, for example, add a built-in list to the ignore queue (games with AI content, Denuvo, kernel-level anti-cheat and more), add a curator's whole list to the ignore queue, ignore a whole bundle with one gesture, run the Discovery Queue helper on a tag or genre, or simply swipe away unwanted games' capsules as you browse the store.
-
-</details>
-
-<details>
-<summary><strong>Can I hide AI-generated games with this extension?</strong></summary>
-
-Yes. The extension comes with a built-in list of games whose Steam page has the "AI Generated Content Disclosure" section. Click the lists icon on the "Ignore Tasks Queue" panel in the extension, pick the release year and add the list to the queue. Games with Denuvo, kernel-level anti-cheat or In-App Purchases and every VR game are ignored the same way. You can also add a list from a curator that marks games made with AI.
+Steam itself ignores one game at a time. With the extension you can, for example, add a built-in list to the ignore queue (games with AI content, Denuvo, kernel access, invasive EULA terms, known bad games and more), add a curator's whole list to the ignore queue, ignore a whole bundle with one gesture, ignore a creator, turn on the high AI filter level, run the Discovery Queue helper on a tag or genre, or simply swipe away unwanted games' capsules as you browse the store.
 
 </details>
 
 <details>
 <summary><strong>Does using this extension comply with Steam's rules?</strong></summary>
 
-Yes, as far as ignores and un-ignores by gesture or hotkey go. Each one fires once per action you take, like a click on Steam's "Ignore" button. The queue helpers, the ignore queue (curator lists, built-in lists and bundles) and bulk undo are automation. Section 4.C of the [Steam Subscriber Agreement](https://store.steampowered.com/subscriber_agreement/) prohibits non-human-controlled interaction with Steam, including earning rewards or progress without genuine user input, so use the automation features at your own discretion and with the risk in mind. The extension doesn't earn sale rewards for you and isn't designed to. It also has a built-in safeguard that paces the requests it sends to Steam, one at a time. The final word, however, belongs to Valve, along with the company's stance on and measures against this or any other Steam automation extension.
+Yes, as far as ignores and un-ignores by gesture, button or hotkey go. Each one fires once per action you take, like a click on Steam's "Ignore" button. The queue helpers, the high AI filter level, the ignore queue (curator lists, built-in lists and bundles) and bulk undo are automation. Section 4.C of the [Steam Subscriber Agreement](https://store.steampowered.com/subscriber_agreement/) prohibits non-human-controlled interaction with Steam, including earning rewards or progress without genuine user input, so use the automation features at your own discretion and with the risk in mind. The extension doesn't earn sale rewards for you and isn't designed to. It also has a built-in safeguard that paces the requests it sends to Steam, one at a time. The final word, however, belongs to Valve, along with the company's stance on and measures against this or any other Steam automation extension.
 
 </details>
 
 <details>
 <summary><strong>Can I undo an ignore?</strong></summary>
 
-Yes, at any time. Steam's Ignore button on the game's page keeps working alongside the extension. You can also draw a circle or a zigzag over a game's capsule, or click the IGNORED badge on it, to take a single ignore back. Or open the extension's popup, click the undo button (↩️) and choose which recent ignores to roll back, the last N games or everything from the last N hours or days.
+Yes, at any time. Steam's Ignore button on the game's page keeps working alongside the extension. You can also draw a circle or a zigzag over a game's capsule, or click the IGNORED badge on it, to take a single ignore back. Or open the extension's popup, click the undo button (↩️) and choose which recent ignores to roll back, the last N games or everything from the last N hours or days. Ignored creators can be brought back in the same place, on the "Creators" tab.
 
 </details>
 
 <details>
 <summary><strong>Does it work if my Steam interface is not in English?</strong></summary>
 
-Yes. The extension is language-agnostic. It works regardless of the language settings you have chosen in your Steam account, as it relies on the page structure and doesn't read text labels.
+Yes. The extension is language-agnostic. It works regardless of the language settings you have chosen in your Steam account.
 
 </details>
 
@@ -182,23 +195,16 @@ Yes. On macOS and Linux the right-click menu opens as soon as the right button i
 </details>
 
 <details>
-<summary><strong>Why does an ignored game stay on the page?</strong></summary>
-
-The extension marks it at once (IGNORED badge, blurred cover), but Steam only drops ignored games from its lists when it rebuilds them, and its caching can lag behind.
-
-</details>
-
-<details>
 <summary><strong>Can I ignore a bundle or a set of several games?</strong></summary>
 
-Yes. Swipe over the bundle's capsule, then swipe over it once more to confirm. Every game and DLC in the bundle goes to the ignore queue and is ignored at the usual pace. Games on your wishlist are skipped.
+Yes. Swipe over the bundle's capsule, then swipe over it once more to confirm. Every game and DLC in the bundle goes to the ignore queue and is ignored at the usual pace. Games in your library and on your wishlist are skipped.
 
 </details>
 
 ## Documentation
 
 - [CHANGELOG.md](./CHANGELOG.md) - what changed in each release.
-- [TESTING.md](./TESTING.md) - the full test suite overview, setup instructions, and per-module coverage.
+- [TESTING.md](./TESTING.md) - the test layers, how to run them, and how to write a test.
 - [PRIVACY.md](./PRIVACY.md) - privacy policy for users and the Chrome Web Store.
 
 <details>
@@ -227,7 +233,7 @@ Yes. Swipe over the bundle's capsule, then swipe over it once more to confirm. E
 
 This extension is provided "as is", without warranty of any kind. Use it at your own risk. Automated and bulk actions (the queue helpers, the ignore queue with curator lists, built-in lists and bundles, bulk undo) interact with Steam on your behalf — you are responsible for your own account and for respecting the [Steam Subscriber Agreement](https://store.steampowered.com/subscriber_agreement/). The authors are not liable for any consequences arising from its use.
 
-Steam Ignore Like A Pro is not affiliated with, endorsed by, or sponsored by Valve Corporation or Steam.
+Steam Ignore Like a Pro is not affiliated with, endorsed by, or sponsored by Valve Corporation or Steam.
 
 ## License
 

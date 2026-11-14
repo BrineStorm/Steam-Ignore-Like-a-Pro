@@ -1,0 +1,57 @@
+Szűrd ki az MI-vel készült játékokat a Steam áruházban, és mellőzz játékokat egyetlen egérmozdulattal, vagy egész listákat egyszerre.
+
+A Steam Ignore Like a Pro egy ingyenes, open source bővítmény, amely kényelmesebbé teszi a Steamet, és tiszteletben tartja a magánszférádat. Az AI fül az áruház minden oldalán megjelöli, elhomályosítja vagy mellőzi az MI-vel készült játékokat. A bővítmény a Steam „Mellőzés” gombját minden játék borítójára elhozza az áruházban, így nem kell megnyitnod a játék oldalát egyetlen „Mellőzés” kattintásért. Minden pontosan úgy működik, mint a Steamben, mert a bővítmény a Steam saját mellőzését használja.
+
+HASZNÁLAT:
+1. Nyiss meg bármelyik oldalt a Steam áruházban.
+2. Tartsd lenyomva a jobb egérgombot egy játék borítóján, és húzd jobbra (vagy balra, ha „Már játszottam” jelöléssel akarod mellőzni).
+3. A játékon azonnal megjelenik az „IGNORED” jelvény. Maga a mellőzés néhány pillanat múlva ér el a Steamhez.
+4. Ha meggondolod magad, kattints a jelvényre, és visszavonod az ignorálást.
+
+AZ MI-JÁTÉKOK SZŰRÉSE:
+1. Nyisd meg a bővítmény paneljét és az AI fület.
+2. Válaszd ki a „Magas” szűrőszintet, és kattints a csúszka melletti mentés gombra.
+3. Nyiss meg bármelyik Steam-oldalt, amelyen sok játékborító van, és görgess. Amint egy MI-játék a látómeződbe kerül, animációt látsz, és a játék felkerül a mellőzési listádra.
+4. Ha szeretnéd, kikapcsolhatod az animációt, vagy választhatsz olyan szintet, amely az MI-játékokat csak megjelöli, a mellőzési listádra viszont nem teszi fel őket.
+
+FUNKCIÓK:
+▪ Ingyenes, privát és open source - könnyű bővítmény keretrendszerek, követés és telemetria nélkül. A böngésződ munkamenetében működik, és sehová máshová nem adja tovább.
+▪ Mellőzés egy mozdulattal - Tartsd lenyomva a jobb gombot, és húzd jobbra, hogy mellőzz egy játékot bárhol, ahol a borítója megjelenik.
+▪ Ignorálás „Már játszottam” jelöléssel - Húzd balra, hogy egy más platformon játszott játékot rögtön ezzel a jelöléssel mellőzz, ahelyett, hogy megnyitnád az oldalát és a „Mellőzés” -> „Más platformon játszottam” lehetőségre kattintanál.
+▪ MI-játékszűrő - A bővítmény megjelölheti az MI-vel készült játékokat közvetlenül a borítóikon, vagy automatikusan felveheti őket a fiókod mellőzési listájára.
+▪ Kész mellőzési listák - Mellőzd egyszerre az összes MI-tartalmú, Denuvót használó, kernel-hozzáférést kérő, tolakodó EULA-feltételeket tartalmazó játékot, a közismerten rossz játékokat és még sok mást, ahogy választasz. A listák előre elkészültek, és a bővítménnyel együtt érkeznek. A könyvtáradban és a kívánságlistádon lévő játékokat kihagyja.
+▪ Tömeges mellőzés kurátorlisták alapján - Mellőzd a Steam-kurátorok listáit közvetlenül az oldalaikról. Válassz egy kurátort, aki megjelöli azokat a játékokat, amelyeket nem szeretsz, és a bővítmény leignorálja az egész listát.
+▪ Készítő mellőzése - Mellőzz egy fejlesztőt vagy kiadót egyetlen kattintással a játék oldalán a hivatkozása mellett lévő gombbal.
+▪ Mellőzés a felfedezési várólistában (Discovery Queue) - Nyisd meg a felfedezési várólistát egy címke, műfaj vagy kategória oldalán, és a bővítmény mellőzi a várólista összes játékát, vagy csak a rossz értékelésűeket.
+▪ Klasszikus felfedezési várólista segéd - A bővítmény automatikusan mellőzi a játékokat, miközben végignézed a Steam napi ajánlásválogatását, a saját mellőzési feltételeid szerint (például rossz értékelések alapján), vagy mellőzi őket, és azonnal lépteti tovább a várólistát.
+▪ Mellőzés visszavonása - Egy játék vagy készítő mellőzését bármikor visszavonhatod közvetlenül a játék borítóján vagy a készítő hivatkozása mellett, a friss ignorálásokat pedig listában vonhatod vissza egy külön visszavonási menüben, visszavonási feladat hozzáadásával.
+▪ Rugalmas beállítások - A bővítményt elég széles körben testre szabhatod, módosíthatod a gyorsbillentyűket, ki- és bekapcsolhatod az egyes modulokat és mellőzési módokat, áthelyezheted a bővítmény felületét az oldalon, és még sok mást.
+▪ 24 felületi nyelv - Menet közben válthatók, a Steam nyelvétől függetlenül.
+
+K: Miért használjam ezt a Steam beépített ignorálása helyett?
+V: A beépített „Mellőzés” gomb sok Steam-oldalon és widgetben nincs ott, és ahol ott van, a mellőzés több kattintás (a játék borítója fölé viszed a kurzort -> ▪▪▪ -> „Mellőzés”), és abban a menüben nincs „Más platformon játszottam” lehetőség. A Steamben ráadásul nem lehet egy játéklistát egyszerre mellőzni. A bővítmény egy mozdulatos mellőzést ad bármely Steam-oldalon és widgetben, plusz tömeges mellőzést kész listák alapján és automatikus ignorálást.
+
+K: Hogyan mellőzhetek egyszerre sok játékot a Steamen?
+V: Maga a Steam egyesével mellőzi a játékokat. A bővítménnyel például beteheted a mellőzési sorba valamelyik kész listát (az MI-tartalmú, Denuvót használó, kernel-hozzáférést kérő, tolakodó EULA-feltételeket tartalmazó, közismerten rossz játékok és még sok más), betehetsz oda egy kurátor teljes listáját, egy mozdulattal mellőzhetsz egy egész csomagot, mellőzhetsz egy készítőt, bekapcsolhatod az MI-szűrő magas szintjét, ráengedheted a felfedezési várólista segédet egy címkére vagy műfajra, vagy egyszerűen csak gyorsan lehúzogathatod a nem kívánt játékok borítóit az áruházban.
+
+K: Megfelel a bővítmény használata a Steam szabályainak?
+V: Igen, ami a gesztusokkal, gombokkal vagy gyorsbillentyűkkel végzett ignorálást és annak visszavonását illeti. Mindegyik egyszer fut le egy műveletedre, mint egy kattintás a Steam „Mellőzés” gombjára. A felfedezési várólista segédek, az MI-szűrő magas szintje, a mellőzési sor (kurátorlisták, kész listák és csomagok) és a listás visszavonás automatizálásnak számít. A Steam Előfizetői Szerződés (Steam Subscriber Agreement) 4.C pontja tiltja a nem ember által irányított interakciót a Steammel, beleértve a jutalmak vagy előrehaladás megszerzését valódi felhasználói műveletek nélkül, ezért az automatizálási funkciókat saját belátásod szerint és a kockázat tudatában használd. A bővítmény nem szerez helyetted leárazási jutalmakat, és nem is erre készült. Beépített védelme is van, amely megszabja a Steamnek küldött kérések ütemét, egyszerre egyet. A végső szó azonban a Valve-é, ahogy a vállalat álláspontja és intézkedései is ezzel és bármely más Steam-automatizáló bővítménnyel szemben.
+
+K: Vissza lehet vonni az ignorálást?
+V: Igen, bármikor. A játék oldalán lévő mellőzés gomb a bővítménnyel is ugyanúgy működik. Egy ignorálást úgy is visszavonhatsz, hogy kört vagy cikcakkot rajzolsz a játék borítójára, vagy rákattintasz a játékon lévő IGNORED jelvényre. Vagy nyisd meg a bővítmény popupját, nyomd meg a visszavonás gombot (↩️), és add meg, mely friss ignorálásokat kell visszavonni, az utolsó N játékot vagy mindent az elmúlt N órából vagy napból. A mellőzött készítőket ugyanott lehet visszahozni, a „Készítők” fülön.
+
+K: Működik a bővítmény, ha a Steamem nem angol nyelvű?
+V: Igen. A bővítmény nem függ a nyelvtől. A Steam-fiókod bármilyen nyelvi beállításával működik.
+
+K: Működik a bővítmény macOS-en és Linuxon?
+V: Igen. macOS-en és Linuxon a helyi menü már a jobb gomb lenyomásakor megnyílik, ezért a bővítmény visszatartja ezt a menüt a játék borítójára kattintáskor, ha az ignorálás vagy a visszavonás gesztusra van állítva. Az ignorálást más gombokra is beállíthatod (például Shift + bal klikk) a BEÁLLÍTÁSOK -> Kézi mellőzés menüben.
+
+K: Mellőzhetek egy több játékból álló csomagot vagy bundle-t?
+V: Igen. Húzd végig a csomag borítóján, majd megerősítésként húzd végig rajta még egyszer. A csomag összes játéka és DLC-je bekerül a mellőzési sorba, és a szokásos ütemben mellőzésre kerül. A könyvtáradban és a kívánságlistádon lévő játékokat kihagyja.
+
+ADATVÉDELEM ÉS BIZTONSÁG:
+▪ Magán a Steamen keresztül működik, a Steam saját gombjaira kattintva vagy ugyanazokat a kéréseket küldve, amelyeket a Steam is küld.
+▪ Nincs követés, nincs analitika, nincsenek külső szerverek. Semmilyen személyes felhasználói adatot nem gyűjtünk, nem fogadunk és nem osztunk meg. A beállításaid, a mellőzési előzményeid és a függő sor helyben, a saját böngésződben tárolódnak, a kérések pedig közvetlenül a Steam hivatalos szervereire mennek (store.steampowered.com és api.steampowered.com).
+▪ Nem tárol jelszavakat vagy Steam API-kulcsokat, és semmit nem küld sehová, csak a Steamnek. A bővítmény az aktív Steam-munkamenetedet használja, a felfedezési várólista végignézéséért járó leárazási jutalom ellenőrzéséhez pedig azt a hozzáférési tokent, amelyet a Steam áruház oldala már tartalmaz. Ez csak a Steam saját API-jához megy, és soha nem tárolódik.
+
+A Steam Ignore Like a Pro nem áll kapcsolatban a Valve Corporationnel vagy a Steammel, és nem ők szponzorálják.

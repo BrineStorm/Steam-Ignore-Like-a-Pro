@@ -16,7 +16,7 @@ const { loadSettingsSchema } = require('../_settings-schema.js');
 // value bound twice costs the rollback, never the ignore.
 //
 // gestures.js is an IIFE that evals with no document, so it runs in Node — same
-// harness as zigzag.unit.spec.js. `chrome` carries only what the menu-at-press
+// harness as zigzag.unit.spec.js. `chrome` has only what the menu-at-press
 // cancel reads: a live extension id, or none for a tab orphaned by an update.
 function loadMI(chrome = { runtime: { id: 'ilap-test' } }) {
     const code = fs.readFileSync(
@@ -115,7 +115,7 @@ test.describe('modifier-click resolution', () => {
 
     test("'off' is checked for all three bindings, not just the two", () => {
         // `event['off']` is undefined, so a missing OFF check went unnoticed —
-        // until some event carries an `off` property and the binding the user
+        // until some event has an `off` property and the binding the user
         // switched off starts firing. Each one is asked the same question.
         const offEvent = { off: true };
         expect(clickOutcome({ defaultKey: 'off' }, offEvent)).toBeNull();
@@ -326,7 +326,7 @@ test.describe('a context menu that opens at press (macOS, Linux)', () => {
 
 test.describe('circle resolution', () => {
 
-    test('the circle carries whichever action it is bound to', () => {
+    test('the circle fires whichever action it is bound to', () => {
         // The whole point of opening it to the ignore selects: ignore by circle,
         // un-ignore by swipe is as valid a setup as the shipped default.
         expect(circleOutcome({ defaultKey: 'zigzag', unignoreKey: 'swipeRight' }))

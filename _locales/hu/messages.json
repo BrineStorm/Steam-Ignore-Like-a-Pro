@@ -1,11 +1,11 @@
 {
   "extName": {
-    "message": "Steam Ignore Like A Pro — Játékmellőzési segéd"
+    "message": "Steam Ignore Like a Pro — MI-szűrő és mellőzés"
   },
   "extNameChrome": {
-    "message": "Steam Ignore Like A Pro — Mellőzz játékokat gyorsan és automatikusan"
+    "message": "Steam Ignore Like a Pro — Steam gagyi nélkül, MI-szűrő és tömeges mellőzés"
   },
   "extDescription": {
-    "message": "Tegyél játékokat a Steam mellőzési listádra egy egérmozdulattal, vagy egész listákat, saját választás vagy kurátorok alapján."
+    "message": "Szűrd ki az MI-játékokat, mellőzz bármely játékot egy egérmozdulattal vagy nem kívánt játékok egész listáit, és még sok más."
   }
 }

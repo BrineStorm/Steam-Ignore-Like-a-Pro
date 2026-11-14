@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { PALETTE } = require('../_palette.js');
 
 // DiscoveryQueueAutomator stop-discipline as Node units — no browser. The E2E
 // ui.spec covers live start/stop cycles; these two are races the E2E can't
@@ -22,10 +23,6 @@ function loadAutomator(warns, setTimeoutImpl) {
         Date, Math, Promise, Object, Array, String,
     };
     vm.createContext(sandbox);
-    // logic.js reads the shared review palette at load time (window.ILAP.SteamPalette),
-    // so the table goes into the sandbox first — without it SlideScanner would
-    // find no bad shades and fail safe on every slide.
-    vm.runInContext(src('queue-common', 'steam-palette.js'), sandbox);
     vm.runInContext(src('discovery-queue', 'logic.js'), sandbox);
     // sandbox is exposed so a test can swap the globals logic.js reads at call
     // time — _loop probes `document` for the dialog on every iteration.
@@ -38,6 +35,7 @@ const noopAdapters = () => ({
     nameExtractor: { get: () => 'Unknown Game' },
     gate: { reserve: async () => ({ ok: true }) },
     reward: { check: async () => 'allowed', STATUS: { ALLOWED: 'allowed', PENDING: 'pending', UNKNOWN: 'unknown' } },
+    palette: PALETTE,
 });
 
 test.describe('DiscoveryQueueAutomator (unit)', () => {
@@ -45,13 +43,8 @@ test.describe('DiscoveryQueueAutomator (unit)', () => {
     test('no review palette refuses construction instead of sparing every game', async () => {
         // Without the palette no review reads as bad, and Keep High Score would
         // quietly ignore nothing: the 1.2.2 failure, silent again.
-        const sandbox = { window: {}, console, document: { querySelector: () => null },
-            setTimeout, clearTimeout, Date, Math, Promise, Object, Array, String };
-        vm.createContext(sandbox);
-        vm.runInContext(fs.readFileSync(
-            path.join(__dirname, '..', '..', 'src', 'discovery-queue', 'logic.js'), 'utf8'), sandbox);
-        const Automator = sandbox.window.ILAP.Discovery.Automator;
-        expect(() => new Automator(noopAdapters())).toThrow('SteamPalette');
+        const { Automator } = loadAutomator();
+        expect(() => new Automator(Object.assign(noopAdapters(), { palette: undefined }))).toThrow('needs deps.palette');
     });
 
     test('a throw mid-iteration still lands in stop() — no zombie isRunning/slot', async () => {
@@ -103,7 +96,7 @@ test.describe('DiscoveryQueueAutomator (unit)', () => {
                 : sel.includes('/app/') ? [link] : []),
         };
         const dialog = {
-            querySelector: (sel) => (sel.includes('_3q6eNRFBrPSFSGEn8uRFZ3')
+            querySelector: (sel) => (sel.includes('E5dDz0rMQn4-')
                 ? { children: [{}, {}, slide] } : null),
             querySelectorAll: (sel) => (sel === 'path' ? [nextPath] : []),
         };
@@ -123,7 +116,7 @@ test.describe('DiscoveryQueueAutomator (unit)', () => {
     });
 });
 
-// The name a confirmed ignore is recorded under. A card whose link carries no
+// The name a confirmed ignore is recorded under. A card whose link has no
 // readable title falls back to the name lookup, which must be asked for the
 // card's own appid: it was once asked for game 0 and "AppID 0" landed in Last
 // Ignored. When nothing at all yields a name, the record says so.
@@ -149,7 +142,7 @@ test.describe('DQ recorded name (unit)', () => {
             querySelectorAll: (sel) => (sel === 'path' ? [ignorePath] : sel.includes('/app/') ? [link] : []),
         };
         const dialog = {
-            querySelector: (sel) => (sel.includes('_3q6eNRFBrPSFSGEn8uRFZ3') ? { children: [{}, {}, slide] } : null),
+            querySelector: (sel) => (sel.includes('E5dDz0rMQn4-') ? { children: [{}, {}, slide] } : null),
             querySelectorAll: (sel) => (sel === 'path' ? [nextPath] : []),
         };
         a._clickWithDelay = () => Promise.resolve();
@@ -249,7 +242,7 @@ test.describe('DQ end-of-queue / exhausted pool (unit)', () => {
             ? { children: [blank, blank, panel, blank, blank] }
             : { children: [blank, blank, slide] };
         const dialog = {
-            querySelector: (sel) => (sel.includes('_3q6eNRFBrPSFSGEn8uRFZ3') ? carousel : null),
+            querySelector: (sel) => (sel.includes('E5dDz0rMQn4-') ? carousel : null),
             querySelectorAll: (sel) => {
                 // A Next arrow exists only on a normal game slide: on the
                 // final slide there is nothing to advance to. (The stale-card
@@ -459,7 +452,7 @@ test.describe('DQ end-of-queue / exhausted pool (unit)', () => {
             querySelectorAll: (sel) => (sel === 'path' ? [staleIgnorePath]
                 : sel.includes('/app/') ? [link] : []),
         };
-        // A carousel _findCarousel would accept (>2 children, ≥2 carrying a game
+        // A carousel _findCarousel would accept (>2 children, ≥2 with a game
         // link), with the stale card dead centre — exactly the shape that used to
         // be mistaken for the active slide.
         const sibling = () => ({ querySelector: (s) => (s.includes('/app/') ? link : null) });
@@ -606,7 +599,7 @@ test.describe('DQ wishlist guard (unit)', () => {
             querySelectorAll: (sel) => (sel === 'path' ? [ignorePath] : sel.includes('/app/') ? [link] : []),
         };
         const dialog = {
-            querySelector: (sel) => (sel.includes('_3q6eNRFBrPSFSGEn8uRFZ3') ? { children: [{}, {}, slide] } : null),
+            querySelector: (sel) => (sel.includes('E5dDz0rMQn4-') ? { children: [{}, {}, slide] } : null),
             querySelectorAll: (sel) => (sel === 'path' ? [nextPath] : []),
         };
         return { dialog, ignoreBtn, nextBtn };
@@ -641,5 +634,20 @@ test.describe('DQ wishlist guard (unit)', () => {
         const { a, clicks } = make(async () => null);
         expect(await a._processCurrentSlide(slideFor('620').dialog)).toBe(false);
         expect(clicks).toEqual([]);
+    });
+});
+
+// The ignored state Steam shows on its own Ignore button: a second hashed class.
+// Both of Steam's hash formats count, its plain names never do.
+test.describe('DQ automator — Ignore button state (unit)', () => {
+    const btn = (cls) => ({ getAttribute: () => null, classList: cls.split(' ') });
+    test('two hashed classes read as ignored, in either hash format', () => {
+        const { Automator } = loadAutomator();
+        const a = new Automator(noopAdapters());
+        expect(a._isButtonActive(btn('BxLuFJsRaUQ- Panel Focusable'))).toBe(false);
+        expect(a._isButtonActive(btn('BxLuFJsRaUQ- _3ZYr-Efwvg8- Panel Focusable'))).toBe(true);
+        expect(a._isButtonActive(btn('_2xGt0kQfWJ Panel Focusable'))).toBe(false);
+        expect(a._isButtonActive(btn('_2xGt0kQfWJ _1y5HMfaEOKj Panel Focusable'))).toBe(true);
+        expect(a._isButtonActive(btn('tool-tip-source Panel Focusable gpfocus'))).toBe(false);
     });
 });

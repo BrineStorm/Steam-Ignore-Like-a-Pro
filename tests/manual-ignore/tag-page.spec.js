@@ -61,7 +61,7 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
                 return;
             }
 
-            // A seeded capsule inside THIS block must carry a badge — proves the
+            // A seeded capsule inside THIS block must have a badge — proves the
             // strategy resolved a container here (didn't return null / escape).
             // Steam reshuffles some sections per load, so distinguish:
             //   badged          → resolved + rendered (pass)
@@ -136,7 +136,7 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
         await page.waitForTimeout(600);
 
         // The popover is a floating element (inline z-index + left + top) holding
-        // the app link. It must carry its OWN badge for this appid; before the fix
+        // the app link. It must have its OWN badge for this appid; before the fix
         // it was deduped against the capsule and stayed bare.
         //
         // Two independent ways to find that float, because either marker can be
@@ -150,7 +150,7 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
         //
         // The fallback must not weaken the claim: /tags/ capsules are virtualized
         // and inline-positioned too, so a float that WRAPS the hovered capsule
-        // (tagged above) would carry the capsule's own badge and pass with a bare
+        // (tagged above) would have the capsule's own badge and pass with a bare
         // popover — those are excluded. A float nested INSIDE the capsule is not:
         // that is exactly where Steam mounts the preview (verified — excluding it
         // made this assertion report "never opened" on a badged, open popover).
@@ -182,7 +182,7 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
             return -1;
         }, pick.appid), {
             timeout: 10000,
-            message: 'hover-preview popover should carry the IGNORED badge for the ignored game',
+            message: 'hover-preview popover should show the IGNORED badge for the ignored game',
         }).toBeGreaterThan(0);
     });
 
@@ -203,8 +203,8 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
         // containers hold the real cover art. Scan EVERY badge for an id (not just
         // the first in document order), else a badge in an art-less block masks the
         // blurred one elsewhere and the assertion flakes. Distinguish:
-        //   blurred → at least one badged capsule carries a winning blur (pass)
-        //   no-blur → a seeded capsule is badged but none carry blur (real bug)
+        //   blurred → at least one badged capsule has a winning blur (pass)
+        //   no-blur → a seeded capsule is badged but none have blur (real bug)
         //   none    → no seeded capsule rendered a badge (Steam reshuffled → skip)
         let status = 'none';
         try {
@@ -216,8 +216,8 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
                             if (!badge.parentElement) continue;
                             sawBadge = true;
                             // The blur rides the real cover art (img/video), picked by
-                            // _pickArts — not necessarily the first media node. Assert SOME
-                            // media in the target carries it, is NOT the badge's own tooltip
+                            // pickArts — not necessarily the first media node. Assert SOME
+                            // media in the target has it, is NOT the badge's own tooltip
                             // icon, AND that the blur actually wins in the computed style
                             // (Steam puts filter: brightness(1) on some capsules at equal
                             // specificity → needs !important, else the blur silently cancels).
@@ -237,7 +237,7 @@ test.describe('Manual Ignore — /tags/<Tag> page blocks', () => {
             test.skip(true, 'No seeded capsule rendered a badge (Steam reshuffled the blocks); cannot assert blur.');
             return;
         }
-        expect(status, 'a seeded badged capsule should carry a winning blur filter on its art').toBe('blurred');
+        expect(status, 'a seeded badged capsule should have a winning blur filter on its art').toBe('blurred');
     });
 
     test('Persistent capsule badge survives the hover-preview popover (regression)', async ({ page, context }) => {

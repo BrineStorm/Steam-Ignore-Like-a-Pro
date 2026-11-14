@@ -135,11 +135,12 @@ test.describe('on-page widget — collapse to chevron', () => {
         await page.locator('.ilap-launcher').click();
         await expect(page.locator('.ilap-panel')).toHaveClass(/open/);
 
-        // Grow the content: open the SETTINGS accordion inside the panel.
-        await page.locator('.ilap-panel #settings-accordion summary').first().click();
+        // Grow the content: open the settings tab and a subcategory inside it.
+        await page.locator('.ilap-panel #tab-settings').click();
+        await page.locator('.ilap-panel #mi-section > summary').click();
 
         const root = page.locator('.ilap-panel #popup-root');
-        // Polled, not sampled once: the accordion expands over a transition, and
+        // Polled, not sampled once: the tab expands over an animation, and
         // for the first ~50 ms scrollHeight still equals clientHeight (measured:
         // 314/314 at the click, 475/393 once settled). A single read right after
         // the click lands inside that window whenever the machine is loaded —
@@ -164,8 +165,8 @@ test.describe('on-page widget — collapse to chevron', () => {
         const panel = page.locator('.ilap-panel');
         await expect(panel).toHaveClass(/open/);
 
-        // SETTINGS → Manual Ignore → the Default Ignore binding menu.
-        await panel.locator('#settings-accordion > summary').click();
+        // Settings tab → Manual Ignore → the Default Ignore binding menu.
+        await panel.locator('#tab-settings').click();
         await panel.locator('#mi-section > summary').click();
         await panel.locator('#default-key-display').click();
         const menu = panel.locator('#default-key-display ~ .select-menu');
@@ -179,6 +180,41 @@ test.describe('on-page widget — collapse to chevron', () => {
         await expect(panel).toHaveClass(/open/);
         await expect(panel.locator('#mi-section')).toHaveJSProperty('open', true); // accordions keep their state
         await expect(menu).not.toHaveClass(/open/);
+    });
+
+    test('a page click fades the panel out before it goes, and a reopen in the fade brings it back', async ({ page }) => {
+        test.skip(!fs.existsSync(AUTH_FILE), 'no saved Steam session — run: npm run test:auth'); // panel is login-gated
+
+        await page.goto(searchUrl());
+        await page.locator('.ilap-chevron').click();
+        await page.locator('.ilap-launcher').click();
+        const panel = page.locator('.ilap-panel');
+        await expect(panel).toHaveClass(/open/);
+        const look = () => panel.evaluate(el => {
+            const cs = getComputedStyle(el);
+            return { display: cs.display, opacity: cs.opacity, events: cs.pointerEvents, fade: cs.transitionDuration };
+        });
+
+        // In the fade: still drawn, going to 0 over .2 s, clicks pass to the page.
+        await page.mouse.click(10, 400);
+        await expect(panel).not.toHaveClass(/open/);
+        await expect(panel).toHaveClass(/closing/);
+        const { opacity, ...fading } = await look();
+        expect(fading).toEqual({ display: 'block', events: 'none', fade: '0.2s' });
+        // Then gone.
+        await expect(panel).not.toHaveClass(/closing/);
+        expect((await look()).display).toBe('none');
+
+        // A reopen in the fade drops it and the panel ends whole.
+        await page.locator('.ilap-launcher').click();
+        await expect(panel).toHaveClass(/open/);
+        const icon = await page.locator('.ilap-launcher').boundingBox();
+        await page.mouse.click(10, 400);
+        await page.mouse.click(icon.x + icon.width / 2, icon.y + icon.height / 2);
+        await expect(panel).toHaveClass(/open/);
+        await expect(panel).not.toHaveClass(/closing/);
+        await expect.poll(async () => (await look()).opacity).toBe('1');
+        expect((await look()).events).toBe('auto');
     });
 
     test('an open panel counts as activity — idle timer bumps instead of collapsing', async ({ context, page }) => {

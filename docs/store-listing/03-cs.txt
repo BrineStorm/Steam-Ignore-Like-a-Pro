@@ -1,0 +1,57 @@
+Filtrujte AI hry v obchodě Steam a ignorujte hry jedním gestem myši nebo rovnou celé seznamy.
+
+Steam Ignore Like a Pro je bezplatné open-source rozšíření, které dělá Steam pohodlnějším a respektuje vaše soukromí. Záložka AI označuje, rozmazává nebo rovnou ignoruje hry vytvořené s AI na každé stránce obchodu. Rozšíření přenáší tlačítko Steamu „Ignorovat“ na obal každé hry v obchodě, takže už nemusíte otevírat stránku hry kvůli jedinému kliknutí na „Ignorovat“. Všechno funguje úplně stejně jako ve Steamu, protože rozšíření používá vlastní ignorování Steamu.
+
+JAK NA TO:
+1. Otevřete jakoukoli stránku v obchodě Steam.
+2. Podržte pravé tlačítko myši na obalu hry a táhněte doprava (nebo doleva pro ignorování s označením „Už jste hráli“).
+3. Na hře se hned objeví odznak „IGNORED“. Samotné ignorování dorazí do Steamu za pár okamžiků.
+4. Když si to rozmyslíte, klikněte na odznak a ignorování se zruší.
+
+JAK FILTROVAT AI HRY:
+1. Otevřete panel rozšíření a záložku AI.
+2. Zvolte úroveň filtru „Vysoká“ a klikněte na tlačítko pro uložení vedle posuvníku.
+3. Otevřete libovolnou stránku Steamu s mnoha obaly her a posouvejte se dolů. Jakmile se do vašeho zorného pole dostane AI hra, uvidíte animaci a hra se přidá do seznamu ignorovaných.
+4. Chcete-li, můžete animaci vypnout nebo zvolit úroveň, na které rozšíření AI hry jen označuje a do seznamu ignorovaných je nepřidává.
+
+FUNKCE:
+▪ Bezplatné, soukromé a open source - lehké rozšíření bez frameworků, sledování a telemetrie. Funguje v relaci vašeho prohlížeče a nikam dál ji nepředává.
+▪ Ignorování jedním gestem - Podržte pravé tlačítko myši a táhněte doprava, abyste hru zignorovali všude, kde je její obal.
+▪ Ignorování s označením „Už jste hráli“ - Tahem doleva zignorujete hru, kterou jste hráli na jiné platformě, rovnou s tímto označením, místo abyste otevírali její stránku a klikali na „Ignorovat“ -> „Již odehráno/vyzkoušeno“.
+▪ Filtr AI her - Rozšíření umí hry vytvořené s AI samo označovat přímo na jejich obalech, nebo je automaticky přidávat do seznamu ignorovaných vašeho účtu.
+▪ Hotové seznamy k ignorování - Zignorujte naráz všechny hry s obsahem od AI, s Denuvem, s přístupem k jádru, s invazivními podmínkami EULA, ale také známé špatné hry a další podle vašeho výběru. Seznamy jsou sestavené předem a jsou přímo v rozšíření. Hry z vaší knihovny a seznamu přání se přeskočí.
+▪ Hromadné ignorování podle seznamů kurátorů - Ignorujte seznamy od kurátorů Steamu přímo z jejich stránek. Vyberte kurátora, který označuje hry, co vás nebaví, a rozšíření zignoruje celý seznam.
+▪ Ignorování tvůrců - Zignorujte vývojáře nebo vydavatele kliknutím na tlačítko přímo vedle odkazu na něj na stránce hry.
+▪ Ignorování ve frontě doporučení (Discovery Queue) - Otevřete frontu doporučení na stránce tagu, žánru nebo kategorie a rozšíření zignoruje všechny hry ve frontě, nebo jen hry se špatnými recenzemi.
+▪ Pomocník klasické fronty doporučení - Rozšíření automaticky ignoruje hry, zatímco procházíte svůj denní výběr doporučení ze Steamu, podle vašich podmínek (například podle špatných recenzí), nebo je ignoruje a hned posouvá frontu dál.
+▪ Zrušení ignorování - Ignorování hry nebo tvůrce můžete kdykoli zrušit přímo na obalu hry nebo vedle odkazu na tvůrce a nedávná ignorování vrátit seznamem v samostatné nabídce pro zrušení přidáním úlohy na vrácení.
+▪ Široké nastavení - Rozšíření si můžete pořádně přizpůsobit, měnit klávesové zkratky, zapínat a vypínat jednotlivé moduly a režimy ignorování, měnit umístění rozšíření na stránce a spoustu dalšího.
+▪ 24 jazyků rozhraní - Přepínají se za běhu, nezávisle na jazyce Steamu.
+
+Otázka: Proč tohle místo vestavěného ignorování ve Steamu?
+Odpověď: Vestavěné tlačítko „Ignorovat“ na mnoha stránkách a widgetech Steamu chybí, a kde je, zabere ignorování několik kliknutí (najet kurzorem na obal hry -> kliknout na ▪▪▪ -> kliknout na „Ignorovat“). V té nabídce navíc chybí možnost „Již odehráno/vyzkoušeno“. Steam taky neumí ignorovat seznam her naráz. Rozšíření dává ignorování jedním gestem na jakékoli stránce a v jakémkoli widgetu Steamu a k tomu hromadné ignorování podle hotových seznamů a automatizaci ignorování.
+
+Otázka: Jak ve Steamu ignorovat hodně her najednou?
+Odpověď: Samotný Steam ignoruje hry po jedné. S rozšířením můžete třeba přidat hotový seznam do fronty úloh ignorování (hry s obsahem od AI, s Denuvem, s přístupem k jádru, s invazivními podmínkami EULA, známé špatné hry a další), přidat do ní celý seznam kurátora, zignorovat celý balíček jedním gestem, zignorovat tvůrce, zapnout vysokou úroveň filtru AI, pustit pomocníka fronty doporučení na tag nebo žánr, nebo prostě rychle odswipovat obaly nechtěných her v obchodě.
+
+Otázka: Je používání tohoto rozšíření v souladu s pravidly Steamu?
+Odpověď: Ano, pokud jde o ignorování nebo jeho rušení gesty, tlačítky či klávesovými zkratkami. Každé z nich proběhne jednou na jednu vaši akci, jako kliknutí na tlačítko Steamu „Ignorovat“. Pomocníci fronty doporučení, vysoká úroveň filtru AI, fronta úloh ignorování (seznamy kurátorů, hotové seznamy a balíčky) a hromadné rušení ignorování patří k automatizaci. Oddíl 4.C Smlouvy o užívání služby Steam (Steam Subscriber Agreement) zakazuje interakci se Steamem, kterou neovládá člověk, včetně získávání odměn nebo postupu bez skutečných akcí uživatele. Funkce automatizace proto používejte na vlastní uvážení a s vědomím rizika. Rozšíření za vás nezískává odměny z výprodejů a není k tomu určené. Navíc má vestavěnou ochranu, která udává tempo požadavků na Steam, jeden po druhém. Poslední slovo má ale Valve a jeho postoj a opatření vůči tomuto i jakémukoli jinému rozšíření pro automatizaci Steamu.
+
+Otázka: Dá se ignorování zrušit?
+Odpověď: Ano, kdykoli. Tlačítko ignorování na stránce hry s rozšířením funguje dál. Jedno ignorování zrušíte také tak, že na obal hry nakreslíte kruh nebo cik-cak, nebo kliknete na odznak IGNORED na hře. Nebo otevřete popup rozšíření, klikněte na tlačítko zpět (↩️) a nastavte, která nedávná ignorování se mají vrátit, posledních N her nebo všechno za posledních N hodin či dní. Ignorované tvůrce vrátíte na stejném místě, na záložce „Tvůrci“.
+
+Otázka: Funguje rozšíření, když Steam nemám v angličtině?
+Odpověď: Ano. Rozšíření nezávisí na jazyce. Funguje s jakýmkoli nastavením jazyka vašeho účtu Steam.
+
+Otázka: Funguje rozšíření na macOS a Linuxu?
+Odpověď: Ano. Na macOS a Linuxu se kontextová nabídka otevře hned po stisku pravého tlačítka, a proto ji rozšíření při kliknutí na obal hry pozdrží, pokud je ignorování nebo jeho rušení nastavené na gesta. Ignorování můžete také přiřadit jiným klávesám (například Shift + LTM) v NASTAVENÍ -> Ruční ignorování.
+
+Otázka: Dá se ignorovat sada nebo balíček několika her?
+Odpověď: Ano. Táhněte po obalu balíčku a pak po něm táhněte ještě jednou pro potvrzení. Všechny hry a DLC z balíčku se přidají do fronty úloh ignorování a zignorují se v obvyklém tempu. Hry z vaší knihovny a seznamu přání se přeskočí.
+
+SOUKROMÍ A BEZPEČNOST:
+▪ Funguje přes samotný Steam, klikáním na jeho vlastní tlačítka nebo odesíláním stejných požadavků, jaké odesílá on.
+▪ Žádné sledování, žádná analytika, žádné externí servery. Neshromažďujeme, nepřijímáme ani nesdílíme žádné osobní údaje uživatelů. Vaše nastavení, historie ignorování a čekající fronta úloh se ukládají místně ve vašem prohlížeči a požadavky jdou přímo na oficiální servery Steamu (store.steampowered.com a api.steampowered.com).
+▪ Neukládají se žádná hesla ani klíče Steam API a nic se neodesílá nikam jinam než do Steamu. Rozšíření používá vaši aktivní relaci Steamu a k ověření odměny za projití fronty doporučení při výprodeji přístupový token, který stránka obchodu Steam už obsahuje. Ten jde jen do vlastního API Steamu a nikdy se neukládá.
+
+Steam Ignore Like a Pro není nijak spojeno se společností Valve Corporation ani se Steamem a není jimi schváleno ani sponzorováno.

@@ -3,8 +3,8 @@
     'use strict';
 
     // Pure helpers for all three worlds (loaded first everywhere): escaping, name
-    // sanitizing, the lease owner id, the per-context write chain, and the
-    // real-input guard.
+    // sanitizing, the lease owner id, the per-context write chain and the
+    // real-input guard. The built-in lists are src/presets.js.
     function escapeHTML(str) {
         // Only null/undefined become '': a count of 0 must still render.
         if (str == null) return '';

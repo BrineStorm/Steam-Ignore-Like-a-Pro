@@ -1,7 +1,7 @@
 # The Node unit layer only — the pure-logic specs that load a module through
 # `vm` with a stubbed window/chrome and launch no browser. The E2E half cannot
 # run here: it drives a real logged-in Steam session in a headed browser with the
-# extension loaded, which needs credentials this repo must never carry.
+# extension loaded, which needs credentials this repo must never contain.
 #
 # The suite's globalSetup snapshots the test account's ignore list for cleanup;
 # with no session it writes a no-op marker and warns instead of failing, so the
@@ -34,3 +34,21 @@ jobs:
       # all and Playwright resolves its project browser at startup.
       - run: npx playwright install --with-deps chromium
       - run: npm run test:units
+
+  # The toolbar panel's specs that need no Steam session (playwright.config.js,
+  # project ui-offline): the extension's test build in Chromium with no window.
+  # The panel's own code has no unit layer, so this is the only check it gets
+  # on a push. Allowed to fail until its first runs on a Linux runner are seen
+  # green: the specs were written against Windows fonts.
+  ui-offline:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui-offline

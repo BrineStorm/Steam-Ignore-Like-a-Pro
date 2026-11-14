@@ -1,0 +1,57 @@
+Lọc trò chơi AI trên cửa hàng Steam, và phớt lờ trò chơi chỉ bằng một cử chỉ chuột hoặc cả danh sách cùng lúc.
+
+Steam Ignore Like a Pro là tiện ích mở rộng miễn phí, mã nguồn mở, giúp Steam tiện hơn và tôn trọng quyền riêng tư của bạn. Tab AI đánh dấu, làm mờ hoặc phớt lờ trò chơi làm bằng AI trên mọi trang của cửa hàng. Tiện ích đưa nút "Phớt lờ" của Steam lên ảnh bìa của mọi trò chơi trong cửa hàng, nên bạn không còn phải mở trang trò chơi chỉ để bấm "Phớt lờ" một lần. Mọi thứ hoạt động y hệt như trên Steam, vì tiện ích dùng chính tính năng phớt lờ của Steam.
+
+CÁCH DÙNG:
+1. Mở bất kỳ trang nào trên cửa hàng Steam.
+2. Giữ chuột phải trên ảnh bìa trò chơi rồi vuốt sang phải (hoặc sang trái để phớt lờ kèm dấu "Đã chơi").
+3. Huy hiệu "IGNORED" hiện ngay trên trò chơi. Bản thân lệnh phớt lờ đến Steam một lát sau.
+4. Nếu đổi ý, bấm vào huy hiệu để hủy phớt lờ.
+
+CÁCH LỌC TRÒ CHƠI AI:
+1. Mở bảng của tiện ích và tab AI.
+2. Chọn mức lọc "Cao" rồi bấm nút lưu bên cạnh thanh trượt.
+3. Mở bất kỳ trang Steam nào có nhiều ảnh bìa trò chơi rồi cuộn. Ngay khi một trò chơi AI hiện ra trong tầm nhìn, bạn sẽ thấy một hiệu ứng và trò chơi được thêm vào danh sách phớt lờ của bạn.
+4. Nếu muốn, bạn có thể tắt hiệu ứng hoặc chọn mức chỉ đánh dấu trò chơi AI mà không thêm chúng vào danh sách phớt lờ.
+
+TÍNH NĂNG:
+▪ Miễn phí, riêng tư và mã nguồn mở - tiện ích nhẹ, không dùng framework, không theo dõi, không thu thập dữ liệu sử dụng. Tiện ích làm việc trong phiên của trình duyệt bạn và không chuyển nó đi đâu khác.
+▪ Phớt lờ bằng một cử chỉ - Giữ chuột phải và vuốt sang phải để phớt lờ trò chơi ở bất kỳ đâu có ảnh bìa của nó.
+▪ Phớt lờ kèm dấu "Đã chơi" - Vuốt sang trái để phớt lờ ngay, kèm luôn dấu này, một trò chơi bạn đã chơi trên nền tảng khác, thay vì mở trang của nó rồi bấm "Phớt lờ" -> "Đã chơi trên nền tảng khác".
+▪ Bộ lọc trò chơi AI - Tiện ích có thể đánh dấu trò chơi làm bằng AI ngay trên ảnh bìa, hoặc tự động thêm chúng vào danh sách phớt lờ của tài khoản bạn.
+▪ Danh sách phớt lờ có sẵn - Phớt lờ cùng lúc mọi trò chơi có nội dung AI, Denuvo, truy cập kernel, điều khoản EULA xâm phạm, trò chơi tệ khét tiếng và hơn thế nữa, tùy bạn chọn. Các danh sách được dựng sẵn từ trước và đi kèm tiện ích. Trò chơi trong thư viện và danh sách ước của bạn được bỏ qua.
+▪ Phớt lờ hàng loạt theo danh sách của thẩm định viên - Phớt lờ danh sách của các thẩm định viên Steam ngay trên trang của họ. Chọn một thẩm định viên chuyên đánh dấu những trò chơi bạn không thích, và tiện ích sẽ phớt lờ cả danh sách.
+▪ Phớt lờ nhà sáng tạo - Phớt lờ nhà phát triển hoặc nhà phát hành chỉ với một lần bấm nút ngay cạnh liên kết của họ trên trang trò chơi.
+▪ Phớt lờ trong Hàng khám phá (Discovery Queue) - Mở Hàng khám phá trên trang của một thẻ, thể loại hay danh mục, và tiện ích sẽ phớt lờ mọi trò chơi trong hàng hoặc chỉ những trò bị đánh giá kém.
+▪ Trợ lý Hàng khám phá cổ điển - Trong lúc bạn xem Hàng khám phá hằng ngày của Steam, tiện ích tự động phớt lờ trò chơi theo điều kiện của bạn (ví dụ, đánh giá kém), hoặc phớt lờ rồi chuyển hàng sang trò tiếp theo ngay.
+▪ Hủy phớt lờ - Bạn có thể hủy phớt lờ một trò chơi hoặc một nhà sáng tạo bất cứ lúc nào ngay trên ảnh bìa trò chơi hoặc cạnh liên kết của nhà sáng tạo, còn các lần phớt lờ gần đây thì hủy theo danh sách trong một menu hoàn tác riêng bằng cách thêm một tác vụ hoàn tác.
+▪ Tùy chỉnh linh hoạt - Bạn có thể tùy chỉnh tiện ích khá rộng, đổi phím tắt, bật hoặc tắt riêng từng mô-đun và chế độ phớt lờ, dời giao diện tiện ích trên trang và nhiều thứ khác.
+▪ 24 ngôn ngữ giao diện - Đổi được ngay lập tức, không phụ thuộc ngôn ngữ của Steam.
+
+H: Vì sao nên dùng tiện ích này thay cho tính năng phớt lờ có sẵn của Steam?
+Đ: Nút "Phớt lờ" có sẵn của Steam không có ở nhiều trang và tiện ích con của Steam, còn ở nơi có thì phớt lờ cũng tốn vài cú bấm (rê chuột lên ảnh bìa trò chơi -> bấm ▪▪▪ -> bấm "Phớt lờ"). Menu đó cũng không có tùy chọn "Đã chơi trên nền tảng khác". Ngoài ra, Steam không thể phớt lờ cả một danh sách trò chơi cùng lúc. Tiện ích cho bạn phớt lờ bằng một cử chỉ trên mọi trang và tiện ích con của Steam, cùng với phớt lờ hàng loạt theo danh sách có sẵn và tự động hóa việc phớt lờ.
+
+H: Làm sao để phớt lờ nhiều trò chơi cùng lúc trên Steam?
+Đ: Bản thân Steam chỉ phớt lờ từng trò một. Với tiện ích này, bạn có thể, ví dụ, thêm một danh sách có sẵn vào hàng chờ tác vụ phớt lờ (trò chơi có nội dung AI, Denuvo, truy cập kernel, điều khoản EULA xâm phạm, trò chơi tệ khét tiếng và hơn thế nữa), thêm vào đó cả danh sách của một thẩm định viên, phớt lờ cả một bộ bằng một cử chỉ, phớt lờ một nhà sáng tạo, bật mức lọc AI Cao, chạy trợ lý Hàng khám phá cho một thẻ hay thể loại, hoặc đơn giản là vuốt nhanh qua ảnh bìa những trò chơi bạn không muốn thấy trong cửa hàng.
+
+H: Dùng tiện ích này có đúng quy định của Steam không?
+Đ: Có, nếu là phớt lờ hoặc hủy phớt lờ bằng cử chỉ, nút bấm hay phím tắt. Mỗi thao tác chỉ chạy một lần cho mỗi hành động của bạn, giống như bấm nút "Phớt lờ" của Steam. Trợ lý Hàng khám phá, mức lọc AI Cao, hàng chờ tác vụ phớt lờ (danh sách của thẩm định viên, danh sách có sẵn và bộ) và hủy phớt lờ hàng loạt được xem là tự động hóa. Mục 4.C của Thỏa thuận người đăng ký Steam (Steam Subscriber Agreement) cấm tương tác với Steam mà không do con người điều khiển, bao gồm việc nhận phần thưởng hoặc tiến trình mà không có hành động thật của người dùng, vì vậy hãy tự cân nhắc khi dùng các tính năng tự động hóa và ý thức được rủi ro. Tiện ích không nhận phần thưởng đợt giảm giá thay bạn và không được làm ra cho việc đó. Tiện ích còn có cơ chế bảo vệ tích hợp để điều nhịp các yêu cầu gửi tới Steam, mỗi lần một yêu cầu. Dù vậy, quyết định cuối cùng vẫn thuộc về Valve, cũng như quan điểm và biện pháp của công ty đối với tiện ích này và mọi tiện ích tự động hóa Steam khác.
+
+H: Tôi có hủy phớt lờ được không?
+Đ: Được, bất cứ lúc nào. Nút phớt lờ trên trang trò chơi vẫn hoạt động bình thường cùng tiện ích. Bạn cũng có thể vẽ một vòng tròn hoặc hình zigzag lên ảnh bìa trò chơi, hoặc bấm vào huy hiệu IGNORED trên đó, để hủy một lần phớt lờ. Hoặc mở cửa sổ bật lên của tiện ích, bấm nút hoàn tác (↩️) rồi chọn những lần phớt lờ gần đây cần hủy, N trò chơi gần nhất hoặc mọi thứ trong N giờ hay N ngày qua. Các nhà sáng tạo đã bị phớt lờ có thể được khôi phục ngay tại đó, ở tab "Nhà sáng tạo".
+
+H: Tiện ích có chạy được nếu Steam của tôi không dùng tiếng Anh không?
+Đ: Có. Tiện ích không phụ thuộc vào ngôn ngữ. Tiện ích hoạt động với mọi cài đặt ngôn ngữ trong tài khoản Steam của bạn.
+
+H: Tiện ích có chạy trên macOS và Linux không?
+Đ: Có. Trên macOS và Linux, menu chuột phải mở ra ngay khi nhấn nút phải, nên tiện ích giữ menu đó lại khi bạn bấm vào ảnh bìa trò chơi nếu phớt lờ hoặc hủy phớt lờ được gán cho cử chỉ. Bạn cũng có thể gán phớt lờ cho phím khác (ví dụ Shift + chuột trái) trong CÀI ĐẶT -> Phớt lờ thủ công.
+
+H: Tôi có phớt lờ được một bộ hay một nhóm gồm nhiều trò chơi không?
+Đ: Được. Vuốt trên ảnh bìa của bộ, rồi vuốt thêm một lần nữa để xác nhận. Mọi trò chơi và DLC trong bộ sẽ vào hàng chờ tác vụ phớt lờ và được phớt lờ theo nhịp bình thường. Trò chơi trong thư viện và danh sách ước của bạn sẽ được bỏ qua.
+
+QUYỀN RIÊNG TƯ VÀ AN TOÀN:
+▪ Hoạt động thông qua chính Steam, bằng cách bấm các nút của Steam hoặc gửi đúng những yêu cầu mà Steam gửi.
+▪ Không theo dõi, không phân tích, không có máy chủ bên ngoài. Chúng tôi không thu thập, không nhận và không chia sẻ bất kỳ dữ liệu cá nhân nào của người dùng. Cài đặt, lịch sử phớt lờ và hàng chờ đang đợi được lưu cục bộ trong trình duyệt của chính bạn, và các yêu cầu đi thẳng tới máy chủ chính thức của Steam (store.steampowered.com và api.steampowered.com).
+▪ Không lưu mật khẩu hay khóa Steam API nào, và không gửi bất cứ thứ gì đi đâu ngoài Steam. Tiện ích dùng phiên Steam đang hoạt động trong trình duyệt của bạn và, để kiểm tra phần thưởng khi xem Hàng khám phá trong đợt giảm giá, dùng mã truy cập mà trang cửa hàng Steam đã có sẵn. Mã này chỉ được gửi tới API của chính Steam và không bao giờ được lưu lại.
+
+Steam Ignore Like a Pro không liên kết với và không được tài trợ bởi Valve Corporation hay Steam.

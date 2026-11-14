@@ -27,7 +27,10 @@ test.describe('on-page widget — first open', () => {
             // Fresh, so the page's own poll leaves it alone.
             ilap_ignored_total: { total: 900, tallyAt: 40, ts: Date.now() },
             ilap_last_ignored_name: 'Hydrated Game',
-            ilap_settings_open: true, // the settings accordion restores open: its fill is part of the first frame
+            // No creators either: the undo button stays live while the account
+            // ignores any, and the live account's state is not this test's.
+            ilap_creators: { ignored: {}, followed: [], ts: Date.now() },
+            ilap_popup_tab: 'settings', // the settings tab restores open: its fill is part of the first frame
         });
         await page.goto(searchUrl());
 
@@ -49,7 +52,7 @@ test.describe('on-page widget — first open', () => {
                     count: $('count-link').textContent.trim(),
                     last: $('last-game').textContent.trim(),
                     hints: $('dynamic-hint').children.length,
-                    settingsOpen: $('settings-accordion').open,
+                    settingsOpen: !$('settings-placeholder').hidden,
                     settingsRows: $('settings-placeholder').children.length,
                     undoDisabled: $('undo-btn').disabled,
                 };
@@ -66,7 +69,7 @@ test.describe('on-page widget — first open', () => {
         expect(snap.last).toBe('Hydrated Game');
         expect(snap.hints).toBeGreaterThan(0);       // Ignore / Already played lines
         expect(snap.settingsOpen).toBe(true);
-        expect(snap.settingsRows).toBeGreaterThan(0); // no empty-then-grow accordion
+        expect(snap.settingsRows).toBeGreaterThan(0); // no empty-then-grow pane
         expect(snap.undoDisabled).toBe(true);        // empty ignore log; the markup ships it enabled
     });
 });

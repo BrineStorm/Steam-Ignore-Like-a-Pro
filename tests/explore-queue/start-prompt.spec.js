@@ -1,3 +1,13 @@
+// The Classic Discovery Queue's start prompt: the toast with Run and Disable,
+// the mode badge on Bad Reviews by default, and Close hiding it with no
+// intent stored. The one-time automation notice: the first Run asks, Cancel
+// starts and stores nothing, Start sets the ACTIVE intent and
+// ilap_automation_ack. The sale-reward lock: with auto-advance on and the
+// reward route-faked to 0 of 3, Run still ignores (the POST intercepted) but
+// the page stays, Steam's Next button wears the orange-to-gold outline, its
+// own tooltip stays off even when Next was hovered first (div.store_tooltip
+// keeps the text of the first hover), and ours says why below it.
+
 const { test, expect } = require('../_fixtures.js');
 const { AUTH_FILE, SEL, openExploreQueue, readSession, interceptIgnoreApi } = require('./_helpers');
 const { setExtensionStorage, getExtensionStorage } = require('../_extension.js');
@@ -37,6 +47,22 @@ test.describe('Explore Queue — start prompt', () => {
             active: sessionStorage.getItem('ilap_queue_active'),
         }));
         expect(session.active).toBeNull();
+    });
+
+    test('Disable and ✕ are named buttons a keyboard reaches, and Enter on ✕ closes the toast', async ({ page }) => {
+        await openExploreQueue(page);
+        await expect(page.locator(SEL.toast)).toBeVisible({ timeout: 15000 });
+        for (const sel of [SEL.disableBtn, SEL.closeX]) {
+            expect(await page.locator(sel).evaluate(el => el.tagName)).toBe('BUTTON');
+        }
+        await expect(page.locator(SEL.disableBtn)).toHaveAccessibleName(/disable/i);
+        await expect(page.locator(SEL.closeX)).toHaveAccessibleName('Close');
+        // From Disable, Tab goes on to ✕.
+        await page.locator(SEL.disableBtn).focus();
+        await page.keyboard.press('Tab');
+        await expect(page.locator(SEL.closeX)).toBeFocused();
+        await page.keyboard.press('Enter');
+        await expect(page.locator(SEL.toast)).toHaveCount(0);
     });
 
     // The one-time automation notice (src/queue-common/automation-notice.js): the first Run
@@ -115,7 +141,7 @@ test.describe('Explore Queue — start prompt', () => {
         expect(page.url()).toContain(`/app/${appid}`);
     });
 
-    // Steam's Next carries its own tooltip (div.store_tooltip, drawn on hover from
+    // Steam's Next has its own tooltip (div.store_tooltip, drawn on hover from
     // data-tooltip-text), which would sit over ours. The lock takes the attribute
     // off; this checks that is enough even when Next was hovered BEFORE the lock,
     // i.e. after Steam's tooltip code has already read the text once.

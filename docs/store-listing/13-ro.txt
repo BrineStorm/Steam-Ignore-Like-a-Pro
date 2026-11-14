@@ -1,0 +1,57 @@
+Filtrează jocurile făcute cu IA în magazinul Steam și ignoră jocuri cu un singur gest al mouse-ului sau liste întregi deodată.
+
+Steam Ignore Like a Pro este o extensie gratuită și open source care face Steam mai comod și îți respectă confidențialitatea. Fila AI marchează, estompează sau ignoră jocurile făcute cu IA pe fiecare pagină din magazin. Extensia aduce butonul Steam „Ignoră” pe coperta fiecărui joc din magazin, așa că nu mai trebuie să deschizi pagina unui joc doar ca să apeși „Ignoră”. Totul funcționează exact ca în Steam, pentru că extensia folosește chiar ignorarea Steam.
+
+CUM SE FOLOSEȘTE:
+1. Deschide orice pagină din magazinul Steam.
+2. Ține apăsat butonul drept al mouse-ului pe coperta unui joc și glisează spre dreapta (sau spre stânga pentru o ignorare cu marcajul „Deja jucat”).
+3. Pe joc apare imediat insigna „IGNORED”. Ignorarea propriu-zisă ajunge la Steam după câteva clipe.
+4. Dacă te răzgândești, apasă pe insignă ca să anulezi ignorarea.
+
+CUM FILTREZI JOCURILE FĂCUTE CU IA:
+1. Deschide panoul extensiei și fila ei AI.
+2. Alege nivelul de filtru „Ridicat” și apasă butonul de salvare de lângă glisor.
+3. Deschide orice pagină Steam cu multe coperte de jocuri și derulează. De îndată ce un joc făcut cu IA intră în câmpul tău vizual, vezi o animație, iar jocul este adăugat în lista ta de ignorări.
+4. Dacă vrei, poți opri animația sau poți alege un nivel care doar marchează jocurile făcute cu IA, fără să le adauge în lista de ignorări.
+
+FUNCȚII:
+▪ Gratuită, privată și open source - extensie ușoară, fără framework-uri, urmărire sau telemetrie. Funcționează în sesiunea browserului tău și nu o transmite nicăieri altundeva.
+▪ Ignorare dintr-un gest - Ține apăsat clicul drept și glisează spre dreapta ca să ignori un joc oriunde apare coperta lui.
+▪ Ignorare cu marcajul „Deja jucat” - Glisează spre stânga ca să ignori pe loc, direct cu acest marcaj, un joc pe care l-ai jucat pe altă platformă, în loc să-i deschizi pagina și să apeși „Ignoră” -> „L-am jucat pe o altă platformă”.
+▪ Filtru pentru jocurile făcute cu IA - Extensia poate marca jocurile făcute cu IA direct pe copertele lor sau le poate adăuga automat în lista de ignorări a contului tău.
+▪ Liste gata de ignorat - Ignoră dintr-odată toate jocurile cu conținut IA, Denuvo, acces la nucleu, termeni EULA invazivi, jocuri proaste notorii și altele, după cum alegi. Listele sunt făcute din timp și vin odată cu extensia. Jocurile din biblioteca ta și din lista ta de dorințe sunt sărite.
+▪ Ignorare în masă după listele curatorilor - Ignoră listele curatorilor Steam direct de pe paginile lor. Alege un curator care marchează jocurile care nu-ți plac, iar extensia ignoră toată lista.
+▪ Ignorarea creatorului - Ignoră un dezvoltator sau un editor dintr-un clic pe butonul de lângă linkul lui de pe pagina unui joc.
+▪ Ignorare în lista de descoperiri - Deschide lista de descoperiri pe pagina unui tag, gen sau categorii, iar extensia ignoră toate jocurile din listă sau doar pe cele cu recenzii proaste.
+▪ Asistentul listei de descoperiri clasice - Extensia ignoră automat jocuri în timp ce parcurgi selecția ta zilnică de recomandări Steam, după condițiile tale (de exemplu, recenzii proaste), sau le ignoră și avansează imediat lista.
+▪ Anularea ignorărilor - Poți anula oricând ignorarea unui joc sau a unui creator direct pe coperta jocului sau lângă linkul creatorului și poți anula o serie de ignorări recente sub formă de listă într-un meniu separat de anulare, adăugând o sarcină de anulare.
+▪ Setări flexibile - Poți personaliza extensia destul de mult, poți schimba scurtăturile, porni și opri separat module și moduri de ignorare, schimba locul extensiei pe pagină și multe altele.
+▪ 24 de limbi pentru interfață - Se schimbă din mers, independent de limba din Steam.
+
+Î: De ce să folosesc asta în loc de ignorarea integrată din Steam?
+R: Butonul „Ignoră” integrat lipsește de pe multe pagini și widgeturi Steam, iar acolo unde există, ignorarea cere mai multe clicuri (treci cu cursorul peste coperta jocului -> clic pe ▪▪▪ -> clic pe „Ignoră”). În plus, în meniul acela nu există opțiunea „L-am jucat pe o altă platformă”. Nici nu poți ignora o listă de jocuri dintr-odată în Steam. Extensia îți dă ignorare dintr-un gest pe orice pagină și în orice widget Steam, plus ignorare în masă după liste integrate și automatizarea ignorării.
+
+Î: Cum ignor multe jocuri deodată pe Steam?
+R: Steam ignoră singur jocurile doar unul câte unul. Cu extensia poți, de exemplu, să adaugi o listă integrată în coada de ignorare (jocuri cu conținut IA, Denuvo, acces la nucleu, termeni EULA invazivi, jocuri proaste notorii și altele), să adaugi acolo toată lista unui curator, să ignori un set întreg dintr-un gest, să ignori un creator, să pornești nivelul ridicat al filtrului IA, să pornești asistentul listei de descoperiri pe un tag sau gen sau pur și simplu să glisezi repede peste copertele jocurilor nedorite din magazin.
+
+Î: Folosirea acestei extensii respectă regulile Steam?
+R: Da, când e vorba de ignorări sau anularea lor prin gesturi, butoane sau scurtături. Fiecare se declanșează o dată la o acțiune de-a ta, ca o apăsare pe butonul Steam „Ignoră”. Asistenții listei de descoperiri, nivelul ridicat al filtrului IA, coada de ignorare (listele curatorilor, listele integrate și seturile) și anularea în bloc țin de automatizare. Secțiunea 4.C din Acordul Steam pentru abonați (Steam Subscriber Agreement) interzice interacțiunile cu Steam pe care nu le controlează un om, inclusiv obținerea de recompense sau progres fără acțiuni reale ale utilizatorului, așa că folosește funcțiile de automatizare după propria judecată și conștient de risc. Extensia nu obține recompense de reduceri în locul tău și nu e făcută pentru asta. Are și o protecție integrată care dă ritmul cererilor către Steam, câte una pe rând. Totuși, ultimul cuvânt îl are Valve, la fel ca poziția și măsurile companiei față de aceasta și de orice altă extensie de automatizare pentru Steam.
+
+Î: Pot anula o ignorare?
+R: Da, oricând. Butonul de ignorare de pe pagina jocului funcționează în continuare cu extensia. Poți și să desenezi un cerc sau un zigzag pe coperta jocului ori să dai clic pe insigna IGNORED de pe joc, ca să anulezi o singură ignorare. Sau deschide popup-ul extensiei, apasă butonul de anulare (↩️) și alege ce ignorări recente să anulezi, ultimele N jocuri sau tot din ultimele N ore sau zile. Creatorii ignorați pot fi readuși în același loc, în fila „Creatori”.
+
+Î: Funcționează extensia dacă Steam-ul meu nu e în engleză?
+R: Da. Extensia nu depinde de limbă. Funcționează cu orice setare de limbă a contului tău Steam.
+
+Î: Funcționează extensia pe macOS și Linux?
+R: Da. Pe macOS și Linux meniul contextual se deschide imediat ce apeși butonul drept, așa că extensia ține pe loc acel meniu la clic pe coperta unui joc dacă ignorarea sau anularea e setată pe gesturi. Poți muta ignorarea și pe alte taste (de exemplu Shift + clic stâng) în SETĂRI -> Ignorare manuală.
+
+Î: Pot ignora un set sau un bundle de mai multe jocuri?
+R: Da. Glisează peste coperta setului, apoi mai glisează o dată pe ea ca să confirmi. Toate jocurile și DLC-urile din set intră în coada de ignorare și sunt ignorate în ritmul obișnuit. Jocurile din biblioteca ta și din lista ta de dorințe sunt sărite.
+
+CONFIDENȚIALITATE ȘI SIGURANȚĂ:
+▪ Funcționează prin Steam însuși, apăsând butoanele Steam sau trimițând aceleași cereri pe care le trimite el.
+▪ Fără urmărire, fără statistici, fără servere externe. Nu colectăm, nu primim și nu partajăm date personale ale utilizatorilor. Setările tale, istoricul ignorărilor și coada în așteptare se salvează local, în browserul tău, iar cererile merg direct la serverele oficiale Steam (store.steampowered.com și api.steampowered.com).
+▪ Nu se stochează parole sau chei Steam API și nu se trimite nimic nicăieri în afară de Steam. Extensia folosește sesiunea ta Steam activă și, pentru a verifica recompensa pentru parcurgerea listei de descoperiri în perioada reducerilor, tokenul de acces pe care pagina magazinului Steam îl conține deja. Acesta merge doar la API-ul Steam și nu este stocat niciodată.
+
+Steam Ignore Like a Pro nu este afiliată cu Valve Corporation sau Steam și nu este sponsorizată de acestea.

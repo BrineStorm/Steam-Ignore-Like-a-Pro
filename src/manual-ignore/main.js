@@ -4,10 +4,6 @@
 
     const TOAST_COOLDOWN_MS = 10000;
 
-    // How long after ignoring a game its solo un-ignore stays inert: a brake on
-    // ignore→rollback POST ping-pong, short enough that nobody notices it.
-    const UNIGNORE_COOLDOWN_MS = 2000;
-
     // How long a gesture on a greyed capsule waits for the gate before it
     // decides without Steam's reason (buildAdapters, steamReason). Past the
     // longest ordinary wait: the swipe marks the user active, so a curator
@@ -17,336 +13,6 @@
 
     // true once the menu-at-press hint has been shown (App._hintMenuAtPress).
     const PRESS_MENU_HINT_KEY = 'ilap_press_menu_hint';
-
-    // A finished bundle's key, and the links its capsules use (bundle.js).
-    const BUNDLE_KEY_RE = /^(bundle|sub)_\d+$/;
-    const BUNDLE_LINKS = 'a[href*="/bundle/"], a[href*="/sub/"]';
-
-    class IgnoreManager {
-        constructor(deps) {
-            // Every hook is required: a missing login gate or master check would
-            // not fail, it would quietly let a gesture through.
-            for (const name of ['enqueue', 'enqueueUndo', 'cancelIgnore', 'signalUnignored', 'steamReason',
-                'isLoggedIn', 'isEnabled', 'notifyQueueFull', 'notifyUndoQueueFull', 'notifyDropped']) {
-                if (typeof deps[name] !== 'function') {
-                    throw new TypeError(`[ILAP] IgnoreManager needs deps.${name}`);
-                }
-            }
-            // The collaborators would only fail at the first gesture: check them
-            // at boot too.
-            const adapters = {
-                badgeRenderer: ['render', 'unrender', 'syncPending', 'syncMasks',
-                    'steamGreyed', 'tintSteamFlag', 'untintSteamFlag'],
-                containerStrategies: ['findContainer'],
-                nameExtractor: ['get'],
-                sessionState: ['get', 'set'],
-            };
-            for (const [name, fns] of Object.entries(adapters)) {
-                if (!deps[name] || !fns.every(fn => typeof deps[name][fn] === 'function')) {
-                    throw new TypeError(`[ILAP] IgnoreManager needs deps.${name}`);
-                }
-            }
-            this.renderer = deps.badgeRenderer;
-            this.strategies = deps.containerStrategies;
-            this.enqueue = deps.enqueue;            // (appid, name, reason, ts) => Promise<{ kind }>
-            this.enqueueUndo = deps.enqueueUndo;    // (appid) => Promise<{ kind }>
-            this.cancelIgnore = deps.cancelIgnore;  // (appid, ts) => Promise<boolean>
-            this.signalUnignored = deps.signalUnignored;  // (appid) => Promise<void>
-            // (appid) => Promise<reason | undefined>: the reason Steam's list has
-            // for the game, undefined when it is not there or the read failed.
-            this.steamReason = deps.steamReason;
-            this.nameExtractor = deps.nameExtractor;
-            this.session = deps.sessionState;
-            this.isLoggedIn = deps.isLoggedIn;      // () => Promise<bool> (logged-out gate)
-            // Master toggle, read live (() => bool). A disabled extension paints
-            // nothing on the page — see refreshAll, refreshBadgesForGame, hideBadges.
-            this.isEnabled = deps.isEnabled;
-            // () => void each, throttled by the adapter. The un-ignore queue has
-            // its own "full" card: the MI one names the ignore job.
-            this.notifyQueueFull = deps.notifyQueueFull;
-            this.notifyUndoQueueFull = deps.notifyUndoQueueFull;
-            this.notifyDropped = deps.notifyDropped;
-
-            this.sessionMap = new Map();
-            // Appids whose solo un-ignore is queued but not confirmed. Per tab, like
-            // the badges it marks.
-            this.pending = new Set();
-            // When this tab swiped each badged game: the cooldown, and what a
-            // cancel asks the queue for — an entry queued by then contains this
-            // tab's swipe, a later one is somebody else's. Persisted with the
-            // session map for that.
-            this.ignoredAt = new Map();
-            // Swipes whose enqueue is still in flight. The sessionMap check that
-            // opens processIgnoreRequest cannot hold across its awaits — the map
-            // is written at the END — so two fast swipes on one capsule both pass
-            // it. The queue dedupes, so nothing is ignored twice; what this saves
-            // is the second resolve, which on a capsule with no readable name is
-            // an appdetails request.
-            this._enqueueing = new Set();
-            // Games un-ignored since this page loaded, in any tab (the
-            // ilap_unignored pulse, reason 'undo'). Steam keeps its grey on them
-            // until a reload, so its `ds_ignored` is stale for exactly these.
-            this.unignoredHere = new Set();
-            // Greyed capsules this tab gestured on: appid -> the reason queued.
-            // Their mark is Steam's own flag, tinted, not a badge of ours, so they
-            // stay out of the session map (no badge click, no solo un-ignore).
-            this.tinted = new Map();
-            // Bundles whose ignore job ran to its end ('<bundle|sub>_<id>'), from
-            // ilap_ignored_bundles: their capsules carry the IGNORED badge too.
-            this.bundleMarks = new Set();
-            this.SESSION_KEY = 'ilap_session_map_v2';
-
-            this._loadSession();
-        }
-
-        _loadSession() {
-            try {
-                const stored = this.session.get(this.SESSION_KEY);
-                if (!stored) return;
-                // sessionStorage is the Steam page's origin, so this is untrusted
-                // input, not our own state read back. These appids go straight
-                // into querySelectorAll and new RegExp (refreshBadgesForGame,
-                // ui.js render/unrender/syncMasks), where a `"` or a `(` is not a
-                // wrong badge but a thrown DOMException that kills the whole
-                // badge pass. A digit string is the only thing this tab ever
-                // wrote (EventParser takes it from an /app/ href match).
-                const rows = JSON.parse(stored)
-                    .filter(([appid]) => typeof appid === 'string' && /^\d+$/.test(appid));
-                this.sessionMap = new Map(rows.map(([appid, reason]) => [appid, reason]));
-                // A swipe time from the future is no time of ours: it would hold
-                // the cooldown shut for good and let a cancel claim another tab's
-                // entry. Without one the cancel errs safe (a real rollback).
-                const now = Date.now();
-                for (const [appid, , ts] of rows) {
-                    if (Number.isFinite(ts) && ts <= now) this.ignoredAt.set(appid, ts);
-                }
-            } catch (e) { /* ignore */ }
-        }
-
-        _saveSession() {
-            try {
-                this.session.set(this.SESSION_KEY, JSON.stringify(Array.from(this.sessionMap,
-                    ([appid, reason]) => [appid, reason, this.ignoredAt.get(appid)])));
-            } catch(e) { /* ignore */ }
-        }
-
-        async processIgnoreRequest(intent) {
-            const { appid, reason, linkElement } = intent;
-
-            if (this.sessionMap.has(appid) || this._enqueueing.has(appid)) return;
-
-            // Steam already greys this capsule out: the game is on the account's
-            // list. The gesture then sets its reason, and Steam's flag takes the
-            // gesture's colour instead of a badge of ours.
-            const greyed = !this.unignoredHere.has(appid) && this.renderer.steamGreyed(linkElement);
-            if (greyed && this.tinted.get(appid) === reason) return;
-
-            this._enqueueing.add(appid);
-            try {
-                // A logged-out swipe does nothing: its POST could only be refused,
-                // and the drainer parks on a dead session rather than dropping the
-                // job, so the badge would never be corrected.
-                if (!(await this.isLoggedIn())) return;
-
-                // The reason Steam already has changes nothing: no POST, and no
-                // mark either. Unless this tab tinted the other reason since:
-                // then it is queued to take that back, and the tint goes. A
-                // failed read leaves it to the drainer's own check.
-                const asSteam = greyed && (await this.steamReason(appid)) === reason;
-                if (asSteam && !this.tinted.has(appid)) return;
-
-                // The name now, while the DOM is live: the drainer stamps Last
-                // Ignored with it when the POST lands.
-                const containerObj = this.strategies.findContainer(linkElement);
-                const contextEl = containerObj ? containerObj.element : linkElement;
-                const name = await this.nameExtractor.get(appid, contextEl);
-
-                // Enqueue before badging: a swipe past MI_MAX is refused, and the
-                // badge must only paint for one that landed.
-                const ts = Date.now();
-                const outcome = await this.enqueue(appid, name, reason, ts);
-                if (!outcome || outcome.kind !== 'added') {
-                    // The cap is only reached when the queue is not draining at
-                    // all, so say so rather than paint nothing.
-                    if (outcome && outcome.kind === 'full') this.notifyQueueFull();
-                    return;
-                }
-                if (asSteam) {
-                    this.tinted.delete(appid);
-                    this.renderer.untintSteamFlag(appid);
-                } else if (greyed) {
-                    this.tinted.set(appid, reason);
-                    // Through refreshAll's pass rather than `greyed` alone: the
-                    // same game may sit in several capsules on the page.
-                    this.refreshAll();
-                } else {
-                    this._onEnqueued(intent, ts);
-                }
-            } finally {
-                this._enqueueing.delete(appid);
-            }
-        }
-
-        _onEnqueued(intent, ts) {
-            const { appid, reason } = intent;
-
-            this.sessionMap.set(appid, reason);
-            this.ignoredAt.set(appid, ts);
-            this._saveSession();
-
-            this.refreshBadgesForGame(appid);
-        }
-
-        // Un-ignore one game, through the same queue and gate. Only what this tab
-        // badged: the session map is the badge model.
-        async processUnignoreRequest(intent) {
-            const { appid } = intent;
-
-            if (!this.sessionMap.has(appid)) return;   // nothing badged → nothing to undo
-            if (this.pending.has(appid)) return;       // already queued; re-gesturing is a no-op
-
-            // Regret before the ignore was sent: cancel the queued entry instead
-            // of queueing a rollback. Ahead of both gates below: the cooldown
-            // brakes POST ping-pong and a cancel sends no POST, and cancelling
-            // needs no session.
-            if (await this.cancelIgnore(appid, this.ignoredAt.get(appid))) {
-                // Through the pulse, not in place: another tab may have badged the
-                // same game, and this tab's own listener handles it on the way back.
-                await this.signalUnignored(appid);
-                return;
-            }
-
-            // From here it is a real remove=1 POST: the cooldown applies, silently.
-            const at = this.ignoredAt.get(appid);
-            if (at && Date.now() - at < UNIGNORE_COOLDOWN_MS) return;
-
-            // Same logged-out gate as the ignore path.
-            if (!(await this.isLoggedIn())) return;
-
-            const outcome = await this.enqueueUndo(appid);
-            if (!outcome || outcome.kind !== 'added') {
-                if (outcome && outcome.kind === 'full') this.notifyUndoQueueFull();
-                return;
-            }
-            this.pending.add(appid);
-            this.syncPending();
-        }
-
-        // A rollback was refused or its job removed: the badges are still true,
-        // only the pending marks come off. All of them, since the pulse carries no
-        // appid; at worst a still-queued gesture loses its mark.
-        clearPending() {
-            if (!this.pending.size) return;
-            this.pending.clear();
-            this.syncPending();
-        }
-
-        syncPending() {
-            this.renderer.syncPending(Array.from(this.pending));
-        }
-
-        // The ilap_unignored pulse: drop the marks this tab painted for these
-        // games. 'undo' took them off the list; 'removed' and 'failed' left
-        // Steam's list as it was. 'failed' is the one the user did
-        // not ask for, so only then — and only in a tab that marked one — is it said.
-        handleUnignored(appids, reason) {
-            let dropped = 0;
-            for (const raw of (Array.isArray(appids) ? appids : [appids])) {
-                const appid = String(raw);
-                if (reason === 'undo') this.unignoredHere.add(appid);
-                if (this.tinted.delete(appid)) {
-                    this.renderer.untintSteamFlag(appid);
-                    dropped += 1;
-                }
-                if (!this.sessionMap.has(appid)) continue;  // only clear what THIS tab badged
-                this.sessionMap.delete(appid);
-                this.pending.delete(appid);   // the badge is going — its mark goes with it
-                this.ignoredAt.delete(appid);
-                this.renderer.unrender(appid);
-                dropped += 1;
-            }
-            if (!dropped) return;
-            this._saveSession();
-            if (reason === 'failed') this.notifyDropped();
-        }
-
-        refreshBadgesForGame(appid) {
-            // A gesture mid-enqueue when the switch went off must not paint; its
-            // session entry stays for the re-enable.
-            if (!this.isEnabled()) return;
-            const reason = this.sessionMap.get(appid) || 0;
-            
-            const exact = new RegExp(`/app/${appid}(/|\\?|$)`);
-            const candidates = document.querySelectorAll(`a[href*="/app/${appid}"]`);
-            candidates.forEach(link => {
-                if (!exact.test(link.getAttribute('href'))) return;
-                this.renderer.render(link, appid, reason);
-            });
-        }
-
-        // The finished bundles, as stored. A mark that went (a rollback of one of
-        // its games) takes its badges with it.
-        setBundleMarks(keys) {
-            const next = new Set((keys || []).filter(k => BUNDLE_KEY_RE.test(k)));
-            for (const key of this.bundleMarks) if (!next.has(key)) this.renderer.unrender(key);
-            this.bundleMarks = next;
-            this.refreshAll();
-        }
-
-        isBundleMarked(key) {
-            return this.bundleMarks.has(key);
-        }
-
-        refreshAll() {
-            // Guarded here rather than at the three call sites.
-            if (!this.isEnabled()) return;
-            if (this.bundleMarks.size) this._refreshBundles();
-            if (this.sessionMap.size === 0 && this.tinted.size === 0) return;
-            // One document pass against the session map and the tints, not one
-            // per appid: this runs on every mutation batch of the storefront.
-            const links = document.querySelectorAll('a[href*="/app/"]');
-            for (const link of links) {
-                const m = (link.getAttribute('href') || '').match(/\/app\/(\d+)([/?]|$)/);
-                if (!m) continue;
-                if (this.tinted.has(m[1])) {
-                    const greyed = this.renderer.steamGreyed(link);
-                    if (greyed) this.renderer.tintSteamFlag(greyed, m[1], this.tinted.get(m[1]));
-                }
-                if (!this.sessionMap.has(m[1])) continue;
-                this.renderer.render(link, m[1], this.sessionMap.get(m[1]) || 0);
-            }
-            // Badges Steam just rebuilt come back without their pending mark.
-            if (this.pending.size) this.syncPending();
-        }
-
-        // A finished bundle's capsules, badged under its key in place of an appid.
-        // Only a link with art in it, as only such a link takes the gesture
-        // (gestures.js _bundleIntent).
-        _refreshBundles() {
-            for (const link of document.querySelectorAll(BUNDLE_LINKS)) {
-                if (!link.querySelector || !link.querySelector('img, video')) continue;
-                const m = (link.getAttribute('href') || '').match(/\/(bundle|sub)\/(\d+)([/?#]|$)/);
-                if (!m) continue;
-                const key = m[1] + '_' + m[2];
-                if (this.bundleMarks.has(key)) this.renderer.render(link, key, 0);
-            }
-        }
-
-        syncMasks() {
-            this.renderer.syncMasks(Array.from(this.sessionMap.keys()).concat(Array.from(this.bundleMarks)));
-        }
-
-        // Master toggle off: unrender every mark this tab painted (badge, blur,
-        // veil). The session map stays — it is the model a re-enable repaints from.
-        hideBadges() {
-            for (const key of this.bundleMarks) this.renderer.unrender(key);
-            for (const appid of this.sessionMap.keys()) this.renderer.unrender(appid);
-            for (const appid of this.tinted.keys()) this.renderer.untintSteamFlag(appid);
-        }
-    }
-
-    // Exported for the Node unit suite only; boot() below is the one construction site.
-    window.ILAP.ManualIgnore.IgnoreManager = IgnoreManager;
 
     // One push card per burst (src/toast.js), however many times it fires.
     function throttledToast(key) {
@@ -374,6 +40,7 @@
             cancelIgnore: (appid, ts) => Store.cancelMiEntry(appid, ts),
             // A cancelled swipe un-badges like a rollback: the silent 'undo' reason.
             signalUnignored: (appid) => Store.signalUnignored([appid], 'undo'),
+            spare: (appid) => window.ILAP.ManualIgnore.AiSpared.add(appid),
             // A userdata GET, paced in the ignores' stream: swiping greyed covers
             // during a curator drain shares it. A slot further off than
             // STEAM_REASON_WAIT_MS (a 429 penalty) skips the read, and the
@@ -400,6 +67,14 @@
         };
     }
 
+    // What the AI tab's level reads (App._loadAiOptions). Asked at boot, not
+    // at load: the unit suite loads this file with no Settings behind it.
+    const aiOptionKeys = () => {
+        const K = window.ILAP.Settings.KEYS;
+        return [K.AI_LEVEL, K.AI_SHOT, K.AI_SHOT_EMOJI, K.AI_SHOT_ANIM, K.AI_KEEP_TRANSLATION, K.AI_KEEP_INGAME,
+            K.AI_NOTE_COLLAPSED];
+    };
+
     class App {
         constructor(configService) {
             this.configService = configService;
@@ -411,33 +86,155 @@
             const resourceService = new window.ILAP.ResourceService();
 
             // UI Dependencies
-            const strategies = new MI.ContainerStrategyProvider();
+            const strategies = new MI.ContainerStrategyProvider(MI.CONTAINER_STRATEGIES);
             const detector = new MI.DuplicateDetector(MI.ContextScanner);
             const maskConfig = { isEnabled: () => this.configService.get().maskEnabled };
-            const badgeRenderer = new MI.BadgeRenderer(strategies, detector, MI.BADGE_CLASSES, resourceService, maskConfig);
+            const tips = new MI.FloatTip(resourceService);
+            const aiMarks = new MI.AiMarks(strategies, tips);
+            const badgeRenderer = new MI.BadgeRenderer({
+                strategies, detector, classes: MI.BADGE_CLASSES, resources: resourceService, maskConfig, aiMarks,
+            });
 
             // Not an MI outcome, but this is the one content script with a push card
             // on every store page. No badge to correct, so not the manager's.
             this.notifyUndoFailed = throttledToast('undo_failed');
 
-            this.ignoreManager = new IgnoreManager(Object.assign(buildAdapters(), {
+            const adapters = buildAdapters();
+            this.ignoreManager = new MI.IgnoreManager(Object.assign({}, adapters, {
                 badgeRenderer,
                 containerStrategies: strategies,
-                sessionState: sessionService,
+                badgeMarks: new MI.BadgeMarks(sessionService),
+                tintMarks: new MI.TintMarks(new MI.SteamFlagTint(tips)),
+                bundleMarks: new MI.BundleMarks(badgeRenderer),
                 isEnabled: () => this.configService.get().enabled
             }));
+
+            // The AI tab's level, and the shot each game it queues gets.
+            const aiGames = (keep) => window.ILAP.loadPresets().then(data => window.ILAP.aiGames(data, keep));
+            const aiKinds = () => window.ILAP.loadPresets().then(data => window.ILAP.aiKinds(data));
+            this.shots = new MI.ShotCounter(window.ILAP.Settings.KEYS.AI_SHOT_COUNT);
+            this.ai = MI.wireAiBrowsing({
+                settings: window.ILAP.Settings,
+                ShotAnimator: MI.ShotAnimator,
+                strategies,
+                marks: this.ignoreManager,
+                tags: {
+                    tag: (link, appid, blur, kind, flag) => aiMarks.tag(link, appid, blur, kind, flag),
+                    untag: () => aiMarks.untag(),
+                },
+                isEnabled: () => this.configService.get().enabled,
+                isLoggedIn: adapters.isLoggedIn,
+                aiGames,
+                aiKinds,
+                // Paced in the ignores' stream, like the swipe's reason read.
+                readAccount: async () => {
+                    await window.ILAP.IgnoreGate.paceRead();
+                    return window.ILAP.fetchIgnoredAppsStrict();
+                },
+                // The games it leaves unshot: un-ignored by hand, refused by Steam
+                // lately (the drainer's DoneMarks.markAiRefused), and the ignores
+                // an account read made at `readAt` cannot show: a swipe still
+                // queued in any tab, or an ignore the log has from about then on.
+                readSpared: async (readAt) => {
+                    const since = readAt - window.ILAP.SteamNet.USERDATA_LAG_MS;
+                    const [hand, refused, swiped, logged] = await Promise.all([
+                        MI.AiSpared.read(), window.ILAP.Curator.DoneMarks.aiRefusedNow(),
+                        window.ILAP.Curator.Store.waitingSwipes(), window.ILAP.IgnoreLog.ignoredSince(since)]);
+                    return {
+                        hand: new Set(hand),
+                        refused: new Set(Array.from(refused, String)),
+                        own: new Set([...swiped, ...logged]),
+                    };
+                },
+                nameOf: (appid, el) => window.ILAP.getGameName(appid, el),
+                enqueue: (entries) => window.ILAP.Curator.Store.enqueueMiMany(entries),
+                countShot: () => this.shots.next(),
+                requestScan: () => this._scanAi(),
+            });
+
+            // The AI note on a game's own page (ai-page.js): the flag, the
+            // developers' words and the way down to Steam's block. Store game
+            // pages only; the Classic Discovery Queue's are game pages too.
+            const pageApp = /^\/app\/(\d+)/.exec(location.pathname);
+            this.aiNote = pageApp ? new MI.AiPageNote({
+                pageAppid: pageApp[1],
+                isEnabled: () => this.configService.get().enabled,
+                aiGames,
+                aiKinds,
+                disclosure: () => window.ILAP.AiDisclosure.fromPage(document),
+                rules: window.ILAP.AiDisclosure,
+                nameOf: () => window.ILAP.getGameName(pageApp[1], document.querySelector('.page_content_ctn') || document.body),
+                place: () => MI.aiNotePlace(document),
+                header: () => MI.aiNoteHeader(document),
+                fit: MI.aiNoteFit,
+                // Nothing waits on it: a page left behind by an update keeps its fold.
+                setCollapsed: (on) => {
+                    try {
+                        chrome.storage.local.set({ [window.ILAP.Settings.KEYS.AI_NOTE_COLLAPSED]: on },
+                            () => void chrome.runtime.lastError);
+                    } catch (e) { /* no storage left in this tab */ }
+                },
+                label: MI.aiFlagWords,
+                t: (key, params) => window.ILAP.t(key, params),
+                lang: () => window.ILAP.i18n.getLang(),
+                reduceMotion: () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+            }) : null;
+            if (this.aiNote) {
+                // The note's flag and buttons explain themselves on hover.
+                tips.watch();
+                // Steam's column moves with the window, and with it the
+                // lines the note can quote.
+                let frame = 0;
+                window.addEventListener('resize', () => {
+                    if (frame) return;
+                    frame = requestAnimationFrame(() => { frame = 0; this.aiNote.refit(); });
+                });
+            }
+
+            // The flags and the note speak the panel's language, which the
+            // stored choice sets after the first marks may be on the page.
+            window.ILAP.i18n.onLangChange(() => {
+                aiMarks.relabel();
+                if (this.aiNote) this.aiNote.relabel();
+            });
 
             // A gesture on a bundle capsule: no badge, a card instead (bundle.js).
             const Store = window.ILAP.Curator.Store;
             this.bundles = new MI.BundleRequests({
                 read: (ref) => MI.fetchBundle(ref),
-                stage: (spec) => Store.stageBundle(spec),
+                // Its name, for the frame on the pages of the games it ignores.
+                stage: async (spec) => {
+                    const outcome = await Store.stageBundle(spec);
+                    if (outcome.kind === 'added' || outcome.kind === 'merged') {
+                        await window.ILAP.Curator.DoneMarks.noteListName(spec.kind + '_' + spec.id, spec.name);
+                    }
+                    return outcome;
+                },
                 // Already ignored as a whole: a swipe on it changes nothing.
                 isDone: (key) => this.ignoreManager.isBundleMarked(key),
                 isLoggedIn: async () => (await window.ILAP.SteamAuth.hasLiveSession()) === true,
                 // showToast escapes; the text is plain.
                 toast: (key, params) => window.ILAP.showToast(window.ILAP.t(key, params), 6000),
             });
+
+            // Steam's creator ignore on creator links (creators-ui.js).
+            const Creators = window.ILAP.Creators;
+            this.creators = new MI.CreatorControl({
+                read: () => Creators.readState(Store),
+                effective: (mirror, job, cursor) => Creators.effective(mirror, job, cursor),
+                creatorPath: MI.creatorPath,
+                linkSelector: MI.CREATOR_LINK,
+                enqueue: (spec) => Store.enqueueCreator(spec),
+                fetchClanId: (href) => Creators.fetchClanId(href),
+                fetchAppCreators: (appid) => Creators.fetchAppCreators(appid, MI.storeCountry()),
+                isLoggedIn: async () => (await window.ILAP.SteamAuth.hasLiveSession()) === true,
+                isSignedIn: () => window.ILAP.SteamAuth.resolveLogin(),
+                isEnabled: () => this.configService.get().enabled,
+                toast: (key, params) => window.ILAP.showToast(window.ILAP.t(key, params), 6000),
+                t: (key) => window.ILAP.t(key),
+                iconUrl: chrome.runtime.getURL('assets/icons/icon48.png'),
+            });
+            this.notifyCreatorFailed = throttledToast('creator_failed');
 
             this.eventParser = new MI.EventParser(this.configService);
             this.swipeDetector = new MI.SwipeGestureDetector(this.configService);
@@ -449,43 +246,117 @@
             this.configService.onChange((config) => {
                 // The master toggle rides this same change feed: off strips the
                 // page clean, on repaints from the session map.
+                this.creators.paint();
                 if (!config.enabled) {
                     this.ignoreManager.hideBadges();
+                    this.ai.untag();
+                    if (this.aiNote) this.aiNote.hide();
                     return;
                 }
                 this.ignoreManager.refreshAll();
                 this.ignoreManager.syncMasks();
+                this.creators.resume().catch((e) => console.warn('[ILAP] creator read failed:', e));
+                this._scanAi();
+                this._refreshAiNote();
             });
 
             this.setupInteractions();
             this.setupObserver();
 
-            // ilap_unignored: badges to drop. ilap_undo_failed: a rollback that
-            // will not land, so only the pending marks come off. Each pulse's
-            // reason decides whether a card goes with it.
-            const Store = window.ILAP.Curator.Store;
-            const applyMarks = (marks) => this.ignoreManager.setBundleMarks(Object.keys(marks || {}));
-            applyMarks(await Store.getBundleMarks());
+            this._applyBundleMarks(await window.ILAP.Curator.DoneMarks.getBundleMarks());
             chrome.storage.onChanged.addListener((changes, area) => {
-                if (area !== 'local') return;
-                const b = changes[Store.IGNORED_BUNDLES_KEY];
-                if (b) applyMarks(b.newValue);
-                const p = changes[Store.UNIGNORE_PULSE_KEY];
-                const pulsed = p && p.newValue && p.newValue.appids;
-                if (pulsed) {
-                    this.ignoreManager.handleUnignored(pulsed, p.newValue.reason);
-                }
-                const u = changes[Store.UNDO_FAILED_KEY] && changes[Store.UNDO_FAILED_KEY].newValue;
-                if (u) {
-                    // 'removed': the user dropped the job, so nothing is said.
-                    this.ignoreManager.clearPending();
-                    if (u.reason !== 'removed') this.notifyUndoFailed();
-                }
+                if (area === 'local') this._onStorage(changes);
             });
 
             this.ignoreManager.refreshAll();
+            this._loadAiOptions();
+            this.shots.load();
+            // The games un-ignored by hand, the only ones High flags: known
+            // from the start, so a scan with nothing to shoot flags them too.
+            window.ILAP.ManualIgnore.AiSpared.read().then((list) => {
+                this.ai.browse.spared(list);
+                this._scanAi();
+            }).catch(() => { /* the scans read it again */ });
+            this.creators.boot(location.pathname)
+                .catch((e) => console.warn('[ILAP] creator links did not start:', e));
         }
 
+        _applyBundleMarks(marks) {
+            this.ignoreManager.setBundleMarks(Object.keys(marks || {}));
+        }
+
+        // Each key this script follows, and who it goes to. ilap_unignored: badges
+        // to drop. ilap_undo_failed: a rollback that will not land, so only the
+        // pending marks come off. Each pulse's reason decides whether a card goes
+        // with it.
+        _onStorage(changes) {
+            const Store = window.ILAP.Curator.Store;
+            const b = changes[window.ILAP.Curator.DoneMarks.IGNORED_BUNDLES_KEY];
+            if (b) this._applyBundleMarks(b.newValue);
+            const p = changes[Store.UNIGNORE_PULSE_KEY];
+            const pulsed = p && p.newValue && p.newValue.appids;
+            if (pulsed) {
+                this.ignoreManager.handleUnignored(pulsed, p.newValue.reason);
+                // A shot still in flight lands with no badge.
+                this.ai.browse.dropped(pulsed);
+            }
+            // A game un-ignored by hand takes its AI flag at High once its
+            // badge is off, so a scan follows the pulse too.
+            const spared = changes[window.ILAP.ManualIgnore.AiSpared.KEY];
+            if (spared) this.ai.browse.spared(spared.newValue);
+            if (spared || pulsed) this._scanAi();
+            if (aiOptionKeys().some(k => changes[k])) this._loadAiOptions();
+            const shotCount = changes[window.ILAP.Settings.KEYS.AI_SHOT_COUNT];
+            if (shotCount) this.shots.see(shotCount.newValue);
+            // The creator mirror, or the creator job and its cursor.
+            if (changes[window.ILAP.Creators.MIRROR_KEY] || changes[Store.QUEUE_KEY]
+                || changes[Store.CURSOR_PREFIX + Store.CREATOR_JOB_ID]) this._refreshCreators();
+            if (changes[window.ILAP.Creators.FAILED_KEY]) this.notifyCreatorFailed();
+            const u = changes[Store.UNDO_FAILED_KEY] && changes[Store.UNDO_FAILED_KEY].newValue;
+            if (u) {
+                // 'removed': the user dropped the job, so nothing is said.
+                this.ignoreManager.clearPending();
+                if (u.reason !== 'removed') this.notifyUndoFailed();
+            }
+        }
+
+        // Fire-and-forget, like a gesture (_dispatch).
+        _refreshCreators() {
+            this.creators.refresh().catch((e) => console.warn('[ILAP] creator refresh failed:', e));
+        }
+
+        // The level, its shot and the AI tab's boxes, read whole on any
+        // change of one, then a scan.
+        _loadAiOptions() {
+            const { KEYS: K, normalizeShot, normalizeShotEmoji, normalizeAiLevel, isOn } = window.ILAP.Settings;
+            chrome.storage.local.get(aiOptionKeys(), (d) => {
+                if (chrome.runtime.lastError) return;
+                this.ai.setShot(normalizeShot(d[K.AI_SHOT]));
+                this.ai.setEmoji(normalizeShotEmoji(d[K.AI_SHOT_EMOJI]));
+                this.ai.setAnim(isOn(d[K.AI_SHOT_ANIM]));
+                const options = {
+                    level: normalizeAiLevel(d[K.AI_LEVEL]),
+                    keep: { translation: d[K.AI_KEEP_TRANSLATION], ingame: d[K.AI_KEEP_INGAME] },
+                    collapsed: d[K.AI_NOTE_COLLAPSED] === true,
+                };
+                // The AI flags take the level's colour from here (styles.css).
+                document.documentElement.dataset.ilapAiLevel = String(options.level);
+                this.ai.browse.setOptions(options);
+                if (this.aiNote) this.aiNote.setOptions(options);
+                this._scanAi();
+                this._refreshAiNote();
+            });
+        }
+
+        // Fire-and-forget, like a gesture (_dispatch).
+        _scanAi() {
+            this.ai.browse.scan().catch((e) => console.warn('[ILAP] AI browsing scan failed:', e));
+        }
+
+        _refreshAiNote() {
+            if (!this.aiNote) return;
+            this.aiNote.refresh().catch((e) => console.warn('[ILAP] AI note failed:', e));
+        }
         // The first time the detector cancels a menu that opened at press (macOS,
         // Linux), say once per install why the menu is gone on game covers and
         // how to get it back. Asked once per tab, so every later press in it
@@ -495,7 +366,7 @@
             this._menuHintAsked = true;
             chrome.storage.local.get(PRESS_MENU_HINT_KEY, (d) => {
                 if (chrome.runtime.lastError || d[PRESS_MENU_HINT_KEY]) return;
-                chrome.storage.local.set({ [PRESS_MENU_HINT_KEY]: true });
+                chrome.storage.local.set({ [PRESS_MENU_HINT_KEY]: true }, () => void chrome.runtime.lastError);
                 window.ILAP.showToast(window.ILAP.t('press_menu_hint'), 12000);
             });
         }
@@ -505,6 +376,12 @@
         // leaves this page's script running with no storage behind it — would
         // otherwise leave an unhandled rejection per swipe.
         _dispatch(intent, action) {
+            // A creator's link: Steam's creator ignore, either way.
+            if (intent.creator) {
+                this.creators.request({ link: intent.linkElement, ignore: action !== 'unignore' })
+                    .catch((e) => console.warn('[ILAP] creator gesture failed:', e));
+                return;
+            }
             // A bundle has nothing of ours to un-ignore: only an ignore gesture counts.
             if (intent.bundle) {
                 if (action === 'unignore') return;
@@ -568,7 +445,11 @@
                 const shouldRun = mutations.some(m => m.addedNodes.length > 0);
                 if (shouldRun) {
                     clearTimeout(timeout);
-                    timeout = setTimeout(() => this.ignoreManager.refreshAll(), 200);
+                    timeout = setTimeout(() => {
+                        this.ignoreManager.refreshAll();
+                        this.creators.paint();
+                        this._scanAi();
+                    }, 200);
                 }
             });
             const root = document.getElementById('page_root') || document.body;

@@ -27,13 +27,20 @@ function loadModules() {
 }
 
 // In-memory Store stub with the real mutateQueue contract: the mutator gets a
-// copy and returns the next array (or a non-array to skip the write).
+// copy and returns the next array (or a non-array to skip the write), and a
+// job's list is stored with it only while the job is in the queue.
 function makeStore(queue) {
     return withVocab({
         queue,
-        mutateQueue(mutator) {
+        lists: {},
+        mutateQueue(mutator, lists) {
             const next = mutator(this.queue.slice());
-            if (Array.isArray(next)) this.queue = next;
+            if (Array.isArray(next)) {
+                this.queue = next;
+                for (const id of Object.keys(lists || {})) {
+                    if (next.some(j => j.id === id)) this.lists[id] = lists[id];
+                }
+            }
             return Promise.resolve(this.queue);
         },
     });
@@ -65,7 +72,8 @@ test.describe('UndoService (unit)', () => {
         expect(job.type).toBe('undo');
         expect(job.curatorId).toBe('undo');           // lease key: ilap_curator_lock_undo
         expect(job.status).toBe('pending');
-        expect(job.appids).toEqual(['1', '2']);       // newest first, '1' deduped, undone '3' skipped
+        expect(store.lists[job.id]).toEqual(['1', '2']); // newest first, '1' deduped, undone '3' skipped
+        expect(job.appids).toBeUndefined();              // under its own key, out of the queue
         expect(job.total).toBe(2);
         expect(job.snapshotTs).toBeGreaterThanOrEqual(before);
         expect(job.scope).toEqual({ n: 10 });         // what was asked, for the job's name
@@ -132,7 +140,7 @@ test.describe('UndoService (unit)', () => {
         const svc = new ILAP.UndoService({ store, log, maxJobs: 3 });
         const outcome = await svc.stageSince(6, 'h');
         expect(outcome).toEqual({ kind: 'added', total: 2 });
-        expect(store.queue[0].appids).toEqual(['3', '2']);
+        expect(store.lists[store.queue[0].id]).toEqual(['3', '2']);
         expect(store.queue[0].scope).toEqual({ n: 6, unit: 'h' });
     });
 });

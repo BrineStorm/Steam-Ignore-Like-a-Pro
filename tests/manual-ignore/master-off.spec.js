@@ -141,7 +141,7 @@ test.describe('Manual Ignore — master toggle vs the badges', () => {
             await expect.poll(async () => (await snap()).dupCount, { timeout: 10000 }).toBeGreaterThan(1);
             before = await snap();
         }
-        expect(before.dupCount, 'one game should carry a badge on more than one capsule').toBeGreaterThan(1);
+        expect(before.dupCount, 'one game should have a badge on more than one capsule').toBeGreaterThan(1);
 
         // OFF — every badge on the page, in every block, including the duplicates
         // and the blur/veils that ride them.

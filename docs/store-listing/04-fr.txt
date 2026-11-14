@@ -1,0 +1,57 @@
+Filtrez les jeux faits avec de l'IA sur le magasin Steam, et ignorez des jeux d'un seul geste de souris ou des listes entières d'un coup.
+
+Steam Ignore Like a Pro est une extension gratuite et open source qui rend Steam plus pratique et respecte votre vie privée. Son onglet AI marque, floute ou ignore les jeux faits avec de l'IA sur chaque page du magasin. L'extension apporte le bouton « Ignorer » de Steam sur la vignette de chaque jeu du magasin, et vous n'avez plus besoin d'ouvrir la page d'un jeu juste pour cliquer sur « Ignorer ». Tout marche exactement comme dans Steam, puisque l'extension utilise la fonction Ignorer de Steam elle-même.
+
+COMMENT L'UTILISER :
+1. Ouvrez n'importe quelle page du magasin Steam.
+2. Maintenez le bouton droit de la souris sur la vignette d'un jeu et glissez vers la droite (ou vers la gauche pour l'ignorer avec la marque « Déjà joué »).
+3. Un badge « IGNORED » apparaît aussitôt sur le jeu. La demande arrive chez Steam quelques instants plus tard.
+4. Si vous changez d'avis, cliquez sur le badge pour ne plus ignorer le jeu.
+
+COMMENT FILTRER LES JEUX FAITS AVEC DE L'IA :
+1. Ouvrez le panneau de l'extension et son onglet AI.
+2. Choisissez le niveau de filtre « Élevé » et cliquez sur le bouton d'enregistrement à côté du curseur.
+3. Ouvrez n'importe quelle page Steam avec beaucoup de vignettes de jeux et faites défiler. Dès qu'un jeu fait avec de l'IA apparaît à l'écran, vous voyez une animation et le jeu est ajouté à votre liste d'ignorés.
+4. Si vous le souhaitez, vous pouvez désactiver l'animation ou choisir un niveau qui se contente de marquer les jeux faits avec de l'IA sans les ajouter à votre liste d'ignorés.
+
+FONCTIONNALITÉS :
+▪ Gratuite, privée et open source - extension légère, sans framework, sans pistage ni télémétrie. Elle travaille dans la session de votre navigateur et ne la transmet nulle part ailleurs.
+▪ Ignorer d'un geste - Maintenez le clic droit et glissez vers la droite pour ignorer un jeu partout où sa vignette apparaît.
+▪ Ignorer avec la marque « Déjà joué » - Glissez vers la gauche pour ignorer directement avec cette marque un jeu auquel vous avez joué sur une autre plateforme, au lieu d'ouvrir sa page et de cliquer sur « Ignorer » -> « J'y ai joué sur une autre plateforme ».
+▪ Filtre des jeux faits avec de l'IA - L'extension peut marquer les jeux faits avec de l'IA directement sur leurs vignettes, ou les ajouter automatiquement à la liste d'ignorés de votre compte.
+▪ Listes prêtes à ignorer - Ignorez d'un coup tous les jeux avec du contenu IA, Denuvo, un accès au noyau, des conditions d'EULA intrusives, les mauvais jeux notoires et plus encore, selon votre choix. Les listes sont établies à l'avance et fournies avec l'extension. Les jeux de votre bibliothèque et de votre liste de souhaits sont laissés de côté.
+▪ Ignorer en masse depuis les listes des groupes de curation - Ignorez les listes des groupes de curation Steam directement depuis leurs pages. Choisissez un groupe qui signale les jeux que vous n'aimez pas, et l'extension ignore toute la liste.
+▪ Ignorer le créateur - Ignorez un développeur ou un éditeur d'un clic sur le bouton placé juste à côté de son lien sur la page d'un jeu.
+▪ Ignorer dans la liste de découvertes - Ouvrez la liste de découvertes sur la page d'un tag, d'un genre ou d'une catégorie, et l'extension ignore tous les jeux de la liste ou seulement ceux qui ont de mauvaises évaluations.
+▪ Assistant de la liste de découvertes classique - L'extension ignore automatiquement des jeux pendant que vous parcourez votre sélection quotidienne de recommandations Steam, selon vos conditions (par exemple de mauvaises évaluations), ou les ignore et fait avancer la liste aussitôt.
+▪ Annuler un ignoré - Vous pouvez à tout moment annuler l'ignoré d'un jeu ou d'un créateur directement sur la vignette du jeu ou à côté du lien du créateur, et annuler d'un coup une série d'ignorés récents sous forme de liste dans un menu d'annulation distinct, en ajoutant une tâche d'annulation.
+▪ Très personnalisable - Vous pouvez personnaliser l'extension assez largement, changer les raccourcis clavier, activer ou désactiver séparément des modules et des modes pour ignorer, changer l'emplacement de l'extension sur la page et bien plus.
+▪ 24 langues d'interface - Changez-les à la volée, indépendamment de la langue de Steam.
+
+Q : Pourquoi utiliser ça au lieu de la fonction Ignorer intégrée de Steam ?
+R : Le bouton « Ignorer » intégré est absent de nombreuses pages et widgets de Steam, et là où il existe, ignorer demande plusieurs clics (survoler la vignette du jeu -> cliquer sur ▪▪▪ -> cliquer sur « Ignorer »). En plus, ce menu n'a pas l'option « J'y ai joué sur une autre plateforme ». Steam ne permet pas non plus d'ignorer une liste de jeux d'un coup. L'extension vous permet d'ignorer d'un geste sur n'importe quelle page et n'importe quel widget de Steam, et ajoute l'ignoré en masse depuis des listes intégrées et l'automatisation de l'ignoré.
+
+Q : Comment ignorer beaucoup de jeux d'un coup sur Steam ?
+R : Steam lui-même ignore les jeux un par un. Avec l'extension, vous pouvez par exemple ajouter une liste intégrée à la file des jeux à ignorer (jeux avec du contenu IA, Denuvo, un accès au noyau, des conditions d'EULA intrusives, les mauvais jeux notoires et plus encore), y ajouter toute la liste d'un groupe de curation, ignorer un bundle entier d'un geste, ignorer un créateur, activer le niveau élevé du filtre IA, lancer l'assistant de la liste de découvertes sur un tag ou un genre, ou simplement balayer vite les vignettes des jeux qui ne vous intéressent pas dans le magasin.
+
+Q : L'utilisation de cette extension respecte-t-elle les règles de Steam ?
+R : Oui, quand il s'agit d'ignorer ou d'annuler un ignoré par geste, bouton ou raccourci clavier. Chacun se déclenche une fois par action de votre part, comme un clic sur le bouton « Ignorer » de Steam. Les assistants de liste de découvertes, le niveau élevé du filtre IA, la file des jeux à ignorer (listes des groupes de curation, listes intégrées et bundles) et l'annulation en bloc relèvent de l'automatisation. La section 4.C de l'Accord de souscription Steam (Steam Subscriber Agreement) interdit les interactions avec Steam qui ne sont pas contrôlées par un humain, y compris l'obtention de récompenses ou de progression sans véritable action de l'utilisateur. Utilisez donc les fonctions d'automatisation à votre propre discrétion, en connaissance du risque. L'extension ne gagne pas de récompenses de soldes à votre place et n'est pas conçue pour ça. Elle a aussi une protection intégrée qui règle le rythme des requêtes envoyées à Steam, une à la fois. Le dernier mot revient toutefois à Valve, tout comme la position et les mesures de l'entreprise envers cette extension et toute autre extension d'automatisation de Steam.
+
+Q : Peut-on annuler un ignoré ?
+R : Oui, à tout moment. Le bouton Ignorer de la page du jeu continue de fonctionner avec l'extension. Vous pouvez aussi dessiner un cercle ou un zigzag sur la vignette du jeu, ou cliquer sur le badge IGNORED du jeu, pour annuler un seul ignoré. Ou ouvrez le popup de l'extension, cliquez sur le bouton d'annulation (↩️) et choisissez quels ignorés récents annuler, les N derniers jeux ou tout ce qui date des N dernières heures ou des N derniers jours. Les créateurs ignorés se rétablissent au même endroit, dans l'onglet « Créateurs ».
+
+Q : L'extension fonctionne-t-elle si mon Steam n'est pas en anglais ?
+R : Oui. L'extension ne dépend pas de la langue. Elle fonctionne avec n'importe quel réglage de langue de votre compte Steam.
+
+Q : L'extension fonctionne-t-elle sur macOS et Linux ?
+R : Oui. Sur macOS et Linux, le menu contextuel s'ouvre dès que vous appuyez sur le bouton droit, donc l'extension retient ce menu au clic sur la vignette d'un jeu si ignorer ou annuler est réglé sur des gestes. Vous pouvez aussi assigner l'action Ignorer à d'autres touches (par exemple Maj + Clic G.) dans PARAMÈTRES -> Ignorer manuel.
+
+Q : Peut-on ignorer un lot ou un bundle de plusieurs jeux ?
+R : Oui. Glissez sur la vignette du bundle, puis glissez dessus une seconde fois pour confirmer. Tous les jeux et DLC du bundle vont dans la file des jeux à ignorer et sont ignorés au rythme habituel. Les jeux de votre bibliothèque et de votre liste de souhaits sont laissés de côté.
+
+CONFIDENTIALITÉ ET SÉCURITÉ :
+▪ Passe par Steam lui-même, en cliquant sur les boutons de Steam ou en envoyant les mêmes requêtes que lui.
+▪ Aucun pistage, aucune analyse, aucun serveur externe. Nous ne collectons, ne recevons et ne partageons aucune donnée personnelle. Vos paramètres, votre historique d'ignorés et votre file en attente sont enregistrés localement dans votre navigateur, et les requêtes vont directement aux serveurs officiels de Steam (store.steampowered.com et api.steampowered.com).
+▪ Aucun mot de passe ni clé d'API Steam n'est stocké, et rien n'est envoyé ailleurs qu'à Steam. L'extension utilise votre session Steam active et, pour vérifier la récompense de la liste de découvertes pendant des soldes, le jeton d'accès que la page du magasin Steam contient déjà. Ce jeton n'est envoyé qu'à l'API de Steam et n'est jamais stocké.
+
+Steam Ignore Like a Pro n'est ni affiliée à Valve Corporation ou à Steam, ni sponsorisée par eux.

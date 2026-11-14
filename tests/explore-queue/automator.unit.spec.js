@@ -34,7 +34,7 @@ function loadAutomatorClass() {
 // are the gate verdict and the ignore-API result (ignoreRes overrides the
 // plain ok/fail shape when a test needs the rateLimited flavour), the sale-reward
 // verdict and the notice's answer.
-function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore, reward, confirm, wishlisted }) {
+function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore, reward, confirm, wishlisted, decide, isAi }) {
     const calls = { ignores: 0, toastRemoved: 0, visualsCleared: 0, statsSaved: [], rateReports: [],
         locked: 0, lockPending: [], intents: [], runIds: [], openRuns: new Set(), closedRuns: [],
         prompts: 0, visuals: [] };
@@ -66,7 +66,7 @@ function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore
             getAppID: () => null, isQueuePage: () => false,
         },
         analyzer: { getState: () => 'NEGATIVE' },
-        decisionEngine: { decide: () => 'SHOULD_IGNORE' },
+        decisionEngine: { decide: decide || (() => 'SHOULD_IGNORE') },
         reward: {
             check: reward || (async () => 'allowed'),
             STATUS: { ALLOWED: 'allowed', PENDING: 'pending', UNKNOWN: 'unknown' },
@@ -83,6 +83,7 @@ function makeAutomator(Automator, { gateOk, ignoreOk, ignoreRes, reserve, ignore
             close: async (id) => { calls.openRuns.delete(id); calls.closedRuns.push(id); },
         },
         wishlist: { has: wishlisted || (async () => false) },
+        ai: { isAi: isAi || (async () => false) },
     });
     return { a, calls };
 }
@@ -96,11 +97,11 @@ test.describe('ExploreAutomator (unit)', () => {
             settings: a.settings, ui: a.ui, api: a.api, gate: a.gate, stats: a.stats,
             navGuard: a.nav, nameExtractor: a.nameExtractor, context: a.context,
             analyzer: a.analyzer, decisionEngine: a.decisionEngine, reward: a.reward, notice: a.notice,
-            runs: a.runs, wishlist: a.wishlist,
+            runs: a.runs, wishlist: a.wishlist, ai: a.ai,
         });
         expect(() => new Automator(deps())).not.toThrow();
         for (const name of ['ui', 'navGuard', 'context', 'analyzer', 'decisionEngine', 'gate', 'reward', 'notice',
-            'runs', 'wishlist']) {
+            'runs', 'wishlist', 'ai']) {
             const broken = Object.assign(deps(), { [name]: {} });
             expect(() => new Automator(broken), name).toThrow(`needs deps.${name}`);
         }
@@ -130,6 +131,64 @@ test.describe('ExploreAutomator (unit)', () => {
         expect(calls.ignores).toBe(0);
         expect(calls.visuals).toEqual(['WISHLIST']);
         expect(a.processedSession.has('123')).toBe(false);
+    });
+
+    // ---- the AI tab's HIGH level: an AI game goes whatever its reviews ----
+    const spare = () => 'SHOULD_SPARE';
+
+    test('a spared game the AI check names is ignored', async () => {
+        const Automator = loadAutomatorClass();
+        const asked = [];
+        const { a, calls } = makeAutomator(Automator, {
+            gateOk: true, ignoreOk: true, decide: spare, isAi: async (id) => { asked.push(id); return true; },
+        });
+        await a._executeLogic('123');
+        expect(asked).toEqual(['123']);
+        expect(calls.ignores).toBe(1);
+        expect(calls.visuals).toEqual(['IGNORE']);
+        expect(a.processedSession.has('123')).toBe(true);
+    });
+
+    test('a spared game the AI check passes, or fails to read, stays spared', async () => {
+        const Automator = loadAutomatorClass();
+        for (const isAi of [async () => false, async () => { throw new Error('no data'); }]) {
+            const { a, calls } = makeAutomator(Automator, { gateOk: true, ignoreOk: true, decide: spare, isAi });
+            await a._executeLogic('123');
+            expect(calls.ignores).toBe(0);
+            expect(calls.visuals).toEqual(['NEGATIVE']);
+        }
+    });
+
+    test('a game the reviews already condemn skips the AI check', async () => {
+        const Automator = loadAutomatorClass();
+        let asked = 0;
+        const { a, calls } = makeAutomator(Automator, {
+            gateOk: true, ignoreOk: true, isAi: async () => { asked++; return false; },
+        });
+        await a._executeLogic('123');
+        expect(asked).toBe(0);
+        expect(calls.ignores).toBe(1);
+    });
+
+    test('a stop during the AI check ends the pass with no POST', async () => {
+        const Automator = loadAutomatorClass();
+        let release;
+        const { a, calls } = makeAutomator(Automator, {
+            gateOk: true, ignoreOk: true, decide: spare, isAi: () => new Promise(r => { release = r; }),
+        });
+        const pass = a._executeLogic('123');
+        a._stopAutomation();
+        release(true);
+        await pass;
+        expect(calls.ignores).toBe(0);
+        expect(calls.visuals).toEqual([]);
+    });
+
+    test('two passes over one AI game POST once', async () => {
+        const Automator = loadAutomatorClass();
+        const { a, calls } = makeAutomator(Automator, { gateOk: true, ignoreOk: true, decide: spare, isAi: async () => true });
+        await Promise.all([a._executeLogic('123'), a._executeLogic('123')]);
+        expect(calls.ignores).toBe(1);
     });
 
     test('a failed wishlist read is a failed ignore: no POST, no mark', async () => {

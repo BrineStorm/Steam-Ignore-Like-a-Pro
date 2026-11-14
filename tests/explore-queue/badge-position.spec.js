@@ -26,7 +26,7 @@ test('clearVisuals gives the card back the inline styles Steam gave it', async (
     // Turning the extension off must strip what WE drew and nothing of Steam's:
     // a reset to '' would break Steam's own layout of the button.
     await mountUI(page);
-    const styles = await page.evaluate(() => {
+    const styles = await page.evaluate(async () => {
         document.body.innerHTML = '';
         const container = document.createElement('div');
         container.id = 'ignoreBtn';
@@ -40,6 +40,8 @@ test('clearVisuals gives the card back the inline styles Steam gave it', async (
         const drawn = read();
         ui.applyVisuals('IGNORE', 'bad');   // a second paint must not record OUR styles as Steam's
         ui.clearVisuals();
+        // The micro-badge fades out before it goes.
+        await new Promise(r => setTimeout(r, 400));
         return { drawn, cleared: read() };
     });
     expect(styles.drawn.position).toBe('relative');
@@ -110,4 +112,55 @@ test.describe('Explore Queue — badge placement (DOM)', () => {
         });
         expect(criterion).toBe('nowrap');
     });
+});
+
+// The list frame (src/manual-ignore/list-frame.js) draws with its own ActionUI
+// on the same button: a list that ignored the game outranks the Queue Helper's
+// verdict, and either one's clear gives Steam's styles back.
+test('the list frame outranks the Queue Helper\'s verdict on the same button', async ({ page }) => {
+    await mountUI(page);
+    const out = await page.evaluate(async () => {
+        document.body.innerHTML = '';
+        const container = document.createElement('div');
+        container.id = 'ignoreBtn';
+        container.style.cssText = 'position: relative; display: flex;';
+        document.body.appendChild(container);
+        const colors = { RED_BG: '#c0392b', BLUE_BG: '#3498db', BADGE_BLUE_BG: '#2980b9' };
+        const make = () => new window.ILAP.Explore.UI({ getIconUrl: () => 'icon16.png' }, colors, () => container);
+        const helper = make(), frame = make();
+        const text = () => Array.from(container.querySelectorAll('.ilap-tooltip span'))
+            .map(s => s.textContent.trim()).join(' | ');
+        helper.applyVisuals('SPARE', 'bad');
+        frame.applyVisuals('LIST', null, { text: 'Ignored by a built-in list', name: 'Denuvo DRM', date: 'Oct 12, 2026' });
+        const drawn = text();
+        helper.applyVisuals('IGNORE', 'bad');   // the helper's later verdict yields
+        const kept = { text: text(), badges: container.querySelectorAll('.ilap-micro-badge').length };
+        frame.clearVisuals();
+        await new Promise(r => setTimeout(r, 400));
+        const cleared = { boxShadow: container.style.boxShadow, position: container.style.position, mark: container.dataset.ilapListFrame };
+        helper.applyVisuals('IGNORE', 'bad');   // and draws again once the frame is gone
+        return { drawn, kept, cleared, after: container.querySelector('.ilap-micro-badge').textContent };
+    });
+    expect(out.drawn).toBe('Ignored by a built-in list | Denuvo DRM | Oct 12, 2026');
+    expect(out.kept).toEqual({ text: out.drawn, badges: 1 });
+    // Steam's own inline styles, though the helper drew first.
+    expect(out.cleared).toEqual({ boxShadow: '', position: 'relative', mark: undefined });
+    expect(out.after).toBe('IGNORED');
+});
+
+test('the plate\'s capitals sit in its middle, on any page\'s line height', async ({ page }) => {
+    await mountUI(page);
+    const out = await page.evaluate(() => {
+        document.body.innerHTML = '';
+        document.body.style.lineHeight = '19px';   // a page's own line, which the plate must not take
+        const container = document.createElement('div');
+        container.id = 'ignoreBtn';
+        container.style.cssText = 'position: relative; width: 140px; height: 32px;';
+        document.body.appendChild(container);
+        const colors = { RED_BG: '#c0392b', BLUE_BG: '#3498db', BADGE_BLUE_BG: '#2980b9' };
+        new window.ILAP.Explore.UI({ getIconUrl: () => 'icon16.png' }, colors, () => container).applyVisuals('LIST', null, { text: 'x' });
+        const cs = getComputedStyle(container.querySelector('.ilap-micro-badge'));
+        return { lineHeight: cs.lineHeight, top: cs.paddingTop, bottom: cs.paddingBottom };
+    });
+    expect(out).toEqual({ lineHeight: '8px', top: '2px', bottom: '2px' });
 });

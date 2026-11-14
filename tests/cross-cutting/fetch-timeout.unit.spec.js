@@ -17,6 +17,8 @@ function loadIlap(fetchImpl, setTimeoutImpl) {
         window: {},
         console,
         fetch: fetchImpl,
+        // The last total, which an all-empty read is held against.
+        chrome: { storage: { local: { get: (k, cb) => cb(loadIlap.storage || {}) } }, runtime: {} },
         AbortController,
         setTimeout: setTimeoutImpl || setTimeout, clearTimeout,
         Date, Math, Object, Promise, Set, String, RegExp,
@@ -112,6 +114,57 @@ test.describe('fetchWithTimeout (unit)', () => {
         expect(await ILAP.isWishlisted(20)).toBe(null);
     });
 
+    test('an answer with no ignore list is a failed read, never an empty list', async () => {
+        // The undo drainer takes "not in the map" for "already rolled back": a
+        // renamed list read as empty would mark a whole undo job done with no POST.
+        const read = (body) => loadIlap(() => Promise.resolve({ ok: true, json: async () => body }))
+            .fetchIgnoredAppsStrict();
+        for (const shape of [undefined, null, 0, '10']) {
+            expect(await read({ rgIgnoredApps: shape, rgWishlist: [], rgOwnedApps: [1] })).toBe(null);
+        }
+        expect(await read({ rgWishlist: [], rgOwnedApps: [1] })).toBe(null);
+        // An account with nothing ignored: Steam sends {} or [].
+        expect((await read({ rgIgnoredApps: {}, rgWishlist: [], rgOwnedApps: [1] })).size).toBe(0);
+        expect((await read({ rgIgnoredApps: [], rgWishlist: [], rgOwnedApps: [1] })).size).toBe(0);
+        // The lenient read stays an empty Set on it.
+        const lenient = loadIlap(() => Promise.resolve({ ok: true, json: async () => ({ rgWishlist: [] }) }));
+        expect((await lenient.fetchIgnoredApps()).size).toBe(0);
+    });
+
+    test('the same read has the library; a missing list or a failed read is null, never an empty library', async () => {
+        // A Steam-side change of the shape must stop the automated ignores, not
+        // let them take every game the user owns.
+        const read = (body) => loadIlap(() => Promise.resolve({ ok: true, json: async () => body }))
+            .fetchIgnoredAppsStrict();
+        expect([...(await read({ rgIgnoredApps: {}, rgWishlist: [], rgOwnedApps: [40, 50] })).owned]).toEqual(['40', '50']);
+        expect((await read({ rgIgnoredApps: {}, rgWishlist: [], rgOwnedApps: [] })).owned.size).toBe(0);
+        for (const shape of [undefined, null, {}, '40']) {
+            const strict = await read({ rgIgnoredApps: { 10: 0 }, rgWishlist: [], rgOwnedApps: shape });
+            expect(strict.owned).toBe(null);
+            // The wishlist from the same answer is still read.
+            expect(strict.wishlist.size).toBe(0);
+        }
+        const down = loadIlap(() => Promise.resolve({ ok: false }));
+        expect(await down.fetchIgnoredAppsStrict()).toBe(null);
+    });
+
+    test('a 429 on a page\'s userdata read raises the shared penalty, whoever reads', async () => {
+        // The swipe's reason read, the HIGH level's account read, the EQ and DQ
+        // wishlist reads: none passes a hook of its own.
+        const ILAP = loadIlap(() => Promise.resolve({ ok: false, status: 429, headers: { get: () => '7' } }));
+        const penalties = [];
+        ILAP.IgnoreGate = { reportRateLimited: async (ms) => { penalties.push(ms); } };
+        expect(await ILAP.fetchIgnoredAppsStrict()).toBe(null);
+        expect(await ILAP.fetchWishlist()).toBe(null);
+        expect((await ILAP.fetchIgnoredApps()).size).toBe(0);
+        expect(penalties).toEqual([7000, 7000, 7000]);
+        // A caller with a hook of its own keeps it.
+        const own = [];
+        await ILAP.fetchIgnoredAppsStrict({ onRateLimited: async (ms) => { own.push(ms); } });
+        expect(own).toEqual([7000]);
+        expect(penalties.length).toBe(3);
+    });
+
     test('the strict read keeps each game\'s ignore reason; the lenient one only the appids', async () => {
         // The MI dedupe compares reasons: a swipe with the other one is a change
         // of reason Steam accepts, not a duplicate.
@@ -169,6 +222,38 @@ test.describe('ignore POST fields (unit)', () => {
         return sandbox.window.ILAP;
     }
 
+    // Steam's creator ignore answers JSON. What creatorResult makes of each
+    // answer decides a drop for good, so every branch is pinned. Measured live,
+    // a followed creator answers 400 with { success: { success: 2 } }.
+    test('creatorResult: what each answer of the creator ignore reads as', async () => {
+        const ILAP = loadWithCookie([]);
+        const answer = (status, body, retryAfter) => ({
+            ok: status >= 200 && status < 300, status,
+            headers: { get: (h) => (h === 'Retry-After' ? retryAfter || null : null) },
+            json: async () => { if (body === undefined) throw new SyntaxError('not JSON'); return body; },
+        });
+        const read = (...a) => ILAP.SteamNet.creatorResult(answer(...a));
+
+        expect(await read(200, { success: 1 })).toMatchObject({ ok: true, rateLimited: false });
+        expect(await read(200, { success: { success: 1 } })).toMatchObject({ ok: true });
+        expect((await read(200, { success: 1 })).refused).toBeFalsy();
+        // A 200 that does not say success, or no JSON at all, is a refusal.
+        expect(await read(200, { success: 2 })).toMatchObject({ ok: false, refused: true, status: 200 });
+        expect(await read(200, { success: { success: 15 } })).toMatchObject({ ok: false, refused: true });
+        expect(await read(200, undefined)).toMatchObject({ ok: false, refused: true });
+        // A 429 throttles the account and is never a refusal of the creator.
+        const limited = await read(429, undefined, '7');
+        expect(limited).toMatchObject({ ok: false, rateLimited: true, retryAfterMs: 7000 });
+        expect(limited.refused).toBeFalsy();
+        // Any other 4xx is a refusal, a 5xx is not (it is retried).
+        expect(await read(400, undefined)).toMatchObject({ ok: false, refused: true, status: 400 });
+        expect(await read(400, { success: { success: 2 } })).toMatchObject({ ok: false, refused: true, status: 400 });
+        expect(await read(403, undefined)).toMatchObject({ ok: false, refused: true, status: 403 });
+        const server = await read(502, undefined);
+        expect(server).toMatchObject({ ok: false, rateLimited: false, status: 502 });
+        expect(server.refused).toBeFalsy();
+    });
+
     test('an ignore and its rollback send exactly the fields Steam expects', async () => {
         const posts = [];
         const ILAP = loadWithCookie(posts);
@@ -178,5 +263,36 @@ test.describe('ignore POST fields (unit)', () => {
         expect(posts.every(p => p.url === ILAP.SteamNet.IGNORE_URL)).toBe(true);
         expect(fields[0]).toEqual({ sessionid: 'abc123', appid: '620', snr: '', ignore_reason: '2' });
         expect(fields[1]).toEqual({ sessionid: 'abc123', appid: '620', snr: '1_account_notinterested_', remove: '1' });
+    });
+});
+
+// What a store page's readers get from userdata: the wishlist guard must not
+// take an anonymous answer for an account with nothing on its wishlist.
+test.describe('the tab readers on an all-empty answer (unit)', () => {
+    const empty = async () => ({ ok: true, json: async () => ({ rgIgnoredApps: {}, rgWishlist: [], rgOwnedApps: [] }) });
+    const total = (t, ago = 0) => ({ ilap_ignored_total: { total: t, tallyAt: 0, ts: Date.now() - ago } });
+    test.afterEach(() => { loadIlap.storage = null; });
+
+    test('with a total read lately it is no read, for every reader', async () => {
+        loadIlap.storage = total(20);
+        const ILAP = loadIlap(empty);
+        expect(await ILAP.fetchIgnoredAppsStrict()).toBe(null);
+        expect(await ILAP.fetchWishlist()).toBe(null);
+        expect(await ILAP.isWishlisted(10)).toBe(null);
+        expect([...(await ILAP.fetchIgnoredApps())]).toEqual([]);
+    });
+
+    test('with no total, or one of nothing, it is what the account has', async () => {
+        const none = await loadIlap(empty).fetchIgnoredAppsStrict();
+        expect(none.size).toBe(0);
+        expect(none.wishlist.size).toBe(0);
+        loadIlap.storage = total(0);
+        expect((await loadIlap(empty).fetchIgnoredAppsStrict()).size).toBe(0);
+    });
+
+    test('a read with anything in it never looks at the total', async () => {
+        loadIlap.storage = total(20);
+        const ILAP = loadIlap(async () => ({ ok: true, json: async () => ({ rgIgnoredApps: {}, rgWishlist: [5], rgOwnedApps: [] }) }));
+        expect([...(await ILAP.fetchWishlist())]).toEqual(['5']);
     });
 });

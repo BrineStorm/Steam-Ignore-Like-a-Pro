@@ -28,7 +28,7 @@
 
     // Parse a results_html string into [{ appid, type }]. Each recommendation row
     // is wrapped in an element whose class is exactly `recommendation` (the inner
-    // `recommendation_link` / `recommendation_midcol` carry suffixes, so an exact
+    // `recommendation_link` / `recommendation_midcol` have suffixes, so an exact
     // `class="recommendation"` split isolates one row per block). Within a block:
     // the first data-ds-appid is the game; the color_* class is its review type.
     function parseResults(html) {

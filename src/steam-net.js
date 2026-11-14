@@ -22,28 +22,41 @@
 
     // Every ignored appid with its ignore reason (0 Default, 2 Played
     // Elsewhere), from Steam's dynamic store: Map<appid string, reason number>.
-    // Strict: null on any failure, because the undo drainer reads "not in the
-    // map" as "already rolled back" and must tell a failure from an empty map.
+    // Strict: null on any failure, an answer with no ignore list among them,
+    // because the undo drainer reads "not in the map" as "already rolled back"
+    // and must tell a failure from an empty map.
     // The lenient flavour is caller policy (utils.js).
-    // The same read has the wishlist, so the map has it as `wishlist`, a Set of
-    // appid strings: the automated sources never ignore a wishlisted game. null
-    // when the answer has no list: a changed shape must not read as an empty
-    // wishlist, or every automated source would ignore wishlisted games.
+    // The same read has the wishlist and the library, so the map has them as
+    // `wishlist` and `owned`, Sets of appid strings: the automated sources never
+    // ignore a wishlisted or owned game. Each is null when the answer has no
+    // list: a changed shape must not read as an empty list, or every automated
+    // source would ignore those games. The creators the account ignores and
+    // follows come the same way, as `creatorsIgnored` and `creatorsFollowed`,
+    // Sets of clan id strings.
+    // `opts.onRateLimited(retryAfterMs)`: told of a 429, which is Steam asking
+    // for less of everything. A drain pass passes the gate's penalty.
     const USERDATA_URL = 'https://store.steampowered.com/dynamicstore/userdata/';
     // It lags an ignore POST, and a remove=1, by seconds: a read this soon after
     // one may not show it yet. The drainer's dedupe and the ignored-total poll
     // both wait it out.
     const USERDATA_LAG_MS = 15000;
-    async function fetchIgnoredAppsStrict() {
+    async function fetchIgnoredAppsStrict(opts) {
         try {
             const res = await fetchWithTimeout(`${USERDATA_URL}?_=${Date.now()}`, {
                 credentials: 'include', cache: 'no-store'
             });
+            if (res.status === 429 && opts && opts.onRateLimited) await opts.onRateLimited(ignoreResult(res).retryAfterMs);
             if (!res.ok) return null;
             const data = await res.json();
             const ignored = data && data.rgIgnoredApps;
-            const map = new Map(ignored ? Object.keys(ignored).map(k => [String(k), Number(ignored[k])]) : []);
-            map.wishlist = data && Array.isArray(data.rgWishlist) ? new Set(data.rgWishlist.map(String)) : null;
+            // Steam sends an empty list as {} or []: both are objects.
+            if (!ignored || typeof ignored !== 'object') return null;
+            const map = new Map(Object.keys(ignored).map(k => [String(k), Number(ignored[k])]));
+            const list = (v) => (Array.isArray(v) ? new Set(v.map(String)) : null);
+            map.wishlist = list(data && data.rgWishlist);
+            map.owned = list(data && data.rgOwnedApps);
+            map.creatorsIgnored = list(data && data.rgCreatorsIgnored);
+            map.creatorsFollowed = list(data && data.rgCreatorsFollowed);
             return map;
         } catch (e) {
             return null;
@@ -121,6 +134,22 @@
         } catch (e) { return null; }
     }
 
+    // One item of the store's anonymous lookup (a bundle's apps, a game's
+    // creators), or null. `id` is one GetItems id ({ appid }, { bundleid },
+    // { packageid }). No key or token, and it answers the store origin's CORS, so
+    // a content script can ask it. The caller paces it (IgnoreGate.paceRead).
+    const GET_ITEMS = 'https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=';
+    async function fetchStoreItem(id, context, dataRequest) {
+        const input = { ids: [id], context, data_request: dataRequest };
+        try {
+            const res = await fetchWithTimeout(GET_ITEMS + encodeURIComponent(JSON.stringify(input)));
+            if (!res.ok) return null;
+            const data = await res.json();
+            const items = data && data.response && data.response.store_items;
+            return Array.isArray(items) && items[0] ? items[0] : null;
+        } catch (e) { return null; }
+    }
+
     // Marks a refused POST `unavailable` when the refusal is the permanent
     // per-appid kind, so the drainer skips it in one attempt instead of spending
     // MAX_FAILS, and the SW's halt counter never sees it. Only for HTTP 400: that
@@ -154,8 +183,38 @@
         return { ok: response.ok, rateLimited: false, retryAfterMs: 0, status: response.status };
     }
 
+    // Steam's own "Ignore this creator" (developer, publisher or franchise),
+    // the call its creator pages make: one clan id, `ignore` 1 or 0. It stops
+    // Steam recommending the creator's games and leaves the games themselves
+    // as they are. Steam answers JSON; its own page counts any 200 as done.
+    const CREATOR_IGNORE_URL = 'https://store.steampowered.com/curators/ajaxignore';
+    const creatorFields = (clanid, ignore) => ({ clanid, ignore: ignore ? '1' : '0' });
+    // The same shape as ignoreResult. A 200 whose JSON does not say success, or
+    // a 4xx other than 429, is Steam refusing this one creator (followed, the
+    // 100-creator limit, a limited account): `refused`, which the caller turns
+    // into a drop once the session is known to be live. Measured live, Steam
+    // answers those three with a 400 and `success` 2, and a signed-out POST with
+    // a 400 and `success` 8, which is why the session is checked first.
+    async function creatorResult(response) {
+        const res = ignoreResult(response);
+        if (res.rateLimited) return res;
+        if (!response.ok) {
+            res.refused = response.status >= 400 && response.status < 500;
+            return res;
+        }
+        let data = null;
+        try { data = await response.json(); } catch (e) { /* not JSON: refused */ }
+        const s = data && data.success;
+        const code = s && typeof s === 'object' ? s.success : s;
+        if (code !== 1) return { ok: false, rateLimited: false, retryAfterMs: 0, status: response.status, refused: true };
+        return res;
+    }
+
     window.ILAP = window.ILAP || {};
     window.ILAP.SteamNet = window.ILAP.SteamNet || {};
+    window.ILAP.SteamNet.CREATOR_IGNORE_URL = CREATOR_IGNORE_URL;
+    window.ILAP.SteamNet.creatorFields = creatorFields;
+    window.ILAP.SteamNet.creatorResult = creatorResult;
     window.ILAP.SteamNet.IGNORE_URL = IGNORE_URL;
     window.ILAP.SteamNet.ignoreFields = ignoreFields;
     window.ILAP.SteamNet.unignoreFields = unignoreFields;
@@ -168,6 +227,7 @@
     window.ILAP.SteamNet.probeLoginCached = probeLoginCached;
     window.ILAP.SteamNet.checkAppUnavailable = checkAppUnavailable;
     window.ILAP.SteamNet.fetchAppName = fetchAppName;
+    window.ILAP.SteamNet.fetchStoreItem = fetchStoreItem;
     window.ILAP.SteamNet.classifyRefusal = classifyRefusal;
 
 })();

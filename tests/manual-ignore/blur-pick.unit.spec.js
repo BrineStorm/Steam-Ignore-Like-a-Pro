@@ -4,29 +4,29 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-// BadgeRenderer._applyBlur / _pickArts (src/manual-ignore/ui.js) — how an ignored
-// capsule's cover art gets blurred. ui.js is a self-contained IIFE, so it loads in
-// Node (vm + a window stub) and _applyBlur is driven against a hand-rolled fake
+// MarkDom.applyBlur (src/manual-ignore/mark-dom.js) — how an ignored capsule's
+// cover art gets blurred. mark-dom.js is a self-contained IIFE, so it loads in
+// Node (vm + a window stub) and applyBlur is driven against a hand-rolled fake
 // DOM — no browser, no live Steam. Two paths: the per-element filter blur (an
 // <img>/<video> cover) and, when the cover is a CSS background on the badge's own
 // element, a backdrop veil laid under the badge. The geometry (clientWidth/Height)
 // both gate on is impossible to fake reliably in the heavy tag-page E2E, so the
 // guards are asserted here.
-function loadBadgeRenderer() {
+function loadMarkDom() {
     const code = fs.readFileSync(
-        path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'ui.js'),
+        path.join(__dirname, '..', '..', 'src', 'manual-ignore', 'mark-dom.js'),
         'utf8'
     );
     const sandbox = {
-        window: { ILAP: { Sanitizer: { escapeHTML: (s) => s }, t: (k) => k, ManualIgnore: {} } },
+        window: {},
         document: { createElement: () => ({ className: '', dataset: {} }) },
-        // _hasOwnCoverBackground reads the host's background via getComputedStyle;
+        // hasOwnCoverBackground reads the host's background via getComputedStyle;
         // the double surfaces the fake element's `bg`, defaulting to 'none'.
         getComputedStyle: (element) => ({ backgroundImage: element.bg || 'none' }),
     };
     vm.createContext(sandbox);
     vm.runInContext(code, sandbox);
-    return sandbox.window.ILAP.ManualIgnore.BadgeRenderer;
+    return sandbox.window.ILAP.ManualIgnore.MarkDom;
 }
 
 // Minimal media double covering only what _pickArts touches: getAttribute('src'),
@@ -63,10 +63,8 @@ function host(media, { bg = 'none', w = 0, h = 0 } = {}) {
 }
 
 function applyBlur(media, opts = {}) {
-    const BadgeRenderer = loadBadgeRenderer();
-    const renderer = new BadgeRenderer(null, null, null, null, null);
     const h = host(media, opts);
-    renderer._applyBlur(h, '3354220');
+    loadMarkDom().applyBlur(h, '3354220');
     return h;
 }
 
@@ -124,12 +122,21 @@ test('Featured & Recommended: cover as a CSS background on the badge element →
 
 test('backdrop path is idempotent: a re-render / syncMasks does not stack veils', () => {
     const video = el('video', { src: 'microtrailer.webm', w: 840, h: 481 });
-    const BadgeRenderer = loadBadgeRenderer();
-    const renderer = new BadgeRenderer(null, null, null, null, null);
+    const { applyBlur: blur } = loadMarkDom();
     const h = host([video], { bg: 'url("header.jpg")', w: 756, h: 433 });
-    renderer._applyBlur(h, '111');
-    renderer._applyBlur(h, '111');
+    blur(h, '111');
+    blur(h, '111');
     expect(h._veils.length, 'the second pass finds the existing veil and no-ops').toBe(1);
+});
+
+test('BadgeRenderer refuses construction without a collaborator', () => {
+    const sandbox = { window: { ILAP: { Sanitizer: { escapeHTML: (s) => s }, t: (k) => k } } };
+    vm.createContext(sandbox);
+    for (const file of ['mark-dom.js', 'ui.js']) {
+        vm.runInContext(fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'manual-ignore', file), 'utf8'), sandbox);
+    }
+    const { BadgeRenderer } = sandbox.window.ILAP.ManualIgnore;
+    expect(() => new BadgeRenderer({ strategies: {} })).toThrow('needs deps.detector');
 });
 
 test('a small incidental background does not hijack an <img>-cover capsule', () => {

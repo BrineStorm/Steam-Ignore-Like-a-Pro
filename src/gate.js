@@ -193,6 +193,18 @@
         });
     }
 
+    // Until when a background ignore could not go out anyway: the end of a 429
+    // penalty or of a visible source's run, 0 for neither. A drainer asks before
+    // it opens a pass, so a wait costs no lease and no userdata read. A foreground
+    // stamp from the future reads as now, as it would wrongly hold the drain back
+    // for good otherwise.
+    async function quietUntil() {
+        const data = await get({ [PENALTY_KEY]: null, [FOREGROUND_KEY]: 0 });
+        const now = Date.now();
+        const stamp = Math.min(data[FOREGROUND_KEY] || 0, now);
+        return Math.max(penaltyUntil(data[PENALTY_KEY], now), now - stamp < YIELD_MS ? stamp + YIELD_MS : 0);
+    }
+
     // A READ outside a drain pass (a curator's list, page by page, or the
     // userdata a gesture on a greyed capsule checks) takes a slot in the same
     // stream, so reading while a list drains does not add a second stream on
@@ -258,7 +270,7 @@
 
     window.ILAP.IgnoreGate = {
         configure,
-        reserve, paceRead, reportRateLimited, stopVerdict, lastSlotAt, nextSlot, nextPenalty, penaltyUntil, gapFor,
+        reserve, paceRead, reportRateLimited, stopVerdict, quietUntil, lastSlotAt, nextSlot, nextPenalty, penaltyUntil, gapFor,
         noteUserActivity, noteNativeIgnore,
         GATE_KEY, PENALTY_KEY, FOREGROUND_KEY, ACTIVITY_KEY, MIN_GAP, GAP_FLOOR, MAX_AHEAD, YIELD_MS,
         ACTIVE_GAP,
