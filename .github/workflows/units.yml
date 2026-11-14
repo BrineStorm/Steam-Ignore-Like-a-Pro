@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   units:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -41,7 +41,7 @@ jobs:
   # on a push. Allowed to fail until its first runs on a Linux runner are seen
   # green: the specs were written against Windows fonts.
   ui-offline:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
